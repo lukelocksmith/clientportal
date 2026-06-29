@@ -7,7 +7,7 @@ import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { createTask, getTask, getTaskComments, verifyTaskBelongsToFolder } from '@/lib/clickup'
+import { createTask } from '@/lib/clickup'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -22,29 +22,17 @@ function getModel() {
   return google('gemini-2.5-flash')
 }
 
-const PUBLIC_PREFIX = '[PUBLIC] '
-const CLIENT_NAME_RE = /^\(([^)]+)\) /
-
-function parsePublicComments(allComments: Awaited<ReturnType<typeof getTaskComments>>) {
-  return allComments
-    .filter(c => c.comment_text?.startsWith(PUBLIC_PREFIX))
-    .map(c => {
-      const withoutPrefix = c.comment_text!.slice(PUBLIC_PREFIX.length)
-      const clientMatch = withoutPrefix.match(CLIENT_NAME_RE)
-      return {
-        author: clientMatch ? clientMatch[1] : 'Important.is',
-        text: clientMatch ? withoutPrefix.slice(clientMatch[0].length) : withoutPrefix,
-        date: c.date ? new Date(Number(c.date)).toLocaleDateString('pl-PL') : '',
-      }
-    })
-}
 
 export async function POST(request: NextRequest) {
-  const { messages: uiMessages, slug, contextTaskId, mode } = await request.json() as {
+  const { messages: uiMessages, slug, mode } = await request.json() as {
     messages: UIMessage[]
     slug: string
-    contextTaskId?: string
-    mode?: 'new-task' | 'task' | 'general'
+    mode?: string
+  }
+
+  // Only new-task mode is active — other modes are disabled
+  if (mode !== 'new-task') {
+    return new Response('This AI feature is not available', { status: 403 })
   }
 
   const session = await getSession(slug)
@@ -64,41 +52,6 @@ export async function POST(request: NextRequest) {
 
   const defaultList = lists.find(l => l.isDefault) ?? lists[0]
   const today = new Date().toLocaleDateString('pl-PL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-
-  // Determine effective mode
-  const effectiveMode: 'new-task' | 'task' | 'general' =
-    contextTaskId ? 'task' : (mode === 'new-task' ? 'new-task' : 'general')
-
-  // Pre-load task data for task mode (so AI can answer immediately without tool call)
-  type TaskData = {
-    name: string; status: string; priority: string; description: string; due_date: string
-    publicComments: Array<{ author: string; text: string; date: string }>
-    subtasks: Array<{ name: string; status: string }>
-  }
-  let taskData: TaskData | null = null
-
-  if (effectiveMode === 'task' && contextTaskId) {
-    try {
-      const belongs = await verifyTaskBelongsToFolder(contextTaskId, portal[0].clickupFolderId)
-      if (belongs) {
-        const [task, allComments] = await Promise.all([
-          getTask(contextTaskId),
-          getTaskComments(contextTaskId),
-        ])
-        taskData = {
-          name: task.name,
-          status: task.status.status,
-          priority: task.priority?.priority ?? 'brak',
-          description: task.description ?? 'brak opisu',
-          due_date: task.date_due ? new Date(Number(task.date_due)).toLocaleDateString('pl-PL') : 'brak',
-          publicComments: parsePublicComments(allComments),
-          subtasks: task.subtasks?.map(s => ({ name: s.name, status: s.status.status })) ?? [],
-        }
-      }
-    } catch {
-      // proceed without preloaded data, AI will use getTaskInfo tool
-    }
-  }
 
   // ── SYSTEM PROMPTS ────────────────────────────────────────────────────────
 
@@ -160,87 +113,6 @@ Klient: ${portal[0].name}
 
 Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
 
-  const TASK_PROMPT = taskData
-    ? `Jesteś asystentem który odpowiada na pytania klienta dotyczące konkretnego zadania w agencji important.is.
-
-## DANE ZADANIA (pobrane właśnie z ClickUp — aktualne na tę chwilę)
-
-**Nazwa:** ${taskData.name}
-**Status:** ${taskData.status}
-**Priorytet:** ${taskData.priority}
-**Termin:** ${taskData.due_date}
-
-**Opis zadania:**
-${taskData.description}
-
-**Podzadania (${taskData.subtasks.length}):**
-${taskData.subtasks.length > 0
-  ? taskData.subtasks.map(s => `- ${s.name} [${s.status}]`).join('\n')
-  : 'brak podzadań'}
-
-**Komentarze publiczne (${taskData.publicComments.length}):**
-${taskData.publicComments.length > 0
-  ? taskData.publicComments.map(c => `[${c.date}] ${c.author}: ${c.text}`).join('\n')
-  : 'Brak komentarzy publicznych — agencja jeszcze nie dodała wiadomości dla klienta.'}
-
-## ZASADY ODPOWIADANIA
-- Odpowiadaj na podstawie danych powyżej — masz aktualne informacje
-- Jeśli klient pyta "czy to gotowe dziś/kiedy skończą" — mówisz że nie wiesz, ale możesz zasugerować żeby napisał komentarz do zadania w zakładce "Szczegóły"
-- Bądź dyplomatyczny — nie oceniaj pracy agencji, nie obiecuj terminów
-- Jeśli klient chce "sprawdzić co nowego" — użyj narzędzia getTaskInfo żeby odświeżyć dane
-- Odpowiadaj krótko i rzeczowo, bez zbędnych wstępów
-
-Odpowiadaj TYLKO po polsku.`
-    : `Jesteś asystentem który odpowiada na pytania klienta dotyczące zadania ID: ${contextTaskId}.
-Użyj narzędzia getTaskInfo żeby pobrać dane zadania, a następnie odpowiedz na pytanie klienta.
-Bądź dyplomatyczny i pomocny. Odpowiadaj TYLKO po polsku.`
-
-  const GENERAL_PROMPT = `Jesteś asystentem AI w portalu klienta agencji important.is.
-
-Portal: ${portal[0].name}
-Dzisiaj: ${today}
-
-Możesz:
-1. Odpowiadać na pytania o projekty i współpracę z agencją
-2. Pomagać zgłosić nowe zadanie gdy klient o to poprosi
-
-Jeśli klient chce zgłosić zadanie — zbierz kompletne informacje (co, gdzie, kiedy, priorytet, materiały) zanim je stworzysz. Opis jest obowiązkowy.
-
-Odpowiadaj TYLKO po polsku. Bądź konkretny i pomocny.`
-
-  const systemPrompt = effectiveMode === 'new-task'
-    ? NEW_TASK_PROMPT
-    : effectiveMode === 'task'
-    ? TASK_PROMPT
-    : GENERAL_PROMPT
-
-  // Tools per mode
-  const getTaskInfoTool = tool({
-    description: 'Pobiera aktualne informacje o zadaniu z ClickUp: status, opis, podzadania, komentarze publiczne. Użyj gdy klient pyta o najnowszy stan zadania.',
-    inputSchema: z.object({
-      taskId: z.string(),
-    }),
-    execute: async ({ taskId }) => {
-      const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
-      if (!belongs) return { error: 'Brak dostępu do tego zadania' }
-
-      const [task, allComments] = await Promise.all([
-        getTask(taskId),
-        getTaskComments(taskId),
-      ])
-
-      return {
-        name: task.name,
-        status: task.status.status,
-        priority: task.priority?.priority ?? 'brak',
-        description: task.description ?? 'brak opisu',
-        due_date: task.date_due ? new Date(Number(task.date_due)).toLocaleDateString('pl-PL') : 'brak',
-        publicComments: parsePublicComments(allComments),
-        subtasks: task.subtasks?.map(s => ({ name: s.name, status: s.status.status })) ?? [],
-      }
-    },
-  })
-
   const createTaskTool = tool({
     description: 'Tworzy nowe zadanie w ClickUp. Wywołaj TYLKO gdy masz kompletny briefing (nazwa, pełny opis z kontekstem, priorytet). Opis musi mieć min. 100 znaków.',
     inputSchema: z.object({
@@ -279,14 +151,10 @@ Odpowiadaj TYLKO po polsku. Bądź konkretny i pomocny.`
 
   const result = streamText({
     model: getModel(),
-    system: systemPrompt,
+    system: NEW_TASK_PROMPT,
     messages,
     stopWhen: isStepCount(6),
-    tools: effectiveMode === 'task'
-      ? { getTaskInfo: getTaskInfoTool }
-      : effectiveMode === 'new-task'
-      ? { createTask: createTaskTool }
-      : { createTask: createTaskTool, getTaskInfo: getTaskInfoTool },
+    tools: { createTask: createTaskTool },
   })
 
   return result.toUIMessageStreamResponse()

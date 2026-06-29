@@ -2,9 +2,8 @@
 import { useState, useEffect } from 'react'
 import type { ClickUpTask, ClickUpComment } from '@/lib/types'
 import { formatDate, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Bot } from 'lucide-react'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare } from 'lucide-react'
 import { toast } from 'sonner'
-import { TaskChatPanel } from './TaskChatPanel'
 
 interface TaskDrawerProps {
   task: ClickUpTask
@@ -15,7 +14,7 @@ interface TaskDrawerProps {
 }
 
 export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: TaskDrawerProps) {
-  const [tab, setTab] = useState<'details' | 'ai'>('details')
+  const [tab] = useState<'details'>('details')
   const [comments, setComments] = useState<ClickUpComment[]>([])
   const [newComment, setNewComment] = useState('')
   const [loadingComments, setLoadingComments] = useState(true)
@@ -111,39 +110,7 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-border px-5">
-          <button
-            onClick={() => setTab('details')}
-            className={`py-2.5 px-1 mr-5 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'details'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Szczegóły
-          </button>
-          <button
-            onClick={() => setTab('ai')}
-            className={`py-2.5 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
-              tab === 'ai'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Bot className="h-3.5 w-3.5" />
-            Zapytaj AI
-          </button>
-        </div>
-
-        {/* AI tab */}
-        {tab === 'ai' && (
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <TaskChatPanel task={task} slug={slug} userEmail={userEmail} />
-          </div>
-        )}
-
-        {/* Details tab — scrollable */}
+        {/* Details */}
         {tab === 'details' && <div className="flex-1 overflow-y-auto">
           {/* Meta info */}
           <div className="px-5 py-4 border-b border-border space-y-3">

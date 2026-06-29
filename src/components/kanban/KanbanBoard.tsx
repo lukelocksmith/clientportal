@@ -16,7 +16,7 @@ import { getStatusColor } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
-import { Plus, RefreshCw, MessageSquare } from 'lucide-react'
+import { Plus, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
 import { PanicButton } from './PanicButton'
@@ -179,14 +179,6 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             Odśwież
-          </button>
-
-          <button
-            onClick={() => openChat('general')}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-md hover:bg-muted"
-          >
-            <MessageSquare className="h-4 w-4" />
-            AI Chat
           </button>
 
           <button

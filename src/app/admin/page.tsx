@@ -24,10 +24,43 @@ export default function AdminPage() {
   const [resetUserId, setResetUserId] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [portalForm, setPortalForm] = useState({
-    name: '', slug: '', clickupFolderId: '', clickupFolderUrl: '', clickupSpaceId: '90100136256',
+    name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256',
     listId: '', listName: '',
   })
   const [portalFormError, setPortalFormError] = useState('')
+  const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([])
+  const [foldersLoading, setFoldersLoading] = useState(false)
+  const [availableLists, setAvailableLists] = useState<Array<{ id: string; name: string }>>([])
+  const [listsLoading, setListsLoading] = useState(false)
+
+  async function openCreatePortal() {
+    setShowCreatePortal(true)
+    setFoldersLoading(true)
+    setFolders([])
+    setAvailableLists([])
+    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256', listId: '', listName: '' })
+    setPortalFormError('')
+    const res = await fetch('/api/admin/clickup/folders')
+    if (res.ok) setFolders(await res.json().then((d: { folders: Array<{ id: string; name: string }> }) => d.folders))
+    setFoldersLoading(false)
+  }
+
+  async function handleFolderSelect(folderId: string) {
+    const folder = folders.find(f => f.id === folderId)
+    setPortalForm(f => ({
+      ...f,
+      clickupFolderId: folderId,
+      listId: '',
+      listName: '',
+      name: f.name || (folder?.name ?? ''),
+    }))
+    setAvailableLists([])
+    if (!folderId) return
+    setListsLoading(true)
+    const res = await fetch(`/api/admin/clickup/folders/${folderId}/lists`)
+    if (res.ok) setAvailableLists(await res.json().then((d: { lists: Array<{ id: string; name: string }> }) => d.lists))
+    setListsLoading(false)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -77,13 +110,6 @@ export default function AdminPage() {
     e.preventDefault()
     setPortalFormError('')
 
-    // Auto-extract folder ID from URL
-    let folderId = portalForm.clickupFolderId
-    if (!folderId && portalForm.clickupFolderUrl) {
-      const match = portalForm.clickupFolderUrl.match(/\/f\/(\d+)/)
-      if (match) folderId = match[1]
-    }
-
     // Auto-generate slug from name
     const slug = portalForm.slug || portalForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
@@ -93,7 +119,7 @@ export default function AdminPage() {
       body: JSON.stringify({
         name: portalForm.name,
         slug,
-        clickupFolderId: folderId,
+        clickupFolderId: portalForm.clickupFolderId,
         clickupSpaceId: portalForm.clickupSpaceId,
         lists: [{ clickupListId: portalForm.listId, displayName: portalForm.listName || portalForm.name, isDefault: true }],
       }),
@@ -105,7 +131,7 @@ export default function AdminPage() {
       return
     }
     setShowCreatePortal(false)
-    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupFolderUrl: '', clickupSpaceId: '90100136256', listId: '', listName: '' })
+    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256', listId: '', listName: '' })
     load()
   }
 
@@ -196,7 +222,7 @@ export default function AdminPage() {
             Odśwież
           </button>
           <button
-            onClick={() => setShowCreatePortal(true)}
+            onClick={openCreatePortal}
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
           >
             <FolderPlus className="h-4 w-4" />
@@ -358,6 +384,46 @@ export default function AdminPage() {
               <button onClick={() => setShowCreatePortal(false)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-lg leading-none">×</button>
             </div>
             <form onSubmit={handleCreatePortal} className="p-5 space-y-4">
+              {/* Step 1: pick folder */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Folder ClickUp
+                  {foldersLoading && <span className="ml-2 text-xs text-muted-foreground">Ładowanie...</span>}
+                </label>
+                <select
+                  value={portalForm.clickupFolderId}
+                  onChange={e => handleFolderSelect(e.target.value)}
+                  required
+                  disabled={foldersLoading}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                >
+                  <option value="">— wybierz folder —</option>
+                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </div>
+
+              {/* Step 2: pick list */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Lista ClickUp
+                  {listsLoading && <span className="ml-2 text-xs text-muted-foreground">Ładowanie...</span>}
+                </label>
+                <select
+                  value={portalForm.listId}
+                  onChange={e => {
+                    const list = availableLists.find(l => l.id === e.target.value)
+                    setPortalForm(f => ({ ...f, listId: e.target.value, listName: list?.name ?? '' }))
+                  }}
+                  required
+                  disabled={!portalForm.clickupFolderId || listsLoading}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                >
+                  <option value="">— wybierz listę —</option>
+                  {availableLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+
+              {/* Step 3: name + slug */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Nazwa klienta</label>
@@ -369,43 +435,6 @@ export default function AdminPage() {
                   <input type="text" value={portalForm.slug} onChange={e => setPortalForm(f => ({ ...f, slug: e.target.value }))}
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     placeholder={portalForm.name ? portalForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') : 'onyx'} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Link do folderu ClickUp</label>
-                <input type="url" value={portalForm.clickupFolderUrl}
-                  onChange={e => {
-                    const url = e.target.value
-                    const match = url.match(/\/f\/(\d+)/)
-                    setPortalForm(f => ({ ...f, clickupFolderUrl: url, clickupFolderId: match ? match[1] : f.clickupFolderId }))
-                  }}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  placeholder="https://app.clickup.com/4552118/v/li/f/90129..." />
-                {portalForm.clickupFolderId && (
-                  <p className="text-xs text-green-600 mt-1">✓ Folder ID: {portalForm.clickupFolderId}</p>
-                )}
-              </div>
-              {!portalForm.clickupFolderUrl && (
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Folder ID <span className="text-muted-foreground font-normal">(jeśli nie podajesz linku)</span></label>
-                  <input type="text" value={portalForm.clickupFolderId} onChange={e => setPortalForm(f => ({ ...f, clickupFolderId: e.target.value }))}
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" placeholder="90129337874" />
-                </div>
-              )}
-              <div className="border-t border-border pt-4">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Główna lista ClickUp</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">List ID</label>
-                    <input type="text" value={portalForm.listId} onChange={e => setPortalForm(f => ({ ...f, listId: e.target.value }))} required
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" placeholder="901201180992" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">Nazwa listy</label>
-                    <input type="text" value={portalForm.listName} onChange={e => setPortalForm(f => ({ ...f, listName: e.target.value }))}
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      placeholder={portalForm.name || 'Projekty'} />
-                  </div>
                 </div>
               </div>
               {portalFormError && <p className="text-sm text-destructive">{portalFormError}</p>}

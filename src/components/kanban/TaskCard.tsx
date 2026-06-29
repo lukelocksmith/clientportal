@@ -3,7 +3,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { ClickUpTask } from '@/lib/types'
 import { formatDate, getPriorityColor, getPriorityLabel } from '@/lib/utils'
-import { Calendar, MessageSquare, Paperclip, User } from 'lucide-react'
+import { Calendar, MessageSquare } from 'lucide-react'
 
 interface TaskCardProps {
   task: ClickUpTask
@@ -32,23 +32,22 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
       onClick={() => onClick(task)}
       className="bg-card rounded-lg border border-border p-3 shadow-sm cursor-pointer hover:shadow-md hover:border-primary/30 transition-all group select-none"
     >
-      {/* Priority bar */}
-      {task.priority && (
-        <div
-          className="w-full h-0.5 rounded-full mb-2"
-          style={{ backgroundColor: priorityColor }}
-        />
-      )}
-
       {/* Task name */}
       <p className="text-sm font-medium text-card-foreground line-clamp-2 mb-2">
         {task.name}
       </p>
 
-      {/* List tag (when multiple lists) */}
-      <div className="text-xs text-muted-foreground mb-2 truncate">
-        {task.list.name}
-      </div>
+      {/* Priority tag */}
+      {task.priority?.priority && task.priority.priority !== 'normal' && (
+        <div className="mb-2">
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+            style={{ color: priorityColor, backgroundColor: `${priorityColor}18` }}
+          >
+            {getPriorityLabel(task.priority.priority)}
+          </span>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between gap-2 mt-2">

@@ -1,0 +1,89 @@
+'use client'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import type { ClickUpTask } from '@/lib/types'
+import { formatDate, getPriorityColor, getPriorityLabel } from '@/lib/utils'
+import { Calendar, MessageSquare, Paperclip, User } from 'lucide-react'
+
+interface TaskCardProps {
+  task: ClickUpTask
+  onClick: (task: ClickUpTask) => void
+}
+
+export function TaskCard({ task, onClick }: TaskCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  const priorityColor = getPriorityColor(task.priority?.priority)
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={() => onClick(task)}
+      className="bg-card rounded-lg border border-border p-3 shadow-sm cursor-pointer hover:shadow-md hover:border-primary/30 transition-all group select-none"
+    >
+      {/* Priority bar */}
+      {task.priority && (
+        <div
+          className="w-full h-0.5 rounded-full mb-2"
+          style={{ backgroundColor: priorityColor }}
+        />
+      )}
+
+      {/* Task name */}
+      <p className="text-sm font-medium text-card-foreground line-clamp-2 mb-2">
+        {task.name}
+      </p>
+
+      {/* List tag (when multiple lists) */}
+      <div className="text-xs text-muted-foreground mb-2 truncate">
+        {task.list.name}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="flex items-center gap-2">
+          {/* Due date */}
+          {task.date_due && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              {formatDate(task.date_due)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* Subtasks count */}
+          {task.subtasks && task.subtasks.length > 0 && (
+            <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
+              <MessageSquare className="h-3 w-3" />
+              {task.subtasks.length}
+            </span>
+          )}
+
+          {/* Assignees */}
+          {task.assignees?.slice(0, 2).map(a => (
+            <div
+              key={a.id}
+              className="h-5 w-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
+              style={{ backgroundColor: a.color ?? '#888' }}
+              title={a.username}
+            >
+              {a.initials?.slice(0, 2) ?? a.username?.slice(0, 2).toUpperCase()}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}

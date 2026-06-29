@@ -18,7 +18,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
-  const session = await getSession()
+  const slug = request.nextUrl.searchParams.get('slug') ?? undefined
+  const session = await getSession(slug)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { taskId } = await params

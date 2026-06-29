@@ -113,7 +113,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
     )
 
     try {
-      const res = await fetch(`/api/clickup/tasks/${taskId}`, {
+      const res = await fetch(`/api/clickup/tasks/${taskId}?slug=${slug}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: targetColumn }),

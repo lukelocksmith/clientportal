@@ -15,7 +15,7 @@ interface PortalPageProps {
 export default async function PortalPage({ params }: PortalPageProps) {
   const { slug } = await params
 
-  const session = await getSession()
+  const session = await getSession(slug)
   if (!session || session.portalSlug !== slug) {
     redirect(`/${slug}/login`)
   }

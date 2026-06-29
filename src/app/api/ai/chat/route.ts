@@ -40,9 +40,6 @@ function parsePublicComments(allComments: Awaited<ReturnType<typeof getTaskComme
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSession()
-  if (!session) return new Response('Unauthorized', { status: 401 })
-
   const { messages: uiMessages, slug, contextTaskId, mode } = await request.json() as {
     messages: UIMessage[]
     slug: string
@@ -50,6 +47,8 @@ export async function POST(request: NextRequest) {
     mode?: 'new-task' | 'task' | 'general'
   }
 
+  const session = await getSession(slug)
+  if (!session) return new Response('Unauthorized', { status: 401 })
   if (session.portalSlug !== slug) return new Response('Forbidden', { status: 403 })
 
   const messages = await convertToModelMessages(uiMessages)

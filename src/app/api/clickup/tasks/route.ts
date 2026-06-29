@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get('slug')
   if (!slug) return NextResponse.json({ error: 'Missing slug' }, { status: 400 })
 
-  const session = await getSession()
+  const session = await getSession(slug ?? undefined)
   if (!session || session.portalSlug !== slug) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -32,11 +32,11 @@ export async function GET(request: NextRequest) {
 
 // POST /api/clickup/tasks — create task
 export async function POST(request: NextRequest) {
-  const session = await getSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const body = await request.json()
   const { slug, name, description, priority, due_date } = body
+
+  const session = await getSession(slug ?? undefined)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   if (!slug || !name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })

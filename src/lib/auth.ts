@@ -37,41 +37,64 @@ export async function createSession(userId: string, ip?: string, userAgent?: str
   return token
 }
 
-export async function getSession(): Promise<Session | null> {
+export async function getSession(slug?: string): Promise<Session | null> {
   try {
     const cookieStore = await cookies()
+
+    // Try regular portal session first
     const token = cookieStore.get(COOKIE_NAME)?.value
-    if (!token) return null
+    if (token) {
+      const tokenHash = hashToken(token)
+      const now = new Date()
 
-    const tokenHash = hashToken(token)
-    const now = new Date()
+      const result = await db
+        .select({
+          userId: sessions.userId,
+          expiresAt: sessions.expiresAt,
+          email: portalUsers.email,
+          name: portalUsers.name,
+          isActive: portalUsers.isActive,
+          portalId: portalUsers.portalId,
+          portalSlug: portals.slug,
+        })
+        .from(sessions)
+        .innerJoin(portalUsers, eq(sessions.userId, portalUsers.id))
+        .innerJoin(portals, eq(portalUsers.portalId, portals.id))
+        .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, now)))
+        .limit(1)
 
-    const result = await db
-      .select({
-        userId: sessions.userId,
-        expiresAt: sessions.expiresAt,
-        email: portalUsers.email,
-        name: portalUsers.name,
-        isActive: portalUsers.isActive,
-        portalId: portalUsers.portalId,
-        portalSlug: portals.slug,
-      })
-      .from(sessions)
-      .innerJoin(portalUsers, eq(sessions.userId, portalUsers.id))
-      .innerJoin(portals, eq(portalUsers.portalId, portals.id))
-      .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, now)))
-      .limit(1)
-
-    if (!result[0] || !result[0].isActive) return null
-
-    return {
-      userId: result[0].userId,
-      portalId: result[0].portalId,
-      portalSlug: result[0].portalSlug,
-      email: result[0].email,
-      name: result[0].name,
-      expiresAt: result[0].expiresAt,
+      if (result[0]?.isActive) {
+        return {
+          userId: result[0].userId,
+          portalId: result[0].portalId,
+          portalSlug: result[0].portalSlug,
+          email: result[0].email,
+          name: result[0].name,
+          expiresAt: result[0].expiresAt,
+        }
+      }
     }
+
+    // Fallback: admin session gives access to any portal
+    if (slug) {
+      const { getAdminSession } = await import('./admin-auth')
+      const isAdmin = await getAdminSession()
+      if (isAdmin) {
+        const portal = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
+        if (portal[0]) {
+          return {
+            userId: 'admin',
+            portalId: portal[0].id,
+            portalSlug: portal[0].slug,
+            email: 'admin@important.is',
+            name: 'Admin',
+            expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+          }
+        }
+      }
+    }
+
+    return null
   } catch {
     return null
   }

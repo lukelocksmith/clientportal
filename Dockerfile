@@ -34,6 +34,12 @@ RUN chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Copy migration files and startup script
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/db/migrations ./migrations
+COPY --chown=nextjs:nodejs migrate.js ./
+COPY --chown=nextjs:nodejs start.sh ./
+RUN chmod +x start.sh
+
 USER nextjs
 
 EXPOSE 3000
@@ -41,4 +47,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["sh", "start.sh"]

@@ -34,6 +34,10 @@ RUN chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Copy drizzle packages needed for migration script
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/drizzle-orm ./node_modules/drizzle-orm
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/postgres ./node_modules/postgres
+
 # Copy migration files and startup script
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/db/migrations ./migrations
 COPY --chown=nextjs:nodejs migrate.js ./

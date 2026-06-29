@@ -8,6 +8,13 @@
       "when": 1782723717764,
       "tag": "0000_skinny_shockwave",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782800000000,
+      "tag": "0001_panic_alerts",
+      "breakpoints": true
     }
   ]
 }

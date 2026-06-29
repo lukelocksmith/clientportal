@@ -19,6 +19,7 @@ import { TaskDrawer } from './TaskDrawer'
 import { Plus, RefreshCw, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
+import { PanicButton } from './PanicButton'
 
 // Space-level statuses — consistent across all client lists
 const COLUMN_ORDER = ['backlog', 'do zrobienia', 'w trakcie', 'zablokowane', 'zrobione', 'zamknięte']
@@ -169,6 +170,8 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
         </div>
 
         <div className="flex items-center gap-2">
+          <PanicButton slug={slug} />
+
           <button
             onClick={handleRefresh}
             disabled={refreshing}

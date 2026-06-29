@@ -43,6 +43,16 @@ export const sessions = pgTable('sessions', {
   userAgent: text('user_agent'),
 })
 
+export const panicAlerts = pgTable('panic_alerts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  message: text('message').notNull(),
+  ackToken: text('ack_token').notNull().unique(),
+  acknowledgedAt: timestamp('acknowledged_at'),
+  acknowledgedBy: text('acknowledged_by'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => portalUsers.id),

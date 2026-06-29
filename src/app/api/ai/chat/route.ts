@@ -22,11 +22,33 @@ function getModel() {
   return google('gemini-2.5-flash')
 }
 
+const PUBLIC_PREFIX = '[PUBLIC] '
+const CLIENT_NAME_RE = /^\(([^)]+)\) /
+
+function parsePublicComments(allComments: Awaited<ReturnType<typeof getTaskComments>>) {
+  return allComments
+    .filter(c => c.comment_text?.startsWith(PUBLIC_PREFIX))
+    .map(c => {
+      const withoutPrefix = c.comment_text!.slice(PUBLIC_PREFIX.length)
+      const clientMatch = withoutPrefix.match(CLIENT_NAME_RE)
+      return {
+        author: clientMatch ? clientMatch[1] : 'Important.is',
+        text: clientMatch ? withoutPrefix.slice(clientMatch[0].length) : withoutPrefix,
+        date: c.date ? new Date(Number(c.date)).toLocaleDateString('pl-PL') : '',
+      }
+    })
+}
+
 export async function POST(request: NextRequest) {
   const session = await getSession()
   if (!session) return new Response('Unauthorized', { status: 401 })
 
-  const { messages: uiMessages, slug, contextTaskId } = await request.json() as { messages: UIMessage[]; slug: string; contextTaskId?: string }
+  const { messages: uiMessages, slug, contextTaskId, mode } = await request.json() as {
+    messages: UIMessage[]
+    slug: string
+    contextTaskId?: string
+    mode?: 'new-task' | 'task' | 'general'
+  }
 
   if (session.portalSlug !== slug) return new Response('Forbidden', { status: 403 })
 
@@ -42,164 +64,227 @@ export async function POST(request: NextRequest) {
     .orderBy(portalLists.sortOrder)
 
   const defaultList = lists.find(l => l.isDefault) ?? lists[0]
-
   const today = new Date().toLocaleDateString('pl-PL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
-  const systemPrompt = `Jesteś asystentem AI w portalu klienta agencji important.is (agencji digital/webowej).
-Twoim jedynym zadaniem jest zebranie kompletnych informacji i stworzenie dobrze opisanego zadania w systemie.
+  // Determine effective mode
+  const effectiveMode: 'new-task' | 'task' | 'general' =
+    contextTaskId ? 'task' : (mode === 'new-task' ? 'new-task' : 'general')
+
+  // Pre-load task data for task mode (so AI can answer immediately without tool call)
+  type TaskData = {
+    name: string; status: string; priority: string; description: string; due_date: string
+    publicComments: Array<{ author: string; text: string; date: string }>
+    subtasks: Array<{ name: string; status: string }>
+  }
+  let taskData: TaskData | null = null
+
+  if (effectiveMode === 'task' && contextTaskId) {
+    try {
+      const belongs = await verifyTaskBelongsToFolder(contextTaskId, portal[0].clickupFolderId)
+      if (belongs) {
+        const [task, allComments] = await Promise.all([
+          getTask(contextTaskId),
+          getTaskComments(contextTaskId),
+        ])
+        taskData = {
+          name: task.name,
+          status: task.status.status,
+          priority: task.priority?.priority ?? 'brak',
+          description: task.description ?? 'brak opisu',
+          due_date: task.date_due ? new Date(Number(task.date_due)).toLocaleDateString('pl-PL') : 'brak',
+          publicComments: parsePublicComments(allComments),
+          subtasks: task.subtasks?.map(s => ({ name: s.name, status: s.status.status })) ?? [],
+        }
+      }
+    } catch {
+      // proceed without preloaded data, AI will use getTaskInfo tool
+    }
+  }
+
+  // ── SYSTEM PROMPTS ────────────────────────────────────────────────────────
+
+  const NEW_TASK_PROMPT = `Jesteś asystentem który pomaga zgłosić nowe zadanie do agencji digital important.is.
 
 Portal: ${portal[0].name}
-Dostępne listy: ${lists.map(l => `${l.displayName} (id: ${l.clickupListId})`).join(', ')}
-Domyślna lista: ${defaultList?.displayName ?? 'brak'}
-Dzisiaj jest: ${today}
+Dostępna lista: ${lists.map(l => `${l.displayName} (id: ${l.clickupListId})`).join(', ')}
+Dzisiaj: ${today}
 
-## ZASADA NADRZĘDNA
-Zadanie może zostać stworzone TYLKO gdy masz wystarczający kontekst, żeby wykonawca mógł je zrealizować BEZ żadnych dodatkowych pytań do klienta. Brak informacji = niewykonalne zadanie = strata czasu klienta i agencji.
+## TWÓJ JEDYNY CEL
+Zebrać kompletne informacje i stworzyć profesjonalnie opisane zadanie w ClickUp — takie, żeby wykonawca mógł je zrealizować BEZ żadnych dodatkowych pytań.
 
-## CO MUSISZ ZEBRAĆ (w zależności od typu zadania)
-
-### Zadania techniczne / serwerowe / hostingowe
-WYMAGANE: obecny serwer/hosting (nazwa, panel np. cPanel/Coolify/Hetzner), docelowy serwer/hosting, co przenosić (pliki+baza? tylko pliki? maile?), adres strony/domeny, dane dostępowe LUB potwierdzenie gdzie są (np. "dane są w LastPass"), dodatkowe wymagania (SSL, przekierowania, czas przestoju)
-
-### Zadania dotyczące strony www / zmian treści
-WYMAGANE: konkretny URL strony, co dokładnie zmienić (stary tekst → nowy tekst, lub opis zmiany), grafiki/materiały (czy klient ma czy agencja ma przygotować), gdzie materiały są dostępne
-
-### Zadania projektowe / graficzne
-WYMAGANE: format i rozmiary, cel/gdzie będzie użyte, styl (referencje, brand guidelines), materiały wejściowe, deadline
-
-### Zadania kampanie / marketing / reklamy
-WYMAGANE: platforma (Meta/Google/etc.), budżet, cel kampanii, grupa docelowa, materiały reklamowe (czy gotowe czy do przygotowania)
-
-### Inne zadania
-WYMAGANE: kontekst wystarczający żeby wykonawca wiedział co, jak i gdzie
+## CO MUSISZ ZEBRAĆ
+1. **Nazwa zadania** — zwięzła, konkretna (np. "Zmiana bannera na stronie głównej")
+2. **Cel i opis** — co ma być zrobione i po co (OBOWIĄZKOWY, min. 2 zdania)
+3. **Kontekst i szczegóły** — konkretny URL, serwer, platforma, co dokładnie zmienić
+4. **Materiały i dostępy** — pliki, grafiki, dane logowania — gdzie są lub kiedy dostarczone
+5. **Definition of Done** — jak klient pozna że zadanie jest gotowe
+6. **Termin** — konkretna data lub "nie ma terminu"
+7. **Priorytet** — pilne / wysokie / normalne / niskie
 
 ## JAK PYTAĆ
-- Zadaj WSZYSTKIE brakujące pytania naraz, w jednej wiadomości — nie pytaj o jedno na raz
-- Grupuj pytania logicznie (np. "Żeby dobrze opisać zadanie, potrzebuję kilku informacji:")
-- Używaj listy numerowanej, max 5 pytań naraz
-- Jeśli klient podał termin jako dzień tygodnia ("do poniedziałku"), przelicz na konkretną datę używając dzisiejszej daty i zapisz w due_date_days
-- Jeśli klient mówi "pilne" bez terminu, zapytaj o konkretny deadline
+- Pytaj o **3–4 rzeczy naraz** w jednej wiadomości, lista numerowana
+- Jeśli klient opisał zadanie szczegółowo — dopytaj tylko o brakujące rzeczy
+- Nie pytaj o to co już wiesz
+- Jeśli klient mówi "pilne" bez daty — zapytaj o konkretny termin
 
-## FORMAT OPISU ZADANIA (opis musi być po polsku, strukturalny)
-Gdy masz wszystkie informacje, utwórz zadanie z opisem w tym formacie:
+## DLA ZADAŃ TECHNICZNYCH (serwer / hosting / migracja)
+Zbierz dodatkowo: obecny hosting (panel, nazwa), docelowy hosting, co przenosić (pliki + baza danych? maile?), wymagania SSL, czas przestoju akceptowalny
 
-\`\`\`
-## Opis
-[Co trzeba zrobić — 2-3 zdania]
+## DLA ZADAŃ CONTENTOWYCH (treść / grafiki / banner)
+Zbierz dodatkowo: konkretny URL podstrony, stary tekst → nowy tekst, czy grafiki do przygotowania przez agencję czy klient dostarcza
 
-## Szczegóły techniczne / kontekst
-[Wszystkie zebrane informacje: URL, serwer źródłowy, docelowy, co migrować, itp.]
+## FORMAT OPISU ZADANIA (użyj przy tworzeniu)
+Opis musi zawierać WSZYSTKIE zebrane informacje w tym formacie:
+
+## Cel zadania
+[Co ma być zrobione i po co — 2–3 zdania]
+
+## Kontekst i szczegóły
+[URL / serwer / platforma / co dokładnie zmienić]
 
 ## Materiały i dostępy
-[Gdzie są dane dostępowe, linki, pliki, grafiki]
+[Gdzie są pliki, dane logowania, grafiki — lub "klient dostarczy przed realizacją"]
 
-## Wymagania dodatkowe
-[SSL, przekierowania, czas przestoju, inne warunki — lub "brak"]
+## Definition of Done
+[Jak wygląda skończone zadanie]
 
 ## Zgłaszający
-[Klient portalu ${portal[0].name}]
-\`\`\`
+Klient: ${portal[0].name}
 
 ## KIEDY TWORZYĆ ZADANIE
-Stwórz zadanie gdy:
-✅ Wiesz CO konkretnie trzeba zrobić
-✅ Wiesz NA CZYM / GDZIE (URL, serwer, platforma)
-✅ Wiesz skąd wziąć materiały/dostępy (lub klient potwierdził że dostarczy przed realizacją)
-✅ Masz termin lub klient powiedział że termin nie jest ważny
+✅ Gdy wiesz CO, GDZIE, JAK i masz (lub obietnicę) materiałów
+✅ Gdy klient potwierdził termin lub powiedział że nie ma terminu
+❌ NIE twórz gdy brakuje kluczowych informacji technicznych lub materiałów bez żadnej obietnicy dostarczenia
 
-NIE twórz zadania gdy:
-❌ Brakuje danych dostępowych i klient nie powiedział gdzie są
-❌ Nie wiesz co dokładnie zmienić / przenieść
-❌ Opis zadania byłby niewystarczający do wykonania bez dodatkowych pytań
+Odpowiadaj TYLKO po polsku. Bądź konkretny i pomocny.`
 
-Odpowiadaj TYLKO po polsku. Bądź konkretny i pomocny. Nie lej wody.
+  const TASK_PROMPT = taskData
+    ? `Jesteś asystentem który odpowiada na pytania klienta dotyczące konkretnego zadania w agencji important.is.
 
-## KONTEKST AKTUALNIE OTWARTEGO ZADANIA
-${contextTaskId
-  ? `Klient ma otwarte zadanie ID: ${contextTaskId}. Gdy pyta o status, postęp, komentarze lub cokolwiek związanego z tym zadaniem — użyj narzędzia getTaskInfo żeby pobrać aktualne dane, a następnie odpowiedz rzeczowo, grzecznie i dyplomatycznie.`
-  : 'Brak otwartego zadania — klient chce zgłosić nowe lub pyta ogólnie.'
-}`
+## DANE ZADANIA (pobrane właśnie z ClickUp — aktualne na tę chwilę)
+
+**Nazwa:** ${taskData.name}
+**Status:** ${taskData.status}
+**Priorytet:** ${taskData.priority}
+**Termin:** ${taskData.due_date}
+
+**Opis zadania:**
+${taskData.description}
+
+**Podzadania (${taskData.subtasks.length}):**
+${taskData.subtasks.length > 0
+  ? taskData.subtasks.map(s => `- ${s.name} [${s.status}]`).join('\n')
+  : 'brak podzadań'}
+
+**Komentarze publiczne (${taskData.publicComments.length}):**
+${taskData.publicComments.length > 0
+  ? taskData.publicComments.map(c => `[${c.date}] ${c.author}: ${c.text}`).join('\n')
+  : 'Brak komentarzy publicznych — agencja jeszcze nie dodała wiadomości dla klienta.'}
+
+## ZASADY ODPOWIADANIA
+- Odpowiadaj na podstawie danych powyżej — masz aktualne informacje
+- Jeśli klient pyta "czy to gotowe dziś/kiedy skończą" — mówisz że nie wiesz, ale możesz zasugerować żeby napisał komentarz do zadania w zakładce "Szczegóły"
+- Bądź dyplomatyczny — nie oceniaj pracy agencji, nie obiecuj terminów
+- Jeśli klient chce "sprawdzić co nowego" — użyj narzędzia getTaskInfo żeby odświeżyć dane
+- Odpowiadaj krótko i rzeczowo, bez zbędnych wstępów
+
+Odpowiadaj TYLKO po polsku.`
+    : `Jesteś asystentem który odpowiada na pytania klienta dotyczące zadania ID: ${contextTaskId}.
+Użyj narzędzia getTaskInfo żeby pobrać dane zadania, a następnie odpowiedz na pytanie klienta.
+Bądź dyplomatyczny i pomocny. Odpowiadaj TYLKO po polsku.`
+
+  const GENERAL_PROMPT = `Jesteś asystentem AI w portalu klienta agencji important.is.
+
+Portal: ${portal[0].name}
+Dzisiaj: ${today}
+
+Możesz:
+1. Odpowiadać na pytania o projekty i współpracę z agencją
+2. Pomagać zgłosić nowe zadanie gdy klient o to poprosi
+
+Jeśli klient chce zgłosić zadanie — zbierz kompletne informacje (co, gdzie, kiedy, priorytet, materiały) zanim je stworzysz. Opis jest obowiązkowy.
+
+Odpowiadaj TYLKO po polsku. Bądź konkretny i pomocny.`
+
+  const systemPrompt = effectiveMode === 'new-task'
+    ? NEW_TASK_PROMPT
+    : effectiveMode === 'task'
+    ? TASK_PROMPT
+    : GENERAL_PROMPT
+
+  // Tools per mode
+  const getTaskInfoTool = tool({
+    description: 'Pobiera aktualne informacje o zadaniu z ClickUp: status, opis, podzadania, komentarze publiczne. Użyj gdy klient pyta o najnowszy stan zadania.',
+    inputSchema: z.object({
+      taskId: z.string(),
+    }),
+    execute: async ({ taskId }) => {
+      const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
+      if (!belongs) return { error: 'Brak dostępu do tego zadania' }
+
+      const [task, allComments] = await Promise.all([
+        getTask(taskId),
+        getTaskComments(taskId),
+      ])
+
+      return {
+        name: task.name,
+        status: task.status.status,
+        priority: task.priority?.priority ?? 'brak',
+        description: task.description ?? 'brak opisu',
+        due_date: task.date_due ? new Date(Number(task.date_due)).toLocaleDateString('pl-PL') : 'brak',
+        publicComments: parsePublicComments(allComments),
+        subtasks: task.subtasks?.map(s => ({ name: s.name, status: s.status.status })) ?? [],
+      }
+    },
+  })
+
+  const createTaskTool = tool({
+    description: 'Tworzy nowe zadanie w ClickUp. Wywołaj TYLKO gdy masz kompletny briefing (nazwa, pełny opis z kontekstem, priorytet). Opis musi mieć min. 100 znaków.',
+    inputSchema: z.object({
+      name: z.string().describe('Zwięzła nazwa zadania, max 80 znaków'),
+      description: z.string().min(100).describe('Pełny opis w Markdown: cel, kontekst, materiały, DoD, zgłaszający'),
+      priority: z.number().min(1).max(4).describe('1=pilne, 2=wysokie, 3=normalne, 4=niskie'),
+      listId: z.string().optional().describe('ID listy — zostaw puste żeby użyć domyślnej'),
+      due_date_days: z.number().optional().describe('Za ile dni od dziś jest termin'),
+    }),
+    execute: async ({ name, description, priority, listId, due_date_days }) => {
+      const targetListId = listId && lists.some(l => l.clickupListId === listId)
+        ? listId
+        : (defaultList?.clickupListId ?? '')
+
+      if (!targetListId) return { error: 'Brak skonfigurowanej listy w portalu' }
+
+      const due_date = due_date_days
+        ? Date.now() + due_date_days * 24 * 60 * 60 * 1000
+        : undefined
+
+      const task = await createTask(targetListId, {
+        name,
+        description,
+        priority: priority ?? null,
+        due_date: due_date ?? null,
+      })
+
+      return {
+        success: true,
+        taskId: task.id,
+        taskName: task.name,
+        message: `✅ Zadanie "${task.name}" zostało dodane do systemu. Możesz zamknąć to okno — zadanie pojawi się na tablicy po odświeżeniu.`,
+      }
+    },
+  })
 
   const result = streamText({
     model: getModel(),
     system: systemPrompt,
     messages,
-    stopWhen: isStepCount(5),
-    tools: {
-      getTaskInfo: tool({
-        description: 'Pobiera aktualne informacje o zadaniu: status, opis, komentarze publiczne. Używaj gdy klient pyta o postęp, status lub co się dzieje z zadaniem.',
-        inputSchema: z.object({
-          taskId: z.string().describe('ID zadania z kontekstu'),
-        }),
-        execute: async ({ taskId }) => {
-          const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
-          if (!belongs) return { error: 'Brak dostępu do tego zadania' }
-
-          const [task, allComments] = await Promise.all([
-            getTask(taskId),
-            getTaskComments(taskId),
-          ])
-
-          const PUBLIC_PREFIX = '[PUBLIC] '
-          const publicComments = allComments
-            .filter(c => c.comment_text?.startsWith(PUBLIC_PREFIX))
-            .map(c => ({
-              author: c.user?.username ?? 'Agencja',
-              text: c.comment_text!.slice(PUBLIC_PREFIX.length),
-              date: c.date,
-            }))
-
-          return {
-            name: task.name,
-            status: task.status.status,
-            priority: task.priority?.priority ?? 'brak',
-            description: task.description ?? 'brak opisu',
-            due_date: task.date_due ? new Date(Number(task.date_due)).toLocaleDateString('pl-PL') : 'brak',
-            publicComments,
-            subtasks: task.subtasks?.map(s => ({
-              name: s.name,
-              status: s.status.status,
-            })) ?? [],
-          }
-        },
-      }),
-      createTask: tool({
-        description: 'Tworzy nowe zadanie w ClickUp. Wywołaj TYLKO gdy zebrałeś kompletny briefing. Opis musi zawierać WSZYSTKIE informacje potrzebne do wykonania.',
-        inputSchema: z.object({
-          name: z.string().describe('Zwięzła nazwa zadania (max 80 znaków), np. "Przeniesienie strony wodadlafirmy.pl na serwer Hetzner"'),
-          description: z.string().describe('Pełny briefing w formacie Markdown ze wszystkimi zebranymi informacjami: co zrobić, gdzie, skąd, dane dostępowe/gdzie są, wymagania. Minimum 100 znaków.'),
-          priority: z.number().min(1).max(4).describe('Priorytet: 1=pilne, 2=wysokie, 3=normalne, 4=niskie'),
-          listId: z.string().optional().describe('ID listy — tylko gdy klient wskazał konkretną listę'),
-          due_date_days: z.number().optional().describe('Za ile dni od dziś jest termin (np. "do poniedziałku" = przelicz na dni). Zostaw puste gdy brak terminu.'),
-        }),
-        execute: async ({ name, description, priority, listId, due_date_days }) => {
-          // Security: listId must be from this portal's lists only
-          const targetListId = listId && lists.some(l => l.clickupListId === listId)
-            ? listId
-            : (defaultList?.clickupListId ?? '')
-
-          if (!targetListId) return { error: 'Brak skonfigurowanej listy' }
-
-          const due_date = due_date_days
-            ? Date.now() + due_date_days * 24 * 60 * 60 * 1000
-            : undefined
-
-          const task = await createTask(targetListId, {
-            name,
-            description,
-            priority: priority ?? null,
-            due_date: due_date ?? null,
-          })
-
-          return {
-            success: true,
-            taskId: task.id,
-            taskName: task.name,
-            message: `✅ Zadanie "${task.name}" zostało dodane.`,
-          }
-        },
-      }),
-    },
+    stopWhen: isStepCount(6),
+    tools: effectiveMode === 'task'
+      ? { getTaskInfo: getTaskInfoTool }
+      : effectiveMode === 'new-task'
+      ? { createTask: createTaskTool }
+      : { createTask: createTaskTool, getTaskInfo: getTaskInfoTool },
   })
 
   return result.toUIMessageStreamResponse()

@@ -61,27 +61,12 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* Subtasks count */}
-          {task.subtasks && task.subtasks.length > 0 && (
-            <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
-              <MessageSquare className="h-3 w-3" />
-              {task.subtasks.length}
-            </span>
-          )}
-
-          {/* Assignees */}
-          {task.assignees?.slice(0, 2).map(a => (
-            <div
-              key={a.id}
-              className="h-5 w-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
-              style={{ backgroundColor: a.color ?? '#888' }}
-              title={a.username}
-            >
-              {a.initials?.slice(0, 2) ?? a.username?.slice(0, 2).toUpperCase()}
-            </div>
-          ))}
-        </div>
+        {task.subtasks && task.subtasks.length > 0 && (
+          <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
+            <MessageSquare className="h-3 w-3" />
+            {task.subtasks.length}
+          </span>
+        )}
       </div>
     </div>
   )

@@ -16,7 +16,6 @@ import { getStatusColor } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
-import { NewTaskForm } from './NewTaskForm'
 import { Plus, RefreshCw, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
@@ -70,8 +69,8 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
   const [tasks, setTasks] = useState<ClickUpTask[]>(initialTasks)
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
-  const [showNewTask, setShowNewTask] = useState(false)
   const [showChat, setShowChat] = useState(false)
+  const [chatMode, setChatMode] = useState<'new-task' | 'general'>('general')
   const [refreshing, setRefreshing] = useState(false)
 
   const columns = buildColumns(tasks)
@@ -139,10 +138,16 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
     setRefreshing(false)
   }
 
-  function handleTaskCreated(task: ClickUpTask) {
-    setTasks(prev => [...prev, task])
-    setShowNewTask(false)
-    toast.success('Zadanie zostało dodane')
+  function openChat(mode: 'new-task' | 'general') {
+    setChatMode(mode)
+    setShowChat(true)
+  }
+
+  async function handleChatClose() {
+    setShowChat(false)
+    if (chatMode === 'new-task') {
+      await handleRefresh()
+    }
   }
 
   function handleTaskUpdated(updatedTask: ClickUpTask) {
@@ -174,7 +179,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
           </button>
 
           <button
-            onClick={() => setShowChat(true)}
+            onClick={() => openChat('general')}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-md hover:bg-muted"
           >
             <MessageSquare className="h-4 w-4" />
@@ -182,7 +187,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
           </button>
 
           <button
-            onClick={() => setShowNewTask(true)}
+            onClick={() => openChat('new-task')}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
           >
             <Plus className="h-4 w-4" />
@@ -230,22 +235,14 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
         />
       )}
 
-      {/* New task dialog */}
-      {showNewTask && (
-        <NewTaskForm
-          slug={slug}
-          onClose={() => setShowNewTask(false)}
-          onTaskCreated={handleTaskCreated}
-        />
-      )}
-
-      {/* AI Chat popup */}
+      {/* AI Chat / New task panel */}
       {showChat && (
         <ChatWindow
           slug={slug}
           portalName={portalName}
           userEmail={userEmail}
-          onClose={() => setShowChat(false)}
+          mode={chatMode}
+          onClose={handleChatClose}
         />
       )}
     </div>

@@ -2,36 +2,36 @@
 import { useState, useRef, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
-import { Send, Loader2, Bot, X } from 'lucide-react'
+import { Send, Loader2, Bot, X, Plus } from 'lucide-react'
 
 interface ChatWindowProps {
   slug: string
   portalName: string
   userEmail: string
+  mode?: 'new-task' | 'general'
   onClose: () => void
 }
 
-export function ChatWindow({ slug, portalName, userEmail, onClose }: ChatWindowProps) {
+export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onClose }: ChatWindowProps) {
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const welcomeText = mode === 'new-task'
+    ? `Cześć! Pomogę Ci zgłosić nowe zadanie do agencji.\n\nOpisz krótko co chcesz zlecić — możesz pisać luźno, dopytam o szczegóły które są potrzebne do realizacji.`
+    : `Cześć! Jestem asystentem portalu **${portalName}**.\n\nMogę odpowiedzieć na pytania o projekty lub pomóc Ci zgłosić nowe zadanie. O co chodzi?`
 
   const initialMessages: UIMessage[] = [
     {
       id: 'welcome',
       role: 'assistant',
-      parts: [
-        {
-          type: 'text',
-          text: `Cześć! Jestem asystentem portalu **${portalName}**.\n\nMogę pomóc Ci zgłosić zadanie do agencji. Żeby zadanie trafiło do realizacji od razu, będę potrzebować **kompletnych informacji** — co, gdzie, jak i kiedy.\n\nOpisz co chcesz zlecić, a dopytam o szczegóły jeśli będę ich potrzebować.`,
-        },
-      ],
+      parts: [{ type: 'text', text: welcomeText }],
     },
   ]
 
   const { messages, sendMessage, status, error } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/ai/chat',
-      body: { slug },
+      body: { slug, mode },
     }),
     messages: initialMessages,
   })
@@ -50,6 +50,11 @@ export function ChatWindow({ slug, portalName, userEmail, onClose }: ChatWindowP
     await sendMessage({ text })
   }
 
+  const headerTitle = mode === 'new-task' ? 'Nowe zadanie' : 'AI Asystent'
+  const inputPlaceholder = mode === 'new-task'
+    ? 'Opisz co chcesz zlecić...'
+    : 'Napisz wiadomość...'
+
   return (
     <>
       {/* Backdrop */}
@@ -63,10 +68,10 @@ export function ChatWindow({ slug, portalName, userEmail, onClose }: ChatWindowP
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
           <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground flex-shrink-0">
-            <Bot className="h-4 w-4" />
+            {mode === 'new-task' ? <Plus className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-semibold text-sm text-foreground">AI Asystent</h2>
+            <h2 className="font-semibold text-sm text-foreground">{headerTitle}</h2>
             <p className="text-xs text-muted-foreground truncate">{portalName}</p>
           </div>
           <button
@@ -149,7 +154,7 @@ export function ChatWindow({ slug, portalName, userEmail, onClose }: ChatWindowP
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder="Opisz co chcesz zgłosić..."
+              placeholder={inputPlaceholder}
               disabled={isLoading}
               autoFocus
               className="flex-1 h-9 rounded-xl border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
@@ -166,9 +171,11 @@ export function ChatWindow({ slug, portalName, userEmail, onClose }: ChatWindowP
               )}
             </button>
           </form>
-          <p className="text-center text-[10px] text-muted-foreground mt-1.5">
-            AI może popełniać błędy — sprawdź zadania po stworzeniu.
-          </p>
+          {mode === 'new-task' && (
+            <p className="text-center text-[10px] text-muted-foreground mt-1.5">
+              Zadanie pojawi się na tablicy po odświeżeniu strony.
+            </p>
+          )}
         </div>
       </div>
     </>

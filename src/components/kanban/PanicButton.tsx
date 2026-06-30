@@ -121,22 +121,16 @@ export function PanicButton({ slug }: Props) {
                   {acknowledged ? (
                     <>
                       <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                      <p className="font-semibold text-gray-900">Ktoś z zespołu reaguje!</p>
-                      <p className="text-sm text-gray-500 mt-1">Agencja potwierdziła że zajmuje się problemem.</p>
+                      <p className="font-semibold text-gray-900">Zespół important reaguje!</p>
+                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">Ktoś z zespołu potwierdził że zajmuje się problemem. Skontaktują się z Tobą mailowo lub telefonicznie.</p>
                     </>
                   ) : (
                     <>
-                      <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
-                        <AlertTriangle className="h-6 w-6 text-red-600" />
-                      </div>
-                      <p className="font-semibold text-gray-900">Alarm wysłany!</p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Team został powiadomiony. Czekamy na potwierdzenie…
+                      <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                      <p className="font-semibold text-gray-900">Zgłoszenie wysłane!</p>
+                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                        Zespół important został poinformowany. Skontaktują się z Tobą mailowo lub telefonicznie.
                       </p>
-                      <div className="flex items-center justify-center gap-1.5 mt-3">
-                        <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                        <span className="text-xs text-gray-400">Oczekiwanie na reakcję</span>
-                      </div>
                     </>
                   )}
                   <button

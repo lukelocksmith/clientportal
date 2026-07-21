@@ -88,11 +88,6 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
                   {getPriorityLabel(task.priority.priority)}
                 </span>
               )}
-
-              {/* List tag */}
-              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                {task.list.name}
-              </span>
             </div>
 
             <h2 className="font-semibold text-foreground text-base leading-tight">
@@ -148,24 +143,6 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
               </div>
             )}
 
-            {task.assignees?.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Przypisano:</span>
-                <div className="flex items-center gap-1.5">
-                  {task.assignees.map(a => (
-                    <div key={a.id} className="flex items-center gap-1">
-                      <div
-                        className="h-5 w-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
-                        style={{ backgroundColor: a.color ?? '#888' }}
-                      >
-                        {a.initials?.slice(0, 2) ?? a.username?.slice(0, 2).toUpperCase()}
-                      </div>
-                      <span className="text-xs text-muted-foreground">{a.username}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Description */}

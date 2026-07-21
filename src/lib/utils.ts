@@ -46,3 +46,18 @@ export function getStatusColor(status: string): string {
 export function generateId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
+
+/**
+ * Format a duration in milliseconds (ClickUp time_estimate / time_spent) as
+ * a compact human string, e.g. 23400000 -> "6h 30m", 2700000 -> "45m".
+ * Returns '' for null/undefined/0 so callers can conditionally render.
+ */
+export function formatDuration(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return ''
+  const totalMinutes = Math.round(ms / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}m`
+  if (minutes === 0) return `${hours}h`
+  return `${hours}h ${minutes}m`
+}

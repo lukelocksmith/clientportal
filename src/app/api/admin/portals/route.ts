@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminSession } from '@/lib/admin-auth'
+import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 
-export async function GET() {
-  if (!await getAdminSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function GET(request: NextRequest) {
+  if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const list = await db
     .select({ id: portals.id, slug: portals.slug, name: portals.name, isActive: portals.isActive })
@@ -30,7 +30,7 @@ const CreatePortalSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  if (!await getAdminSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
 

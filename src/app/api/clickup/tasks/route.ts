@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { getAllTasksForFolder, createTask } from '@/lib/clickup'
+import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 
 // GET /api/clickup/tasks?slug=wdf
 export async function GET(request: NextRequest) {
@@ -23,7 +24,9 @@ export async function GET(request: NextRequest) {
 
   if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const tasks = await getAllTasksForFolder(portal[0].clickupFolderId)
+  const rawTasks = await getAllTasksForFolder(portal[0].clickupFolderId)
+  const snapshots = await getSnapshotMap(portal[0].id)
+  const tasks = mergeTrackedTime(rawTasks, snapshots)
 
   return NextResponse.json({ tasks }, {
     headers: { 'Cache-Control': 'private, max-age=30' }

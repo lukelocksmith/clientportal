@@ -65,7 +65,15 @@ export type ClickUpTask = {
   date_start: string | null
   list: { id: string; name: string }
   folder: { id: string; name: string }
+  parent: string | null
+  // Time fields from ClickUp, both in milliseconds
+  time_estimate: number | null
+  time_spent: number | null
   subtasks?: ClickUpSubtask[]
+  // Nested subtasks built from the flat ClickUp response (parent -> children)
+  children?: ClickUpTask[]
+  // Weekly-frozen tracked time injected server-side from task_time_snapshots (ms)
+  trackedTimeMs?: number | null
   attachments?: ClickUpAttachment[]
   url: string
 }

@@ -15,6 +15,13 @@
       "when": 1782800000000,
       "tag": "0001_panic_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784635195248,
+      "tag": "0002_perpetual_jocasta",
+      "breakpoints": true
     }
   ]
 }

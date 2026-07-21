@@ -60,7 +60,33 @@ export async function getAllTasksForFolder(folderId: string): Promise<ClickUpTas
     }
   }
 
-  return allTasks
+  return buildTaskTree(allTasks)
+}
+
+/**
+ * ClickUp returns subtasks as separate top-level task objects (each with a
+ * `parent` pointer) when `subtasks=true`, NOT nested inside the parent. This
+ * rebuilds the hierarchy: subtasks whose parent is present in the set are
+ * moved under `parent.children`; everything else stays top-level. Orphans
+ * (parent not in the fetched set) remain top-level so nothing is lost.
+ * Building at the folder level (across all lists) is deliberate — a subtask
+ * and its parent can live in the same list but be paginated separately.
+ */
+export function buildTaskTree(flat: ClickUpTask[]): ClickUpTask[] {
+  const byId = new Map<string, ClickUpTask>()
+  // Dedupe by id and give every node a fresh children array
+  for (const t of flat) byId.set(t.id, { ...t, children: [] })
+
+  const roots: ClickUpTask[] = []
+  for (const task of byId.values()) {
+    const parentId = task.parent
+    if (parentId && byId.has(parentId)) {
+      byId.get(parentId)!.children!.push(task)
+    } else {
+      roots.push(task)
+    }
+  }
+  return roots
 }
 
 export async function getTask(taskId: string): Promise<ClickUpTask> {

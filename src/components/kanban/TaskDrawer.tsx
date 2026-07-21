@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import type { ClickUpTask, ClickUpComment } from '@/lib/types'
-import { formatDate, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare } from 'lucide-react'
+import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface TaskDrawerProps {
@@ -131,6 +131,23 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
               </div>
             )}
 
+            {(task.time_estimate || task.trackedTimeMs) && (
+              <div className="flex items-center gap-4 text-sm">
+                {task.time_estimate ? (
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>Szacowany: {formatDuration(task.time_estimate)}</span>
+                  </div>
+                ) : null}
+                {task.trackedTimeMs ? (
+                  <div className="flex items-center gap-1.5 text-primary/80" title="Zamrożone w piątek rano">
+                    <Timer className="h-3.5 w-3.5" />
+                    <span>Track Time: {formatDuration(task.trackedTimeMs)}</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             {task.assignees?.length > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Przypisano:</span>
@@ -164,27 +181,41 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
           )}
 
           {/* Subtasks */}
-          {task.subtasks && task.subtasks.length > 0 && (
+          {task.children && task.children.length > 0 && (
             <div className="px-5 py-4 border-b border-border">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                 <CheckSquare className="h-3.5 w-3.5" />
-                Podzadania ({task.subtasks.length})
+                Podzadania ({task.children.length})
               </h3>
-              <div className="space-y-1.5">
-                {task.subtasks.map(sub => (
-                  <div key={sub.id} className="flex items-center gap-2 text-sm">
-                    <div
-                      className="h-2 w-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: getStatusColor(sub.status.status) }}
-                    />
-                    <span className={`flex-1 ${sub.status.type === 'closed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                      {sub.name}
-                    </span>
-                    {sub.date_due && (
-                      <span className="text-xs text-muted-foreground">{formatDate(sub.date_due)}</span>
-                    )}
-                  </div>
-                ))}
+              <div className="space-y-2">
+                {task.children.map(sub => {
+                  const subEstimate = formatDuration(sub.time_estimate)
+                  const subTracked = formatDuration(sub.trackedTimeMs)
+                  return (
+                    <div key={sub.id} className="flex items-center gap-2 text-sm">
+                      <div
+                        className="h-2 w-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: getStatusColor(sub.status.status) }}
+                      />
+                      <span className={`flex-1 min-w-0 truncate ${sub.status.type === 'closed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                        {sub.name}
+                      </span>
+                      {subEstimate && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5 flex-shrink-0">
+                          <Clock className="h-3 w-3" />{subEstimate}
+                        </span>
+                      )}
+                      {subTracked && (
+                        <span className="text-xs text-primary/80 flex items-center gap-0.5 flex-shrink-0">
+                          <Timer className="h-3 w-3" />{subTracked}
+                        </span>
+                      )}
+                      {sub.date_due && (
+                        <span className="text-xs text-muted-foreground flex-shrink-0">{formatDate(sub.date_due)}</span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}

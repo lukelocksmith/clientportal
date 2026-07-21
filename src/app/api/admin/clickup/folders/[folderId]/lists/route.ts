@@ -1,10 +1,10 @@
 import { NextResponse, NextRequest } from 'next/server'
-import { getAdminSession } from '@/lib/admin-auth'
+import { isAdminRequest } from '@/lib/admin-auth'
 
 const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN
 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ folderId: string }> }) {
-  if (!await getAdminSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function GET(request: NextRequest, { params }: { params: Promise<{ folderId: string }> }) {
+  if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { folderId } = await params
   const res = await fetch(`https://api.clickup.com/api/v2/folder/${folderId}/list?archived=false`, {

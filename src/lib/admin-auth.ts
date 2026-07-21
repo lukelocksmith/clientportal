@@ -1,5 +1,7 @@
 import { cookies } from 'next/headers'
 import { createHmac, timingSafeEqual } from 'crypto'
+import type { NextRequest } from 'next/server'
+import { verifyToken as verifyTokenBearer } from './apiAuth'
 
 const ADMIN_COOKIE = 'admin_session'
 const SECRET = process.env.ADMIN_SECRET
@@ -21,6 +23,17 @@ export async function getAdminSession(): Promise<boolean> {
   const value = jar.get(ADMIN_COOKIE)?.value
   if (!value) return false
   return verifyToken(value)
+}
+
+/**
+ * Admin authorization for API routes: passes if the request carries a valid
+ * `ADMIN_API_TOKEN` (Bearer or ?token=) OR a valid admin session cookie.
+ * The token path is what makes portal/user management AI-first — manageable
+ * from the terminal via curl without a browser login.
+ */
+export async function isAdminRequest(request: NextRequest): Promise<boolean> {
+  if (verifyTokenBearer(request, 'ADMIN_API_TOKEN')) return true
+  return getAdminSession()
 }
 
 export async function setAdminSession() {

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
 import { getAllTasksForFolder } from '@/lib/clickup'
+import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
@@ -28,7 +29,9 @@ export default async function PortalPage({ params }: PortalPageProps) {
 
   if (!portal[0]) redirect('/')
 
-  const tasks = await getAllTasksForFolder(portal[0].clickupFolderId)
+  const rawTasks = await getAllTasksForFolder(portal[0].clickupFolderId)
+  const snapshots = await getSnapshotMap(portal[0].id)
+  const tasks = mergeTrackedTime(rawTasks, snapshots)
 
   return (
     <KanbanBoardClient

@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server'
-import { getAdminSession } from '@/lib/admin-auth'
+import { NextResponse, NextRequest } from 'next/server'
+import { isAdminRequest } from '@/lib/admin-auth'
 
 const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN
 const SPACE_ID = process.env.CLICKUP_SPACE_ID ?? '90100136256'
 
-export async function GET() {
-  if (!await getAdminSession()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function GET(request: NextRequest) {
+  if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const res = await fetch(`https://api.clickup.com/api/v2/space/${SPACE_ID}/folder?archived=false`, {
     headers: { Authorization: CLICKUP_TOKEN! },

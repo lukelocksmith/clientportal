@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, uuid } from 'drizzle-orm/pg-core'
+import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex } from 'drizzle-orm/pg-core'
 
 export const portals = pgTable('portals', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -52,6 +52,19 @@ export const panicAlerts = pgTable('panic_alerts', {
   acknowledgedBy: text('acknowledged_by'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+// Weekly-frozen tracked-time snapshots. A Friday-morning cron overwrites each
+// task's row with its current ClickUp time_spent (ms); the portal reads this
+// frozen value so clients see a stable weekly number, not a live-ticking one.
+export const taskTimeSnapshots = pgTable('task_time_snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  clickupTaskId: text('clickup_task_id').notNull(),
+  timeSpentMs: bigint('time_spent_ms', { mode: 'number' }).notNull().default(0),
+  snapshotAt: timestamp('snapshot_at').notNull().defaultNow(),
+}, (t) => ({
+  portalTaskUnique: uniqueIndex('task_time_snapshots_portal_task_idx').on(t.portalId, t.clickupTaskId),
+}))
 
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),

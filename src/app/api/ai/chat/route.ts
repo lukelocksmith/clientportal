@@ -2,6 +2,7 @@ import { streamText, tool, isStepCount, convertToModelMessages, type UIMessage }
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
+import { createOpenAI } from '@ai-sdk/openai'
 import { z } from 'zod'
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
@@ -14,7 +15,13 @@ import { computeCost } from '@/lib/aiPricing'
 export const runtime = 'nodejs'
 export const maxDuration = 30
 
-function getModel() {
+function getModel(fallback = false) {
+  // Fallback: if the primary (Gemini) fails, the client retries with fallback=true
+  // and we serve the request through OpenAI (ChatGPT) instead.
+  if (fallback) {
+    const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    return { model: openai('gpt-4o-mini'), provider: 'openai', modelId: 'gpt-4o-mini' }
+  }
   const provider = process.env.AI_PROVIDER ?? 'gemini'
   if (provider === 'anthropic') {
     const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -31,10 +38,11 @@ function getModel() {
 
 
 export async function POST(request: NextRequest) {
-  const { messages: uiMessages, slug, mode } = await request.json() as {
+  const { messages: uiMessages, slug, mode, fallback } = await request.json() as {
     messages: UIMessage[]
     slug: string
     mode?: string
+    fallback?: boolean
   }
 
   // Only new-task mode is active — other modes are disabled
@@ -163,7 +171,7 @@ Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
     },
   })
 
-  const { model, provider, modelId } = getModel()
+  const { model, provider, modelId } = getModel(!!fallback)
 
   const result = streamText({
     model,

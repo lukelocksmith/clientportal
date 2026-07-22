@@ -28,15 +28,33 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
     },
   ]
 
-  const { messages, sendMessage, status, error } = useChat({
+  // Fallback: on primary (Gemini) failure, retry the same turn once through OpenAI.
+  const fallbackRef = useRef(false)
+  const retriedRef = useRef(false)
+  const [needFallback, setNeedFallback] = useState(false)
+
+  const { messages, sendMessage, regenerate, status, error, clearError } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/ai/chat',
-      body: { slug, mode },
+      prepareSendMessagesRequest: ({ id, messages, trigger, messageId }) => ({
+        body: { id, messages, trigger, messageId, slug, mode, fallback: fallbackRef.current },
+      }),
     }),
     messages: initialMessages,
+    onError: () => { if (!retriedRef.current) setNeedFallback(true) },
   })
 
   const isLoading = status === 'streaming' || status === 'submitted'
+
+  // When Gemini fails, flip to the fallback provider and regenerate the last turn.
+  useEffect(() => {
+    if (!needFallback) return
+    setNeedFallback(false)
+    retriedRef.current = true
+    fallbackRef.current = true
+    clearError()
+    regenerate()
+  }, [needFallback, regenerate, clearError])
 
   // Pending screenshots to attach to the ClickUp task once it's created.
   const [pending, setPending] = useState<Array<{ file: File; url: string }>>([])
@@ -111,6 +129,9 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!input.trim() || isLoading) return
+    // New turn: try the primary provider first; fallback re-arms per message.
+    retriedRef.current = false
+    fallbackRef.current = false
     // Let the model know a screenshot is attached so it doesn't ask for an image link.
     const note = pending.length > 0
       ? `\n\n(Dołączam ${pending.length === 1 ? 'zrzut ekranu' : `${pending.length} zrzuty ekranu`} do tego zgłoszenia — zostanie automatycznie dodany do zadania.)`

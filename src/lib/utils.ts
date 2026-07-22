@@ -55,6 +55,7 @@ export function generateId(): string {
 export function formatDuration(ms: number | null | undefined): string {
   if (!ms || ms <= 0) return ''
   const totalMinutes = Math.round(ms / 60000)
+  if (totalMinutes === 0) return '' // below a minute — don't show "0m"
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
   if (hours === 0) return `${minutes}m`

@@ -4,7 +4,36 @@ import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { updateTask, verifyTaskBelongsToFolder } from '@/lib/clickup'
+import { updateTask, verifyTaskBelongsToFolder, getTask } from '@/lib/clickup'
+
+// GET /api/clickup/tasks/{taskId}?slug=onyx — returns the task's attachments
+// (the list endpoint used for the board doesn't include them).
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  const slug = request.nextUrl.searchParams.get('slug') ?? undefined
+  const session = await getSession(slug)
+  if (!session || (slug && session.portalSlug !== slug)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { taskId } = await params
+
+  const portal = await db
+    .select()
+    .from(portals)
+    .where(eq(portals.id, session.portalId))
+    .limit(1)
+  if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const task = await getTask(taskId)
+  if (task.folder?.id !== portal[0].clickupFolderId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  return NextResponse.json({ attachments: task.attachments ?? [] })
+}
 
 const patchSchema = z.object({
   name: z.string().min(1).max(500).optional(),

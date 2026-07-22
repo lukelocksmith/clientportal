@@ -1,13 +1,15 @@
 import { streamText, tool, isStepCount, convertToModelMessages, type UIMessage } from 'ai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { z } from 'zod'
 import { NextRequest } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { portals, portalLists } from '@/lib/db/schema'
+import { portals, portalLists, aiUsage } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { createTask } from '@/lib/clickup'
+import { computeCost } from '@/lib/aiPricing'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -16,10 +18,15 @@ function getModel() {
   const provider = process.env.AI_PROVIDER ?? 'gemini'
   if (provider === 'anthropic') {
     const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    return anthropic('claude-haiku-4-5')
+    return { model: anthropic('claude-haiku-4-5'), provider: 'anthropic', modelId: 'claude-haiku-4-5' }
+  }
+  if (provider === 'openrouter') {
+    const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY })
+    const modelId = process.env.OPENROUTER_MODEL ?? 'nvidia/nemotron-3-super-120b-a12b:free'
+    return { model: openrouter.chat(modelId), provider: 'openrouter', modelId }
   }
   const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY })
-  return google('gemini-2.5-flash')
+  return { model: google('gemini-2.5-flash'), provider: 'google', modelId: 'gemini-2.5-flash' }
 }
 
 
@@ -91,6 +98,10 @@ Nie pytaj o priorytet wprost — określ go sam na podstawie rozmowy.
 Nie pytaj o "Definition of Done" — opisz go sam na podstawie zgłoszenia.
 Nie pytaj o materiały jeśli zadanie ich nie wymaga (np. naprawa buga).
 
+## ZAŁĄCZNIKI / ZRZUTY EKRANU
+
+Jeśli klient napisze że dołącza/dołączył zrzut ekranu lub obrazek — NIE proś o link ani lokalizację obrazka. Zrzut zostaje automatycznie dodany jako załącznik do zadania w systemie. Potraktuj go jako dostarczony materiał, nie dopytuj gdzie jest, i zaznacz w opisie zadania: "Klient dołączył zrzut ekranu".
+
 ## KIEDY TWORZYĆ
 
 Twórz zadanie gdy wiesz: CO, GDZIE, i jakie są szczegóły. Termin jest opcjonalny.
@@ -138,6 +149,9 @@ Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
         description,
         priority: priority ?? null,
         due_date: due_date ?? null,
+        // Client-submitted tasks land in "do zrobienia" (to-do), not the default backlog,
+        // so the team sees incoming requests instead of them being buried.
+        status: 'do zrobienia',
       })
 
       return {
@@ -149,12 +163,35 @@ Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
     },
   })
 
+  const { model, provider, modelId } = getModel()
+
   const result = streamText({
-    model: getModel(),
+    model,
     system: NEW_TASK_PROMPT,
     messages,
     stopWhen: isStepCount(6),
     tools: { createTask: createTaskTool },
+    onFinish: async ({ usage }) => {
+      try {
+        const u = usage as { inputTokens?: number; outputTokens?: number; totalTokens?: number; promptTokens?: number; completionTokens?: number } | undefined
+        const input = u?.inputTokens ?? u?.promptTokens ?? 0
+        const output = u?.outputTokens ?? u?.completionTokens ?? 0
+        const total = u?.totalTokens ?? input + output
+        await db.insert(aiUsage).values({
+          portalId: portal[0].id,
+          userId: session.userId,
+          userEmail: session.email,
+          provider,
+          model: modelId,
+          inputTokens: input,
+          outputTokens: output,
+          totalTokens: total,
+          costUsd: computeCost(modelId, input, output),
+        })
+      } catch (e) {
+        console.error('ai_usage log failed:', e)
+      }
+    },
   })
 
   return result.toUIMessageStreamResponse()

@@ -16,7 +16,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
     id: task.id,
   })
 
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true) // subtasks expanded by default (like ClickUp)
 
   const style = {
     transform: CSS.Transform.toString(transform),

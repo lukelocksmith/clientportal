@@ -101,6 +101,7 @@ export async function createTask(
     priority?: number | null
     due_date?: number | null
     start_date?: number | null
+    status?: string
   }
 ): Promise<ClickUpTask> {
   return clickupFetch<ClickUpTask>(`/list/${listId}/task`, {
@@ -123,6 +124,26 @@ export async function updateTask(
     method: 'PUT',
     body: JSON.stringify(data),
   })
+}
+
+// Upload a file as an attachment on a ClickUp task (multipart/form-data).
+// Do NOT set Content-Type — fetch derives the multipart boundary from FormData.
+export async function addTaskAttachment(
+  taskId: string,
+  file: Blob,
+  filename: string
+): Promise<{ id: string; url: string; title: string }> {
+  const form = new FormData()
+  form.append('attachment', file, filename)
+  const res = await fetch(`${CLICKUP_API}/task/${taskId}/attachment`, {
+    method: 'POST',
+    headers: { Authorization: TOKEN },
+    body: form,
+  })
+  if (!res.ok) {
+    throw new Error(`ClickUp attachment error ${res.status}: ${await res.text()}`)
+  }
+  return res.json()
 }
 
 export async function getTaskComments(taskId: string): Promise<ClickUpComment[]> {

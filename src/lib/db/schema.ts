@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex, doublePrecision } from 'drizzle-orm/pg-core'
 
 export const portals = pgTable('portals', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -65,6 +65,22 @@ export const taskTimeSnapshots = pgTable('task_time_snapshots', {
 }, (t) => ({
   portalTaskUnique: uniqueIndex('task_time_snapshots_portal_task_idx').on(t.portalId, t.clickupTaskId),
 }))
+
+// Per-request AI token usage + cost, for the admin stats view (by project/user/model).
+// userEmail is denormalized so stats survive user deletion.
+export const aiUsage = pgTable('ai_usage', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  userEmail: text('user_email'),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
+  outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
+  totalTokens: bigint('total_tokens', { mode: 'number' }).notNull().default(0),
+  costUsd: doublePrecision('cost_usd').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
 
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),

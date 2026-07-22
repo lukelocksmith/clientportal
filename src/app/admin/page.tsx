@@ -1,8 +1,18 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus } from 'lucide-react'
+import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3 } from 'lucide-react'
 
 type Portal = { id: string; slug: string; name: string; isActive: boolean }
+type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
+type Stats = {
+  totals: Stat
+  byProject: Array<Stat & { portalId: string; slug: string | null; name: string | null }>
+  byUser: Array<Stat & { userEmail: string | null }>
+  byModel: Array<Stat & { provider: string; model: string }>
+}
+
+const fmtNum = (n: number) => Math.round(n).toLocaleString('pl-PL')
+const fmtUsd = (n: number) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
 type User = {
   id: string; email: string; name: string | null; isActive: boolean
   portalName: string | null; portalSlug: string | null; portalId: string
@@ -16,6 +26,7 @@ export default function AdminPage() {
   const [loginError, setLoginError] = useState('')
   const [users, setUsers] = useState<User[]>([])
   const [portals, setPortals] = useState<Portal[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [showCreatePortal, setShowCreatePortal] = useState(false)
@@ -64,12 +75,14 @@ export default function AdminPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [uRes, pRes] = await Promise.all([
+    const [uRes, pRes, sRes] = await Promise.all([
       fetch('/api/admin/users'),
       fetch('/api/admin/portals'),
+      fetch('/api/admin/stats'),
     ])
     if (uRes.ok) setUsers(await uRes.json().then((d: { users: User[] }) => d.users))
     if (pRes.ok) setPortals(await pRes.json().then((d: { portals: Portal[] }) => d.portals))
+    if (sRes.ok) setStats(await sRes.json() as Stats)
     setLoading(false)
   }, [])
 
@@ -245,6 +258,88 @@ export default function AdminPage() {
       </header>
 
       <main className="p-6 max-w-4xl mx-auto space-y-8">
+        {/* AI usage & cost */}
+        {stats && (
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart3 className="h-4 w-4 text-primary" />
+              <h2 className="font-semibold text-foreground">Zużycie AI (czat „nowe zadanie")</h2>
+              <span className="text-xs text-muted-foreground ml-auto">koszty szacunkowe wg cennika</span>
+            </div>
+
+            {/* Totals */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              {[
+                { label: 'Zapytania', value: fmtNum(stats.totals.calls) },
+                { label: 'Tokeny (razem)', value: fmtNum(stats.totals.totalTokens) },
+                { label: 'Input / Output', value: `${fmtNum(stats.totals.inputTokens)} / ${fmtNum(stats.totals.outputTokens)}` },
+                { label: 'Koszt', value: fmtUsd(stats.totals.costUsd) },
+              ].map(c => (
+                <div key={c.label} className="bg-card rounded-xl border border-border p-3">
+                  <p className="text-xs text-muted-foreground">{c.label}</p>
+                  <p className="text-lg font-semibold text-foreground mt-0.5">{c.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4">
+              {/* By project */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <p className="text-xs font-medium text-muted-foreground px-3 py-2 bg-muted/40 border-b border-border">Wg projektu</p>
+                {stats.byProject.length === 0 ? <p className="text-xs text-muted-foreground p-3">Brak danych</p> : (
+                  <table className="w-full text-xs">
+                    <tbody className="divide-y divide-border">
+                      {stats.byProject.map(r => (
+                        <tr key={r.portalId}>
+                          <td className="px-3 py-2 text-foreground truncate">{r.name ?? r.slug ?? '—'}</td>
+                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtNum(r.totalTokens)} tok</td>
+                          <td className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* By user */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <p className="text-xs font-medium text-muted-foreground px-3 py-2 bg-muted/40 border-b border-border">Wg użytkownika</p>
+                {stats.byUser.length === 0 ? <p className="text-xs text-muted-foreground p-3">Brak danych</p> : (
+                  <table className="w-full text-xs">
+                    <tbody className="divide-y divide-border">
+                      {stats.byUser.map((r, i) => (
+                        <tr key={r.userEmail ?? i}>
+                          <td className="px-3 py-2 text-foreground truncate max-w-[120px]">{r.userEmail ?? '—'}</td>
+                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtNum(r.totalTokens)} tok</td>
+                          <td className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* By model */}
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <p className="text-xs font-medium text-muted-foreground px-3 py-2 bg-muted/40 border-b border-border">Wg modelu</p>
+                {stats.byModel.length === 0 ? <p className="text-xs text-muted-foreground p-3">Brak danych</p> : (
+                  <table className="w-full text-xs">
+                    <tbody className="divide-y divide-border">
+                      {stats.byModel.map((r, i) => (
+                        <tr key={`${r.provider}/${r.model}` + i}>
+                          <td className="px-3 py-2 text-foreground truncate max-w-[120px]" title={`${r.provider}/${r.model}`}>{r.model}</td>
+                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtNum(r.totalTokens)} tok</td>
+                          <td className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
         {byPortal.map(({ portal, users: pu }) => (
           <section key={portal.id}>
             <div className="flex items-center gap-2 mb-3">

@@ -41,6 +41,18 @@ function sortByPriority(tasks: ClickUpTask[]): ClickUpTask[] {
   })
 }
 
+// Depth-first lookup so the drawer can drill into a subtask (or back to its parent) by id.
+function findTaskInTree(tasks: ClickUpTask[], id: string): ClickUpTask | null {
+  for (const t of tasks) {
+    if (t.id === id) return t
+    if (t.children) {
+      const found = findTaskInTree(t.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
   const tasksByStatus: Record<string, ClickUpTask[]> = {}
 
@@ -227,6 +239,10 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
           userEmail={userEmail}
           onClose={() => setSelectedTask(null)}
           onTaskUpdated={handleTaskUpdated}
+          onNavigate={(id) => {
+            const t = findTaskInTree(tasks, id)
+            if (t) setSelectedTask(t)
+          }}
         />
       )}
 

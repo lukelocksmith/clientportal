@@ -1,9 +1,76 @@
 'use client'
 import { useState, useEffect } from 'react'
-import type { ClickUpTask, ClickUpComment } from '@/lib/types'
+import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
 import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer } from 'lucide-react'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText } from 'lucide-react'
 import { toast } from 'sonner'
+
+// Turn plain URLs into clickable links inside a text run.
+function linkify(text: string, kp: string): React.ReactNode[] {
+  const urlRe = /(https?:\/\/[^\s]+)/g
+  const out: React.ReactNode[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = urlRe.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(
+      <a key={`${kp}-a${i++}`} href={m[0]} target="_blank" rel="noopener noreferrer" className="text-primary underline break-all">
+        {m[0]}
+      </a>
+    )
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+// Inline: **bold** + links.
+function renderInline(text: string, kp: string): React.ReactNode[] {
+  return text.split('**').flatMap((part, i): React.ReactNode[] =>
+    i % 2 === 1
+      ? [<strong key={`${kp}-b${i}`}>{linkify(part, `${kp}-b${i}`)}</strong>]
+      : linkify(part, `${kp}-t${i}`)
+  )
+}
+
+// Minimal Markdown renderer for task descriptions: ## / ### headings, - / * bullets,
+// **bold**, links, paragraphs. Avoids pulling in a full markdown dependency.
+function MarkdownLite({ text }: { text: string }) {
+  const lines = text.split('\n')
+  const blocks: React.ReactNode[] = []
+  let bullets: string[] = []
+  const flush = (key: string) => {
+    if (bullets.length) {
+      const items = bullets
+      blocks.push(
+        <ul key={key} className="list-disc pl-5 space-y-0.5 my-1.5 text-sm text-foreground">
+          {items.map((li, i) => <li key={i}>{renderInline(li, `${key}-${i}`)}</li>)}
+        </ul>
+      )
+      bullets = []
+    }
+  }
+  lines.forEach((line, idx) => {
+    const key = `l${idx}`
+    if (/^###\s+/.test(line)) {
+      flush(`${key}f`)
+      blocks.push(<h5 key={key} className="text-xs font-semibold text-foreground mt-2 mb-0.5">{renderInline(line.replace(/^###\s+/, ''), key)}</h5>)
+    } else if (/^##\s+/.test(line)) {
+      flush(`${key}f`)
+      blocks.push(<h4 key={key} className="text-sm font-semibold text-foreground mt-3 mb-1 first:mt-0">{renderInline(line.replace(/^##\s+/, ''), key)}</h4>)
+    } else if (/^[-*]\s+/.test(line)) {
+      bullets.push(line.replace(/^[-*]\s+/, ''))
+    } else if (line.trim() === '') {
+      flush(`${key}f`)
+    } else {
+      flush(`${key}f`)
+      blocks.push(<p key={key} className="text-sm text-foreground leading-relaxed my-1">{renderInline(line, key)}</p>)
+    }
+  })
+  flush('end')
+  return <div>{blocks}</div>
+}
 
 interface TaskDrawerProps {
   task: ClickUpTask
@@ -11,14 +78,16 @@ interface TaskDrawerProps {
   userEmail: string
   onClose: () => void
   onTaskUpdated: (task: ClickUpTask) => void
+  onNavigate?: (taskId: string) => void
 }
 
-export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: TaskDrawerProps) {
+export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNavigate }: TaskDrawerProps) {
   const [tab] = useState<'details'>('details')
   const [comments, setComments] = useState<ClickUpComment[]>([])
   const [newComment, setNewComment] = useState('')
   const [loadingComments, setLoadingComments] = useState(true)
   const [sendingComment, setSendingComment] = useState(false)
+  const [attachments, setAttachments] = useState<ClickUpAttachment[]>([])
 
   useEffect(() => {
     async function loadComments() {
@@ -30,8 +99,17 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
       }
       setLoadingComments(false)
     }
+    async function loadAttachments() {
+      setAttachments([])
+      const res = await fetch(`/api/clickup/tasks/${task.id}?slug=${slug}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAttachments(data.attachments ?? [])
+      }
+    }
     loadComments()
-  }, [task.id])
+    loadAttachments()
+  }, [task.id, slug])
 
   async function handleSendComment(e: React.FormEvent) {
     e.preventDefault()
@@ -107,6 +185,17 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
 
         {/* Details */}
         {tab === 'details' && <div className="flex-1 overflow-y-auto">
+          {/* Back to parent (when viewing a subtask) */}
+          {task.parent && onNavigate && (
+            <button
+              onClick={() => onNavigate(task.parent!)}
+              className="flex items-center gap-1 px-5 py-2.5 text-xs text-muted-foreground hover:text-foreground border-b border-border w-full transition-colors"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Wróć do zadania nadrzędnego
+            </button>
+          )}
+
           {/* Meta info */}
           <div className="px-5 py-4 border-b border-border space-y-3">
             {(task.date_due || task.date_start) && (
@@ -151,9 +240,7 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                 Opis
               </h3>
-              <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                {task.description}
-              </p>
+              <MarkdownLite text={task.description} />
             </div>
           )}
 
@@ -164,12 +251,18 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
                 <CheckSquare className="h-3.5 w-3.5" />
                 Podzadania ({task.children.length})
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {task.children.map(sub => {
                   const subEstimate = formatDuration(sub.time_estimate)
                   const subTracked = formatDuration(sub.trackedTimeMs)
                   return (
-                    <div key={sub.id} className="flex items-center gap-2 text-sm">
+                    <button
+                      key={sub.id}
+                      type="button"
+                      onClick={() => onNavigate?.(sub.id)}
+                      disabled={!onNavigate}
+                      className="w-full flex items-center gap-2 text-sm text-left rounded-md px-2 py-1.5 -mx-2 hover:bg-muted transition-colors disabled:cursor-default disabled:hover:bg-transparent group/sub"
+                    >
                       <div
                         className="h-2 w-2 rounded-full flex-shrink-0"
                         style={{ backgroundColor: getStatusColor(sub.status.status) }}
@@ -190,7 +283,49 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated }: Ta
                       {sub.date_due && (
                         <span className="text-xs text-muted-foreground flex-shrink-0">{formatDate(sub.date_due)}</span>
                       )}
-                    </div>
+                      {onNavigate && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Attachments */}
+          {attachments.length > 0 && (
+            <div className="px-5 py-4 border-b border-border">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <Paperclip className="h-3.5 w-3.5" />
+                Załączniki ({attachments.length})
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {attachments.map(a => {
+                  const thumb = a.thumbnail_large || a.thumbnail_small
+                  return thumb ? (
+                    <a
+                      key={a.id}
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={a.title}
+                      className="block overflow-hidden border border-border hover:opacity-90 transition-opacity"
+                      style={{ height: 80, width: 80, borderRadius: 8 }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={thumb} alt={a.title} style={{ height: 80, width: 80, objectFit: 'cover', display: 'block' }} />
+                    </a>
+                  ) : (
+                    <a
+                      key={a.id}
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={a.title}
+                      className="flex items-center gap-1.5 text-xs text-primary underline px-2 py-1.5 rounded-md border border-border hover:bg-muted"
+                    >
+                      <FileText className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate max-w-[140px]">{a.title}</span>
+                    </a>
                   )
                 })}
               </div>

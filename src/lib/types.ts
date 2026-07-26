@@ -134,3 +134,27 @@ export type ChatMessage = {
   taskCreated?: { id: string; name: string; url: string }
   createdAt: Date
 }
+
+/**
+ * Wpis czasu z ClickUp, endpoint /team/{id}/time_entries.
+ * Tylko pola, których używamy. `user` pomijamy świadomie: klient nie widzi,
+ * kto logował czas.
+ */
+export interface ClickUpTimeEntry {
+  id: string
+  /** Milisekundy jako string. Uruchomiony stoper ma wartość ujemną. */
+  duration: string
+  start: string
+  end: string
+  task: {
+    id: string
+    name: string
+    status: { status: string }
+  } | null
+  /** Stoper odpalony poza zadaniem ma tu wszystkie pola na null. */
+  task_location: {
+    list_id: string | null
+    folder_id: string | null
+    space_id: string | null
+  }
+}

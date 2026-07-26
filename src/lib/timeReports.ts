@@ -25,6 +25,7 @@ import {
   subWeeks,
 } from 'date-fns'
 import { pl } from 'date-fns/locale'
+import type { ClickUpTimeEntry } from './types'
 
 const TZ = 'Europe/Warsaw'
 
@@ -137,4 +138,58 @@ export function shiftPeriod(period: Period, delta: number, now: Date = new Date(
     period.kind === 'tydzien' ? weekFrom(startOfISOWeek(shifted)) : monthFrom(startOfMonth(shifted))
   if (next.startMs >= currentPeriodStart(period.kind, now).getTime()) return null
   return next
+}
+
+export interface ReportRow {
+  taskId: string
+  taskName: string
+  status: string
+  durationMs: number
+}
+
+export interface TimeReport {
+  period: Period
+  totalMs: number
+  rows: ReportRow[]
+}
+
+/** Wiersze krótsze niż minuta wypadają, bo formatDuration zwraca dla nich pusty string. */
+const MIN_ROW_MS = 60_000
+
+/**
+ * Sumuje wpisy czasu po zadaniu. Odrzuca dwa rodzaje śmieci, oba widziane
+ * w prawdziwych danych: uruchomione stopery (ujemny duration) oraz stopery
+ * odpalone poza zadaniem (task_location.folder_id === null).
+ *
+ * Suma całkowita liczy się ze wszystkich poprawnych wpisów, także krótszych
+ * niż minuta, żeby zgadzała się z ClickUp.
+ */
+export function buildReport(period: Period, entries: ClickUpTimeEntry[]): TimeReport {
+  const byTask = new Map<string, ReportRow>()
+  let totalMs = 0
+
+  for (const entry of entries) {
+    const ms = Number(entry.duration)
+    if (!Number.isFinite(ms) || ms <= 0) continue
+    if (!entry.task || !entry.task_location?.folder_id) continue
+
+    totalMs += ms
+    const existing = byTask.get(entry.task.id)
+    if (existing) {
+      existing.durationMs += ms
+    } else {
+      byTask.set(entry.task.id, {
+        taskId: entry.task.id,
+        taskName: entry.task.name,
+        status: entry.task.status.status,
+        durationMs: ms,
+      })
+    }
+  }
+
+  const rows = [...byTask.values()]
+    .filter(row => row.durationMs >= MIN_ROW_MS)
+    .sort((a, b) => b.durationMs - a.durationMs)
+
+  return { period, totalMs, rows }
 }

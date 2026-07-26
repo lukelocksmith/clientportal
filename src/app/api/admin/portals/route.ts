@@ -9,11 +9,64 @@ export async function GET(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const list = await db
-    .select({ id: portals.id, slug: portals.slug, name: portals.name, isActive: portals.isActive })
+    .select({
+      id: portals.id,
+      slug: portals.slug,
+      name: portals.name,
+      isActive: portals.isActive,
+      reportsEnabled: portals.reportsEnabled,
+    })
     .from(portals)
     .orderBy(portals.name)
 
   return NextResponse.json({ portals: list })
+}
+
+const UpdatePortalSchema = z
+  .object({
+    slug: z.string().min(1).max(50),
+    reportsEnabled: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+
+/**
+ * Przełączanie flag portalu. Osobno od POST, bo POST tworzy portal razem
+ * z listami, a tu chodzi o jedno pole.
+ *
+ * Zakładka Raporty startuje wyłączona dla każdego portalu i włącza się tutaj,
+ * z /admin albo curlem z tokenem:
+ *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+ *        -d '{"slug":"onyx","reportsEnabled":true}'
+ */
+export async function PATCH(request: NextRequest) {
+  if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const parsed = UpdatePortalSchema.safeParse(await request.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+  }
+
+  const { slug, ...changes } = parsed.data
+  if (Object.keys(changes).length === 0) {
+    return NextResponse.json({ error: 'Brak pól do zmiany' }, { status: 400 })
+  }
+
+  const [portal] = await db
+    .update(portals)
+    .set(changes)
+    .where(eq(portals.slug, slug))
+    .returning({
+      id: portals.id,
+      slug: portals.slug,
+      name: portals.name,
+      isActive: portals.isActive,
+      reportsEnabled: portals.reportsEnabled,
+    })
+
+  if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
+
+  return NextResponse.json({ portal })
 }
 
 const CreatePortalSchema = z.object({

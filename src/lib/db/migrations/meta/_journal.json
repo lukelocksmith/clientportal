@@ -29,6 +29,13 @@
       "when": 1784651343824,
       "tag": "0003_cynical_vulcan",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785095853597,
+      "tag": "0004_gigantic_paibok",
+      "breakpoints": true
     }
   ]
 }

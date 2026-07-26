@@ -7,15 +7,23 @@ interface PortalHeaderProps {
   slug: string
   portalName: string
   userEmail: string
+  /** Flaga reportsEnabled portalu. Bez niej zakładka Raporty się nie pojawia. */
+  reportsEnabled: boolean
   /** Akcje po prawej stronie. Tablica wstawia tu Alarm, Odśwież i Nowe zadanie. */
   children?: React.ReactNode
 }
 
-export function PortalHeader({ slug, portalName, userEmail, children }: PortalHeaderProps) {
+export function PortalHeader({
+  slug,
+  portalName,
+  userEmail,
+  reportsEnabled,
+  children,
+}: PortalHeaderProps) {
   const pathname = usePathname()
   const tabs = [
     { href: `/${slug}`, label: 'Tablica' },
-    { href: `/${slug}/raporty`, label: 'Raporty' },
+    ...(reportsEnabled ? [{ href: `/${slug}/raporty`, label: 'Raporty' }] : []),
   ]
 
   return (
@@ -35,7 +43,9 @@ export function PortalHeader({ slug, portalName, userEmail, children }: PortalHe
           </div>
         </div>
 
-        <nav className="flex gap-1">
+        {/* Jedna zakładka to nie nawigacja, więc przy wyłączonych raportach
+            header wygląda dokładnie jak przed dodaniem zakładek. */}
+        <nav className={cn('flex gap-1', tabs.length < 2 && 'hidden')}>
           {tabs.map(tab => {
             // Tablica jest aktywna tylko przy dokładnym trafieniu, inaczej
             // podświetlałaby się także na podstronach.

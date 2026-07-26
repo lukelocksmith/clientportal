@@ -8,6 +8,12 @@ export const portals = pgTable('portals', {
   clickupSpaceId: text('clickup_space_id').notNull().default('90100136256'),
   logoUrl: text('logo_url'),
   isActive: boolean('is_active').notNull().default(true),
+  /**
+   * Zakładka Raporty. Domyślnie WYŁĄCZONA, włączana per projekt w /admin
+   * albo przez PATCH /api/admin/portals. Nowe portale startują bez raportów,
+   * żeby funkcja mogła pojechać na produkcję przed decyzją o jej pokazaniu.
+   */
+  reportsEnabled: boolean('reports_enabled').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

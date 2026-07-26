@@ -44,6 +44,10 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
   const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
   if (!portal) redirect('/')
 
+  // Brama po stronie serwera. Ukrycie zakładki w headerze to tylko kosmetyka,
+  // adres musi być zamknięty także dla kogoś, kto wpisze go z ręki.
+  if (!portal.reportsEnabled) redirect(`/${slug}`)
+
   const raw = await searchParams
   const { typ: kind, okres } = searchSchema.parse({ typ: first(raw.typ), okres: first(raw.okres) })
 
@@ -61,7 +65,12 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
 
   return (
     <div className="min-h-screen bg-background">
-      <PortalHeader slug={slug} portalName={portal.name} userEmail={session.email} />
+      <PortalHeader
+        slug={slug}
+        portalName={portal.name}
+        userEmail={session.email}
+        reportsEnabled
+      />
       <ReportView
         slug={slug}
         kind={kind}

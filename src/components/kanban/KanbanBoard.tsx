@@ -30,6 +30,7 @@ interface KanbanBoardProps {
   slug: string
   portalName: string
   userEmail: string
+  reportsEnabled: boolean
 }
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 }
@@ -79,7 +80,7 @@ function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
   }))
 }
 
-export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: KanbanBoardProps) {
+export function KanbanBoard({ initialTasks, slug, portalName, userEmail, reportsEnabled }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<ClickUpTask[]>(initialTasks)
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
@@ -171,7 +172,12 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
-      <PortalHeader slug={slug} portalName={portalName} userEmail={userEmail}>
+      <PortalHeader
+        slug={slug}
+        portalName={portalName}
+        userEmail={userEmail}
+        reportsEnabled={reportsEnabled}
+      >
         <PanicButton slug={slug} />
 
         <button

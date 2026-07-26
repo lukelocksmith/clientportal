@@ -1,0 +1,1 @@
+ALTER TABLE "portals" ADD COLUMN "reports_enabled" boolean DEFAULT false NOT NULL;

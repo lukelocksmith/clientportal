@@ -96,36 +96,21 @@ export function ReportView({
                 <TableBody>
                   {report.rows.map(row => (
                     <TableRow key={row.taskId}>
-                      {/* Narzut za organizację pracy nie jest zadaniem z ClickUp:
-                          nie ma statusu i jest przygaszony, żeby klient widział
-                          różnicę między pracą a doliczoną pozycją. */}
-                      <TableCell
-                        className={`whitespace-normal pr-4 ${
-                          row.isOverhead ? 'text-muted-foreground' : 'font-medium text-foreground'
-                        }`}
-                      >
+                      <TableCell className="whitespace-normal pr-4 font-medium text-foreground">
                         {row.taskName}
                       </TableCell>
                       <TableCell>
-                        {row.isOverhead ? (
-                          <span className="text-muted-foreground">10%</span>
-                        ) : (
-                          <span
-                            className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                            style={{
-                              backgroundColor: `${getStatusColor(row.status)}1f`,
-                              color: getStatusColor(row.status),
-                            }}
-                          >
-                            {row.status}
-                          </span>
-                        )}
+                        <span
+                          className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                          style={{
+                            backgroundColor: `${getStatusColor(row.status)}1f`,
+                            color: getStatusColor(row.status),
+                          }}
+                        >
+                          {row.status}
+                        </span>
                       </TableCell>
-                      <TableCell
-                        className={`text-right tabular-nums ${
-                          row.isOverhead ? 'text-muted-foreground' : 'text-foreground'
-                        }`}
-                      >
+                      <TableCell className="text-right tabular-nums text-foreground">
                         {formatDuration(row.durationMs)}
                       </TableCell>
                     </TableRow>

@@ -40,7 +40,9 @@ assert.deepEqual(
 // Narzut jest zawsze ostatni, poza sortowaniem po czasie, i oznaczony.
 const last = report.rows[report.rows.length - 1]
 assert.equal(last.isOverhead, true)
-assert.equal(last.status, '')
+// Status musi być prawdziwym statusem przestrzeni ClickUp, żeby wiersz
+// wyglądał jak każdy inny i dostał kolor z getStatusColor.
+assert.equal(last.status, 'zrobione')
 assert.ok(last.taskName.startsWith('Organizacja pracy i komunikacja'))
 assert.ok(!report.rows.slice(0, -1).some(r => r.isOverhead))
 assert.equal(report.rows[0].taskName, '[onyx] Warianty z baselinker - Wielowariantowość')

@@ -175,6 +175,14 @@ const OVERHEAD_LABEL =
   'Organizacja pracy i komunikacja wewnątrz zespołu projektowego, planowanie i nadzór nad zadaniami, raportowanie postępów, wystawianie zadań i weryfikacja wykonania'
 
 /**
+ * Status pokazywany przy pozycji narzutu. Musi być jednym ze statusów
+ * przestrzeni ClickUp, żeby wiersz wyglądał jak każdy inny i dostał kolor
+ * z getStatusColor. Praca organizacyjna za zamknięty okres jest wykonana,
+ * więc "zrobione".
+ */
+const OVERHEAD_STATUS = 'zrobione'
+
+/**
  * Narzut obcinany W DÓŁ do pełnych minut, nie zaokrąglany.
  * Tak liczy generator w Notion: 1237 min daje 123 min (123,7), a 485 min
  * daje 48 min (48,5). Zwykłe zaokrąglanie dałoby 49 i rozjechałoby portal
@@ -229,7 +237,7 @@ export function buildReport(period: Period, entries: ClickUpTimeEntry[]): TimeRe
     rows.push({
       taskId: 'overhead',
       taskName: OVERHEAD_LABEL,
-      status: '',
+      status: OVERHEAD_STATUS,
       durationMs: overheadMs,
       isOverhead: true,
     })

@@ -178,7 +178,7 @@ Reguła potwierdzona na pięciu projektach za czerwiec 2026:
 
 **Zaokrąglanie: obcięcie w dół do pełnych minut, nie zaokrąglenie.** 48,5 daje 48, a nie 49. Zwykłe zaokrąglanie rozjechałoby portal z fakturą o minutę na części projektów.
 
-Prezentacja: pozycja doklejona jako ostatni wiersz tabeli, poza sortowaniem po czasie, z pełną nazwą jak w Notion, przygaszona, z „10%" w kolumnie statusu zamiast plakietki. Suma „Łącznie" obejmuje narzut.
+Prezentacja: pozycja doklejona jako ostatni wiersz tabeli, poza sortowaniem po czasie, z pełną nazwą jak w Notion, ze statusem „zrobione" jak każde inne zadanie (stała OVERHEAD_STATUS). Suma „Łącznie" obejmuje narzut.
 
 `TimeReport` rozbija to na trzy wartości: `taskMs` (czas zadań), `overheadMs` (narzut) i `totalMs` (suma). Narzut poniżej minuty nie dostaje wiersza.
 

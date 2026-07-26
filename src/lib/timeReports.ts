@@ -145,11 +145,19 @@ export interface ReportRow {
   taskName: string
   status: string
   durationMs: number
+  /** Pozycja doliczona (organizacja pracy), nie prawdziwe zadanie z ClickUp. */
+  isOverhead?: boolean
 }
 
 export interface TimeReport {
   period: Period
+  /** Czas zalogowany na zadaniach, bez narzutu. */
+  taskMs: number
+  /** Narzut za organizację pracy, 10% czasu zadań. */
+  overheadMs: number
+  /** taskMs + overheadMs. To jest kwota, którą klient widzi na fakturze. */
   totalMs: number
+  /** Zadania malejąco, a na końcu pozycja narzutu, jeśli sięga minuty. */
   rows: ReportRow[]
 }
 
@@ -157,23 +165,46 @@ export interface TimeReport {
 const MIN_ROW_MS = 60_000
 
 /**
- * Sumuje wpisy czasu po zadaniu. Odrzuca dwa rodzaje śmieci, oba widziane
- * w prawdziwych danych: uruchomione stopery (ujemny duration) oraz stopery
- * odpalone poza zadaniem (task_location.folder_id === null).
+ * Narzut za organizację pracy doliczany do każdego rozliczenia.
+ * Nazwa i stawka odwzorowują generator raportów w CRM (Notion, baza
+ * "płatnosći important"), żeby portal pokazywał to samo, co klient dostaje
+ * mailem i na fakturze.
+ */
+const OVERHEAD_RATE = 0.1
+const OVERHEAD_LABEL =
+  'Organizacja pracy i komunikacja wewnątrz zespołu projektowego, planowanie i nadzór nad zadaniami, raportowanie postępów, wystawianie zadań i weryfikacja wykonania'
+
+/**
+ * Narzut obcinany W DÓŁ do pełnych minut, nie zaokrąglany.
+ * Tak liczy generator w Notion: 1237 min daje 123 min (123,7), a 485 min
+ * daje 48 min (48,5). Zwykłe zaokrąglanie dałoby 49 i rozjechałoby portal
+ * z fakturą o minutę na części projektów.
+ */
+function overheadFor(taskMs: number): number {
+  return Math.floor((taskMs * OVERHEAD_RATE) / 60_000) * 60_000
+}
+
+/**
+ * Sumuje wpisy czasu po zadaniu i dokleja narzut za organizację pracy.
  *
- * Suma całkowita liczy się ze wszystkich poprawnych wpisów, także krótszych
- * niż minuta, żeby zgadzała się z ClickUp.
+ * Odrzuca dwa rodzaje śmieci, oba widziane w prawdziwych danych: uruchomione
+ * stopery (ujemny duration) oraz stopery odpalone poza zadaniem
+ * (task_location.folder_id === null).
+ *
+ * taskMs liczy się ze wszystkich poprawnych wpisów, także krótszych niż
+ * minuta, żeby zgadzało się z ClickUp. Z listy wierszy takie zadania wypadają,
+ * bo formatDuration pokazałby dla nich pustą komórkę.
  */
 export function buildReport(period: Period, entries: ClickUpTimeEntry[]): TimeReport {
   const byTask = new Map<string, ReportRow>()
-  let totalMs = 0
+  let taskMs = 0
 
   for (const entry of entries) {
     const ms = Number(entry.duration)
     if (!Number.isFinite(ms) || ms <= 0) continue
     if (!entry.task || !entry.task_location?.folder_id) continue
 
-    totalMs += ms
+    taskMs += ms
     const existing = byTask.get(entry.task.id)
     if (existing) {
       existing.durationMs += ms
@@ -191,5 +222,18 @@ export function buildReport(period: Period, entries: ClickUpTimeEntry[]): TimeRe
     .filter(row => row.durationMs >= MIN_ROW_MS)
     .sort((a, b) => b.durationMs - a.durationMs)
 
-  return { period, totalMs, rows }
+  const overheadMs = overheadFor(taskMs)
+
+  // Narzut zawsze na końcu, poza sortowaniem po czasie, bo to nie zadanie.
+  if (overheadMs >= MIN_ROW_MS) {
+    rows.push({
+      taskId: 'overhead',
+      taskName: OVERHEAD_LABEL,
+      status: '',
+      durationMs: overheadMs,
+      isOverhead: true,
+    })
+  }
+
+  return { period, taskMs, overheadMs, totalMs: taskMs + overheadMs, rows }
 }

@@ -158,6 +158,36 @@ Znany dobry punkt odniesienia: Onyx, 13-19 lipca 2026, suma 3h 52m na trzech zad
 
 - `CLICKUP_TEAM_ID` (wartość `4552118`), lokalnie w `.env.local`, na produkcji w env Coolify.
 
+## Narzut za organizację pracy (dopisane 2026-07-26 po weryfikacji w CRM)
+
+Raporty rozliczeniowe w Notion (baza `płatnosći important`, CRM → Baza → Płatności) doklejają do każdego projektu pozycję:
+
+> Organizacja pracy i komunikacja wewnątrz zespołu projektowego, planowanie i nadzór nad zadaniami, raportowanie postępów, wystawianie zadań i weryfikacja wykonania
+
+równą **10% zsumowanego czasu zadań**, i ta suma jest podstawą faktury. Portal musi pokazywać to samo, inaczej klient widzi w portalu inną liczbę niż na fakturze.
+
+Reguła potwierdzona na pięciu projektach za czerwiec 2026:
+
+| Projekt | Czas zadań | Narzut w Notion | 10% |
+|---|---|---|---|
+| Instytut TUS | 990 min | 99 min | 99,0 |
+| Onyx | 1237 min | 123 min | 123,7 |
+| WDF | 8258 min | 825 min | 825,8 |
+| Elko Kazanów | 485 min | 48 min | 48,5 |
+| IGTSF | 97 min | 9 min | 9,7 |
+
+**Zaokrąglanie: obcięcie w dół do pełnych minut, nie zaokrąglenie.** 48,5 daje 48, a nie 49. Zwykłe zaokrąglanie rozjechałoby portal z fakturą o minutę na części projektów.
+
+Prezentacja: pozycja doklejona jako ostatni wiersz tabeli, poza sortowaniem po czasie, z pełną nazwą jak w Notion, przygaszona, z „10%" w kolumnie statusu zamiast plakietki. Suma „Łącznie" obejmuje narzut.
+
+`TimeReport` rozbija to na trzy wartości: `taskMs` (czas zadań), `overheadMs` (narzut) i `totalMs` (suma). Narzut poniżej minuty nie dostaje wiersza.
+
+### Znana rozbieżność z generatorem w Notion
+
+Generator raportów w Notion liczy granice okresu **w UTC**, portal liczy je **w Europe/Warsaw**. Skutek: wpis czasu startujący 30 czerwca o 22:59 UTC, czyli 1 lipca o 00:59 w Warszawie, trafia w Notion do czerwca, a w portalu do lipca. Dla Onyx za czerwiec 2026 daje to 20h 37m w Notion i 20h 19m w portalu.
+
+Decyzja: **portal zostaje przy strefie warszawskiej, bo liczy poprawnie.** Do poprawy jest generator w Notion, co jest osobną robotą w innym systemie. Do czasu poprawki portal może różnić się od faktury o kilkanaście minut na styku okresów.
+
 ## Poza zakresem
 
 Eksport do PDF i CSV, wykresy, podział czasu na osoby, bieżący okres, klikalne wiersze, wysyłka raportu mailem na koniec tygodnia, migracja pozostałych ekranów na shadcn.

@@ -34,14 +34,20 @@ async function main() {
   const entries = await getTimeEntries(ONYX_FOLDER, period.startMs, period.endMs)
   const report = buildReport(period, entries)
 
-  console.log(`okres:    ${report.period.label}`)
-  console.log(`łącznie:  ${formatDuration(report.totalMs)}`)
+  console.log(`okres:        ${report.period.label}`)
+  console.log(`czas zadań:   ${formatDuration(report.taskMs)}`)
+  console.log(`organizacja:  ${formatDuration(report.overheadMs)}`)
+  console.log(`razem:        ${formatDuration(report.totalMs)}`)
   for (const row of report.rows) {
-    console.log(`  ${formatDuration(row.durationMs).padStart(8)}  [${row.status}]  ${row.taskName}`)
+    const tag = row.isOverhead ? '[10%]' : `[${row.status}]`
+    console.log(`  ${formatDuration(row.durationMs).padStart(8)}  ${tag}  ${row.taskName.slice(0, 60)}`)
   }
 
   assert.ok(report.rows.length > 0, 'spodziewane wpisy czasu w tym tygodniu')
-  assert.equal(formatDuration(report.totalMs), '3h 52m')
+  // 3h 52m to 232 min, narzut 10% obcięty w dół daje 23 min, razem 255 min.
+  assert.equal(formatDuration(report.taskMs), '3h 52m')
+  assert.equal(formatDuration(report.overheadMs), '23m')
+  assert.equal(formatDuration(report.totalMs), '4h 15m')
 
   // Izolacja klienta: każdy wpis ma pochodzić z folderu, o który pytaliśmy.
   for (const entry of entries) {

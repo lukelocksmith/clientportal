@@ -81,31 +81,51 @@ export function ReportView({
               W tym okresie nie zalogowano czasu.
             </p>
           ) : (
-            <div className="mt-6 overflow-x-auto">
-              <Table>
+            <div className="mt-6">
+              {/* table-fixed plus whitespace-normal na nazwie: bez tego domyślny
+                  whitespace-nowrap z shadcn rozpycha tabelę długą nazwą pozycji
+                  narzutu i wypycha kolumny Status oraz Czas za krawędź ekranu. */}
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Zadanie</TableHead>
-                    <TableHead className="w-32">Status</TableHead>
-                    <TableHead className="w-24 text-right">Czas</TableHead>
+                    <TableHead className="w-28">Status</TableHead>
+                    <TableHead className="w-20 text-right">Czas</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {report.rows.map(row => (
                     <TableRow key={row.taskId}>
-                      <TableCell className="font-medium text-foreground">{row.taskName}</TableCell>
-                      <TableCell>
-                        <span
-                          className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                          style={{
-                            backgroundColor: `${getStatusColor(row.status)}1f`,
-                            color: getStatusColor(row.status),
-                          }}
-                        >
-                          {row.status}
-                        </span>
+                      {/* Narzut za organizację pracy nie jest zadaniem z ClickUp:
+                          nie ma statusu i jest przygaszony, żeby klient widział
+                          różnicę między pracą a doliczoną pozycją. */}
+                      <TableCell
+                        className={`whitespace-normal pr-4 ${
+                          row.isOverhead ? 'text-muted-foreground' : 'font-medium text-foreground'
+                        }`}
+                      >
+                        {row.taskName}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums text-foreground">
+                      <TableCell>
+                        {row.isOverhead ? (
+                          <span className="text-muted-foreground">10%</span>
+                        ) : (
+                          <span
+                            className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                            style={{
+                              backgroundColor: `${getStatusColor(row.status)}1f`,
+                              color: getStatusColor(row.status),
+                            }}
+                          >
+                            {row.status}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right tabular-nums ${
+                          row.isOverhead ? 'text-muted-foreground' : 'text-foreground'
+                        }`}
+                      >
                         {formatDuration(row.durationMs)}
                       </TableCell>
                     </TableRow>

@@ -1,4 +1,4 @@
-import type { ClickUpTask, ClickUpComment, ClickUpStatus, PortalList } from './types'
+import type { ClickUpTask, ClickUpComment, ClickUpStatus, PortalList, ClickUpTimeEntry } from './types'
 
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 const TOKEN = process.env.CLICKUP_API_TOKEN!
@@ -184,4 +184,64 @@ export async function verifyTaskBelongsToFolder(
   } catch {
     return false
   }
+}
+
+/**
+ * Id wszystkich członków workspace, potrzebne jako parametr `assignee`
+ * dla time_entries. Cache w module, bo skład zespołu zmienia się rzadko,
+ * a lista jest potrzebna przy każdym raporcie.
+ */
+let cachedMemberIds: string[] | null = null
+
+export async function getWorkspaceMemberIds(): Promise<string[]> {
+  if (cachedMemberIds) return cachedMemberIds
+
+  const teamId = process.env.CLICKUP_TEAM_ID
+  if (!teamId) throw new Error('Brak CLICKUP_TEAM_ID w env')
+
+  const data = await clickupFetch<{
+    teams: Array<{ id: string; members: Array<{ user: { id: number } }> }>
+  }>('/team')
+
+  const team = data.teams?.find(t => t.id === teamId)
+  if (!team) throw new Error(`ClickUp: workspace ${teamId} niedostępny dla tego tokena`)
+
+  cachedMemberIds = team.members.map(m => String(m.user.id))
+  return cachedMemberIds
+}
+
+/**
+ * Wpisy czasu dla jednego folderu klienta w podanym zakresie.
+ *
+ * Dwie rzeczy, które łatwo zgubić przy refaktorze:
+ *
+ * 1. `assignee` jest OBOWIĄZKOWE. Bez tego parametru ClickUp zwraca wyłącznie
+ *    wpisy właściciela tokena. Ten sam zakres dat daje 1 wpis bez assignee
+ *    i 72 wpisy z listą wszystkich członków.
+ * 2. `folder_id` jest granicą bezpieczeństwa między klientami. Wartość musi
+ *    pochodzić z rekordu portalu w bazie, nigdy z URL-a.
+ */
+export async function getTimeEntries(
+  folderId: string,
+  startMs: number,
+  endMs: number
+): Promise<ClickUpTimeEntry[]> {
+  const teamId = process.env.CLICKUP_TEAM_ID
+  if (!teamId) throw new Error('Brak CLICKUP_TEAM_ID w env')
+
+  const assignee = (await getWorkspaceMemberIds()).join(',')
+  const params = new URLSearchParams({
+    start_date: String(startMs),
+    end_date: String(endMs),
+    folder_id: folderId,
+    assignee,
+  })
+
+  // Zamknięty okres się nie zmienia, ale ktoś może dopisać czas wstecz,
+  // więc pięć minut zamiast cache'owania na zawsze.
+  const data = await clickupFetch<{ data: ClickUpTimeEntry[] }>(
+    `/team/${teamId}/time_entries?${params.toString()}`,
+    { next: { revalidate: 300 } }
+  )
+  return data.data ?? []
 }

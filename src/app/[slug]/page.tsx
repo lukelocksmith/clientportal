@@ -38,6 +38,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
       initialTasks={tasks}
       slug={slug}
       portalName={portal[0].name}
+      reportsEnabled={portal[0].reportsEnabled}
       userEmail={session.email}
     />
   )

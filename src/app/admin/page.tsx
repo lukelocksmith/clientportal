@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3 } from 'lucide-react'
 
-type Portal = { id: string; slug: string; name: string; isActive: boolean }
+type Portal = { id: string; slug: string; name: string; isActive: boolean; reportsEnabled: boolean }
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {
   totals: Stat
@@ -146,6 +146,26 @@ export default function AdminPage() {
     setShowCreatePortal(false)
     setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256', listId: '', listName: '' })
     load()
+  }
+
+  /**
+   * Włącza albo wyłącza zakładkę Raporty dla jednego projektu.
+   * Optymistycznie odbija checkbox, żeby nie czekać na przeładowanie listy,
+   * i cofa go, gdy zapis się nie udał.
+   */
+  async function toggleReports(portal: Portal) {
+    const next = !portal.reportsEnabled
+    setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, reportsEnabled: next } : p)))
+
+    const res = await fetch('/api/admin/portals', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: portal.slug, reportsEnabled: next }),
+    })
+
+    if (!res.ok) {
+      setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, reportsEnabled: !next } : p)))
+    }
   }
 
   async function toggleActive(user: User) {
@@ -356,7 +376,18 @@ export default function AdminPage() {
               >
                 ↗ otwórz portal
               </a>
-              <span className="text-xs text-muted-foreground ml-auto">{pu.length} użytkownik{pu.length === 1 ? '' : pu.length < 5 ? 'i' : 'ów'}</span>
+              {/* Zakładka Raporty jest domyślnie wyłączona dla każdego portalu
+                  i włącza się tutaj, osobno dla każdego projektu. */}
+              <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
+                <input
+                  type="checkbox"
+                  checked={portal.reportsEnabled}
+                  onChange={() => toggleReports(portal)}
+                  className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                />
+                Raporty
+              </label>
+              <span className="text-xs text-muted-foreground">{pu.length} użytkownik{pu.length === 1 ? '' : pu.length < 5 ? 'i' : 'ów'}</span>
             </div>
 
             <div className="bg-card rounded-xl border border-border overflow-hidden">

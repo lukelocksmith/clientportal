@@ -21,6 +21,7 @@ interface Props {
   slug: string
   portalName: string
   userEmail: string
+  reportsEnabled: boolean
 }
 
 export function KanbanBoardClient(props: Props) {

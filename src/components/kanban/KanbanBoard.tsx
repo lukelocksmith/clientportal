@@ -20,6 +20,7 @@ import { Plus, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
 import { PanicButton } from './PanicButton'
+import { PortalHeader } from '@/components/PortalHeader'
 
 // Space-level statuses — consistent across all client lists
 const COLUMN_ORDER = ['backlog', 'do zrobienia', 'w trakcie', 'zablokowane', 'zrobione', 'zamknięte']
@@ -29,6 +30,7 @@ interface KanbanBoardProps {
   slug: string
   portalName: string
   userEmail: string
+  reportsEnabled: boolean
 }
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 }
@@ -78,7 +80,7 @@ function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
   }))
 }
 
-export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: KanbanBoardProps) {
+export function KanbanBoard({ initialTasks, slug, portalName, userEmail, reportsEnabled }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<ClickUpTask[]>(initialTasks)
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
@@ -170,38 +172,31 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail }: Kanba
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-            {portalName[0]?.toUpperCase()}
-          </div>
-          <div>
-            <h1 className="font-semibold text-foreground">{portalName}</h1>
-            <p className="text-xs text-muted-foreground">{userEmail}</p>
-          </div>
-        </div>
+      <PortalHeader
+        slug={slug}
+        portalName={portalName}
+        userEmail={userEmail}
+        reportsEnabled={reportsEnabled}
+      >
+        <PanicButton slug={slug} />
 
-        <div className="flex items-center gap-2">
-          <PanicButton slug={slug} />
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-md hover:bg-muted disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Odśwież
+        </button>
 
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-md hover:bg-muted disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Odśwież
-          </button>
-
-          <button
-            onClick={() => openChat('new-task')}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Nowe zadanie
-          </button>
-        </div>
-      </header>
+        <button
+          onClick={() => openChat('new-task')}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Nowe zadanie
+        </button>
+      </PortalHeader>
 
       {/* Board */}
       <div className="flex-1 overflow-x-auto">

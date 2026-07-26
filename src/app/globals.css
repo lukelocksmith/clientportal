@@ -17,6 +17,10 @@
   --color-muted-foreground: #64748b;
   --color-accent: #f1f5f9;
   --color-accent-foreground: #1e293b;
+  /* popover: używane przez shadcn dropdown-menu. Bez tych tokenów lista
+     okresów w raportach byłaby przezroczysta. */
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0f172a;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #f8fafc;
   --color-border: #e2e8f0;
@@ -38,6 +42,8 @@
   --color-muted-foreground: #94a3b8;
   --color-accent: #1e293b;
   --color-accent-foreground: #f8fafc;
+  --color-popover: #1e293b;
+  --color-popover-foreground: #f8fafc;
   --color-destructive: #dc2626;
   --color-destructive-foreground: #f8fafc;
   --color-border: #1e293b;

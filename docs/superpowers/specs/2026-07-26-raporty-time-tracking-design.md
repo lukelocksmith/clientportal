@@ -105,6 +105,7 @@ Header portalu (awatar, nazwa, email użytkownika) jest dzisiaj wklejony w środ
 - Kanban przekazuje jako `children` swoje przyciski: Alarm, Nowe zadanie, odświeżenie.
 - Raporty nie przekazują nic.
 - Aktywna zakładka rozpoznawana po `usePathname`.
+- Wszystko w jednym rzędzie: tożsamość, zakładki, akcje. Akcje trzymane po prawej przez `ml-auto`, żeby zakładki zostały przy logo także na stronie bez akcji.
 
 Około 30 przeniesionych linii. To jedyny istniejący plik komponentu, który zmieniamy. Header nie może wejść do `[slug]/layout.tsx`, bo pod tym layoutem siedzi też strona logowania.
 

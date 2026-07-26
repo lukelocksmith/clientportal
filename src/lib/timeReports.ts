@@ -163,8 +163,22 @@ export interface TimeReport {
   rows: ReportRow[]
 }
 
-/** Wiersze krótsze niż minuta wypadają, bo formatDuration zwraca dla nich pusty string. */
-const MIN_ROW_MS = 60_000
+const MINUTE_MS = 60_000
+
+/**
+ * Zaokrąglenie do pełnych minut, tak samo jak robi to formatDuration przy
+ * wyświetlaniu. Kwantyzujemy U ŹRÓDŁA, a nie przy renderowaniu, żeby suma
+ * wierszy widocznych na ekranie zawsze równała się pokazanej sumie.
+ *
+ * Bez tego pojawiały się dwa rozjazdy naraz: zadania krótsze niż minuta
+ * wypadały z listy, ale ich czas wchodził do sumy, a przy stu wierszach
+ * osobne zaokrąglanie każdego z nich potrafiło rozjechać sumę o kilka minut.
+ * Zmierzone na prawdziwych danych: WDF, tydzień 29, kolumna Czas dawała
+ * 22h 32m przy sumie 22h 34m.
+ */
+function toWholeMinutes(ms: number): number {
+  return Math.round(ms / MINUTE_MS) * MINUTE_MS
+}
 
 /**
  * Narzut za organizację pracy doliczany do każdego rozliczenia.
@@ -191,7 +205,7 @@ const OVERHEAD_STATUS = 'zrobione'
  * z fakturą o minutę na części projektów.
  */
 function overheadFor(taskMs: number): number {
-  return Math.floor((taskMs * OVERHEAD_RATE) / 60_000) * 60_000
+  return Math.floor((taskMs * OVERHEAD_RATE) / MINUTE_MS) * MINUTE_MS
 }
 
 /**
@@ -201,25 +215,26 @@ function overheadFor(taskMs: number): number {
  * stopery (ujemny duration) oraz stopery odpalone poza zadaniem
  * (task_location.folder_id === null).
  *
- * taskMs liczy się ze wszystkich poprawnych wpisów, także krótszych niż
- * minuta, żeby zgadzało się z ClickUp. Z listy wierszy takie zadania wypadają,
- * bo formatDuration pokazałby dla nich pustą komórkę.
+ * Wpisy sumujemy w milisekundach, ale czas każdego zadania kwantyzujemy do
+ * pełnych minut, a taskMs liczymy jako sumę tych zaokrąglonych wartości.
+ * Dzięki temu kolumna Czas na ekranie sumuje się dokładnie do pokazanej sumy.
+ * Zadania krótsze niż pół minuty zaokrąglają się do zera i wypadają zupełnie,
+ * także z sumy, bo pokazywanie pustej komórki albo doliczanie niewidocznych
+ * sekund byłoby gorsze niż pominięcie kilkunastu sekund pracy.
  */
 export function buildReport(period: Period, entries: ClickUpTimeEntry[]): TimeReport {
-  const byTask = new Map<string, ReportRow>()
-  let taskMs = 0
+  const rawByTask = new Map<string, ReportRow>()
 
   for (const entry of entries) {
     const ms = Number(entry.duration)
     if (!Number.isFinite(ms) || ms <= 0) continue
     if (!entry.task || !entry.task_location?.folder_id) continue
 
-    taskMs += ms
-    const existing = byTask.get(entry.task.id)
+    const existing = rawByTask.get(entry.task.id)
     if (existing) {
       existing.durationMs += ms
     } else {
-      byTask.set(entry.task.id, {
+      rawByTask.set(entry.task.id, {
         taskId: entry.task.id,
         taskName: entry.task.name,
         status: entry.task.status.status,
@@ -228,14 +243,16 @@ export function buildReport(period: Period, entries: ClickUpTimeEntry[]): TimeRe
     }
   }
 
-  const rows = [...byTask.values()]
-    .filter(row => row.durationMs >= MIN_ROW_MS)
+  const rows = [...rawByTask.values()]
+    .map(row => ({ ...row, durationMs: toWholeMinutes(row.durationMs) }))
+    .filter(row => row.durationMs > 0)
     .sort((a, b) => b.durationMs - a.durationMs)
 
+  const taskMs = rows.reduce((sum, row) => sum + row.durationMs, 0)
   const overheadMs = overheadFor(taskMs)
 
   // Narzut zawsze na końcu, poza sortowaniem po czasie, bo to nie zadanie.
-  if (overheadMs >= MIN_ROW_MS) {
+  if (overheadMs > 0) {
     rows.push({
       taskId: 'overhead',
       taskName: OVERHEAD_LABEL,

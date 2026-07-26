@@ -1,0 +1,76 @@
+import { redirect } from 'next/navigation'
+import { z } from 'zod'
+import { eq } from 'drizzle-orm'
+import { getSession } from '@/lib/auth'
+import { db } from '@/lib/db'
+import { portals } from '@/lib/db/schema'
+import { getTimeEntries } from '@/lib/clickup'
+import {
+  buildReport,
+  listPeriods,
+  parsePeriodKey,
+  shiftPeriod,
+  type TimeReport,
+} from '@/lib/timeReports'
+import { ReportView } from '@/components/reports/ReportView'
+import { PortalHeader } from '@/components/PortalHeader'
+
+interface RaportyPageProps {
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
+
+/**
+ * Cokolwiek niepoprawnego w URL cicho wraca do domyślnego okresu, zamiast
+ * zwracać 404. Podesłany klientowi link nigdy nie ma umrzeć.
+ */
+const searchSchema = z.object({
+  typ: z.enum(['tydzien', 'miesiac']).catch('tydzien'),
+  okres: z.string().max(16).optional().catch(undefined),
+})
+
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+export default async function RaportyPage({ params, searchParams }: RaportyPageProps) {
+  const { slug } = await params
+
+  const session = await getSession(slug)
+  if (!session || session.portalSlug !== slug) {
+    redirect(`/${slug}/login`)
+  }
+
+  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
+  if (!portal) redirect('/')
+
+  const raw = await searchParams
+  const { typ: kind, okres } = searchSchema.parse({ typ: first(raw.typ), okres: first(raw.okres) })
+
+  const periods = listPeriods(kind, 12)
+  const period = (okres ? parsePeriodKey(kind, okres) : null) ?? periods[0]
+
+  let report: TimeReport | null = null
+  try {
+    // folderId pochodzi z bazy, nie z URL-a. To granica między klientami.
+    const entries = await getTimeEntries(portal.clickupFolderId, period.startMs, period.endMs)
+    report = buildReport(period, entries)
+  } catch (error) {
+    console.error('[raporty] ClickUp nie odpowiedział:', error)
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <PortalHeader slug={slug} portalName={portal.name} userEmail={session.email} />
+      <ReportView
+        slug={slug}
+        kind={kind}
+        periods={periods}
+        period={period}
+        report={report}
+        olderKey={shiftPeriod(period, -1)?.key ?? null}
+        newerKey={shiftPeriod(period, 1)?.key ?? null}
+      />
+    </div>
+  )
+}

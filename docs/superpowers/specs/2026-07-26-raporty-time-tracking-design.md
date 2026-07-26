@@ -47,7 +47,7 @@ type PeriodKind = 'tydzien' | 'miesiac'
 interface Period {
   kind: PeriodKind
   key: string        // '2026-W29' albo '2026-07'
-  label: string      // '13-19 lipca 2026' albo 'czerwiec 2026'
+  label: string      // '13-19 lipca 2026 (tyg. 29)' albo 'czerwiec 2026'
   startMs: number
   endMs: number
 }

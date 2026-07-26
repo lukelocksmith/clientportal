@@ -46,19 +46,21 @@ function inWarsaw(now: Date): TZDate {
   return new TZDate(now.getTime(), TZ)
 }
 
-function formatWeekLabel(start: Date, end: Date): string {
-  if (isSameMonth(start, end)) {
-    return `${format(start, 'd')}-${format(end, 'd MMMM yyyy', { locale: pl })}`
-  }
-  return `${format(start, 'd MMM', { locale: pl })} - ${format(end, 'd MMM yyyy', { locale: pl })}`
+/** Numer tygodnia dopisany na końcu, bo klient rozlicza się tygodniami ISO. */
+function formatWeekLabel(start: Date, end: Date, weekNumber: number): string {
+  const range = isSameMonth(start, end)
+    ? `${format(start, 'd')}-${format(end, 'd MMMM yyyy', { locale: pl })}`
+    : `${format(start, 'd MMM', { locale: pl })} - ${format(end, 'd MMM yyyy', { locale: pl })}`
+  return `${range} (tyg. ${weekNumber})`
 }
 
 function weekFrom(start: Date): Period {
   const end = endOfISOWeek(start)
+  const weekNumber = getISOWeek(start)
   return {
     kind: 'tydzien',
-    key: `${getISOWeekYear(start)}-W${String(getISOWeek(start)).padStart(2, '0')}`,
-    label: formatWeekLabel(start, end),
+    key: `${getISOWeekYear(start)}-W${String(weekNumber).padStart(2, '0')}`,
+    label: formatWeekLabel(start, end, weekNumber),
     startMs: start.getTime(),
     endMs: end.getTime(),
   }

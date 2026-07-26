@@ -20,7 +20,7 @@ const ref = new Date('2026-07-26T12:00:00+02:00')
   assert.equal(weeks[0].key, '2026-W29')
   assert.equal(weeks[0].startMs, 1783893600000)
   assert.equal(weeks[0].endMs, 1784498399999)
-  assert.equal(weeks[0].label, '13-19 lipca 2026')
+  assert.equal(weeks[0].label, '13-19 lipca 2026 (tyg. 29)')
   assert.equal(weeks[1].key, '2026-W28')
   // Bieżący tydzień nie pojawia się na liście.
   assert.ok(!weeks.some(w => w.key === '2026-W30'))
@@ -67,7 +67,7 @@ const ref = new Date('2026-07-26T12:00:00+02:00')
 {
   // Etykieta tygodnia przechodzącego między miesiącami.
   const weeks = listPeriods('tydzien', 1, new Date('2026-07-08T09:00:00+02:00'))
-  assert.equal(weeks[0].label, '29 cze - 5 lip 2026')
+  assert.equal(weeks[0].label, '29 cze - 5 lip 2026 (tyg. 27)')
 }
 
 {

@@ -13,7 +13,29 @@ import { portalUsers, userInvites } from './db/schema'
  * nikomu możliwości ustawienia hasła klientowi.
  */
 const TOKEN_BYTES = 32
+
+/** Pierwsze zaproszenie: klient moze nie zajrzec do skrzynki od razu. */
 export const INVITE_TTL_HOURS = 72
+
+/**
+ * Odzyskiwanie hasla: krocej, bo tu uzytkownik wlasnie o to poprosil i siedzi
+ * przy skrzynce. Kazda dodatkowa godzina wazności to okno, w ktorym link z
+ * przechwyconego maila nadal dziala.
+ */
+export const RESET_TTL_HOURS = 2
+
+/**
+ * Ile czekamy miedzy kolejnymi prosbami o reset dla tego samego konta.
+ * Bez tego formularz "nie pamietam hasla" jest darmowym narzedziem do zasypania
+ * cudzej skrzynki, a nasz serwer SMTP trafia na czarne listy.
+ */
+export const RESET_COOLDOWN_MINUTES = 10
+
+export type InviteKind = 'invite' | 'reset'
+
+export function ttlHoursFor(kind: InviteKind): number {
+  return kind === 'reset' ? RESET_TTL_HOURS : INVITE_TTL_HOURS
+}
 
 export function hashInviteToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
@@ -36,6 +58,7 @@ export type CreatedInvite = {
   /** Surowy token. Wkładany do linku w mailu i NIGDZIE indziej. */
   token: string
   expiresAt: Date
+  kind: InviteKind
 }
 
 /**
@@ -43,9 +66,13 @@ export type CreatedInvite = {
  * zaproszenia tego użytkownika tracą moc, żeby po ponownym wysłaniu działał
  * tylko najnowszy link.
  */
-export async function createInvite(userId: string, portalId: string): Promise<CreatedInvite> {
+export async function createInvite(
+  userId: string,
+  portalId: string,
+  kind: InviteKind = 'invite'
+): Promise<CreatedInvite> {
   const token = randomBytes(TOKEN_BYTES).toString('hex')
-  const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000)
+  const expiresAt = new Date(Date.now() + ttlHoursFor(kind) * 60 * 60 * 1000)
 
   // Unieważnienie starych: oznaczamy jako użyte, zamiast kasować, żeby
   // została historia, kto i kiedy był zapraszany.
@@ -55,20 +82,29 @@ export async function createInvite(userId: string, portalId: string): Promise<Cr
     .where(and(eq(userInvites.userId, userId), isNull(userInvites.usedAt)))
 
   await db.insert(userInvites).values({
+    kind,
     userId,
     portalId,
     tokenHash: hashInviteToken(token),
     expiresAt,
   })
 
-  return { token, expiresAt }
+  return { token, expiresAt, kind }
 }
 
 /** Trzy rozroznialne powody odmowy. Kazdy ma inny komunikat dla uzytkownika. */
 export type InviteFailure = 'not-found' | 'expired' | 'used'
 
 export type InviteCheck =
-  | { ok: true; userId: string; portalId: string; email: string; name: string | null; portalSlug: string }
+  | {
+      ok: true
+      userId: string
+      portalId: string
+      email: string
+      name: string | null
+      portalSlug: string
+      kind: InviteKind
+    }
   | { ok: false; reason: InviteFailure }
 
 /**
@@ -89,6 +125,7 @@ export async function checkInvite(token: string): Promise<InviteCheck> {
       portalId: userInvites.portalId,
       expiresAt: userInvites.expiresAt,
       usedAt: userInvites.usedAt,
+      kind: userInvites.kind,
       email: portalUsers.email,
       name: portalUsers.name,
     })
@@ -119,6 +156,7 @@ export async function checkInvite(token: string): Promise<InviteCheck> {
     email: row.email,
     name: row.name,
     portalSlug: portal.slug,
+    kind: row.kind === 'reset' ? 'reset' : 'invite',
   }
 }
 
@@ -152,6 +190,33 @@ export async function consumeInvite(
     .where(eq(portalUsers.id, check.userId))
 
   return { ok: true, portalSlug: check.portalSlug }
+}
+
+/**
+ * Czy dla tego konta poproszono o reset w ciągu ostatnich N minut.
+ *
+ * Ochrona przed zasypaniem cudzej skrzynki: formularz "nie pamiętam hasła"
+ * jest publiczny i bez tego każdy mógłby wysyłać maile na dowolny adres
+ * w pętli. Liczymy po `createdAt`, nie po `expiresAt`, bo interesuje nas
+ * moment PROŚBY, nie ważność linku.
+ */
+export async function resetRequestedRecently(
+  userId: string,
+  minutes: number = RESET_COOLDOWN_MINUTES
+): Promise<boolean> {
+  const since = new Date(Date.now() - minutes * 60 * 1000)
+  const rows = await db
+    .select({ id: userInvites.id })
+    .from(userInvites)
+    .where(
+      and(
+        eq(userInvites.userId, userId),
+        eq(userInvites.kind, 'reset'),
+        gt(userInvites.createdAt, since)
+      )
+    )
+    .limit(1)
+  return rows.length > 0
 }
 
 /** Czy użytkownik ma ważne, niewykorzystane zaproszenie. Panel to pokazuje. */

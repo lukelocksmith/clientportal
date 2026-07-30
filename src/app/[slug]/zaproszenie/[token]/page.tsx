@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
-import { checkInvite, INVITE_TTL_HOURS } from '@/lib/invites'
+import { checkInvite } from '@/lib/invites'
 import { resolveBranding } from '@/lib/branding'
 import { SetPasswordForm } from '@/components/invite/SetPasswordForm'
 
@@ -62,7 +62,10 @@ export default async function InvitePage({ params }: Props) {
     const messages: Record<typeof check.reason, { title: string; body: string; showLogin: boolean }> = {
       expired: {
         title: 'Link stracił ważność',
-        body: `Zaproszenia są ważne ${INVITE_TTL_HOURS} godziny. Napisz do nas, wyślemy nowe.`,
+        // Nie wiemy tu, czy wygasły link był zaproszeniem czy resetem, bo
+        // przy odmowie nie zwracamy rodzaju. Komunikat pasuje do obu i
+        // prowadzi do formularza odzyskiwania, który zadziała w każdym wypadku.
+        body: 'Poproś o nowy link poniżej albo napisz do nas.',
         showLogin: false,
       },
       used: {
@@ -81,12 +84,19 @@ export default async function InvitePage({ params }: Props) {
       <div className="text-center">
         <h2 className="font-semibold text-foreground">{m.title}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{m.body}</p>
-        {m.showLogin && (
+        {m.showLogin ? (
           <Link
             href={`/${slug}/login`}
             className="mt-4 inline-block text-sm text-primary hover:underline"
           >
             Przejdź do logowania
+          </Link>
+        ) : (
+          <Link
+            href={`/${slug}/przypomnienie`}
+            className="mt-4 inline-block text-sm text-primary hover:underline"
+          >
+            Poproś o nowy link
           </Link>
         )}
       </div>
@@ -95,7 +105,9 @@ export default async function InvitePage({ params }: Props) {
 
   return shell(
     <>
-      <h2 className="font-semibold text-foreground">Ustaw swoje hasło</h2>
+      <h2 className="font-semibold text-foreground">
+        {check.kind === 'reset' ? 'Ustaw nowe hasło' : 'Ustaw swoje hasło'}
+      </h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Konto: <span className="text-foreground">{check.email}</span>
       </p>

@@ -19,7 +19,8 @@ export function proxy(request: NextRequest) {
   // jeszcze nie mając hasła, więc sesji mieć nie może. Autoryzacją jest tam
   // jednorazowy token w adresie, sprawdzany po stronie serwera.
   const isInvite = subpath.startsWith('/zaproszenie/')
-  if (subpath === '/login' || isInvite || pathname.startsWith('/api/') || slug === 'admin') {
+  const isForgot = subpath === '/przypomnienie'
+  if (subpath === '/login' || isInvite || isForgot || pathname.startsWith('/api/') || slug === 'admin') {
     return NextResponse.next()
   }
 

@@ -9,7 +9,7 @@ import { render } from '@react-email/render'
 import { createInvite, unusablePasswordHash, INVITE_TTL_HOURS } from '@/lib/invites'
 import { sendMail, isMailConfigured } from '@/lib/mailer'
 import { resolveBranding } from '@/lib/branding'
-import { InviteEmail } from '@/emails/InviteEmail'
+import { AccessEmail } from '@/emails/AccessEmail'
 
 const createSchema = z.object({
   // Provide either portalId (uuid) or slug — slug is friendlier for AI/curl use.
@@ -91,27 +91,17 @@ export async function POST(request: NextRequest) {
   const inviteUrl = `${appUrl}/${portal[0].slug}/zaproszenie/${token}`
 
   const branding = resolveBranding(portal[0])
-  const html = await render(
-    InviteEmail({
-      portalName: portal[0].name,
-      recipientName: name,
-      inviteUrl,
-      expiresInHours: INVITE_TTL_HOURS,
-      brandColor: branding.brandColor,
-      brandForeground: branding.brandForeground,
-    })
-  )
-  const text = await render(
-    InviteEmail({
-      portalName: portal[0].name,
-      recipientName: name,
-      inviteUrl,
-      expiresInHours: INVITE_TTL_HOURS,
-      brandColor: branding.brandColor,
-      brandForeground: branding.brandForeground,
-    }),
-    { plainText: true }
-  )
+  const email$ = AccessEmail({
+    kind: 'invite',
+    portalName: portal[0].name,
+    recipientName: name,
+    actionUrl: inviteUrl,
+    expiresInHours: INVITE_TTL_HOURS,
+    brandColor: branding.brandColor,
+    brandForeground: branding.brandForeground,
+  })
+  const html = await render(email$)
+  const text = await render(email$, { plainText: true })
 
   const result = await sendMail({
     to: email,

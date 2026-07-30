@@ -92,6 +92,16 @@ export default function LoginPage({ params }: { params: Promise<{ slug: string }
               {loading ? 'Logowanie...' : 'Zaloguj się'}
             </button>
           </form>
+
+          {/* Link publiczny, jak sama strona logowania. */}
+          <p className="mt-4 text-center text-sm">
+            <a
+              href={`/${slug}/przypomnienie`}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Nie pamiętam hasła
+            </a>
+          </p>
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-6">

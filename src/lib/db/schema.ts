@@ -215,6 +215,12 @@ export const cronRuns = pgTable('cron_runs', {
  */
 export const userInvites = pgTable('user_invites', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * 'invite' to pierwsze zaproszenie, 'reset' to odzyskiwanie hasła.
+   * Ten sam mechanizm tokenu, ale różna treść maila, różny czas ważności
+   * (reset krócej) i różne napisy na stronie.
+   */
+  kind: text('kind').notNull().default('invite'),
   userId: uuid('user_id').notNull().references(() => portalUsers.id, { onDelete: 'cascade' }),
   portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),

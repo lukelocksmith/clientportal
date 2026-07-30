@@ -4,6 +4,7 @@ import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types
 import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
 import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText } from 'lucide-react'
 import { toast } from 'sonner'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 
 // Turn plain URLs into clickable links inside a text run.
 function linkify(text: string, kp: string): React.ReactNode[] {
@@ -136,15 +137,24 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
   const statusColor = getStatusColor(task.status.status)
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
-        onClick={onClose}
-      />
-
-      {/* Drawer */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-lg bg-card border-l border-border shadow-2xl z-50 flex flex-col">
+    // Sheet to ten sam Radix Dialog co modale, tylko z animacja wysuwania z
+    // boku. Reczna wersja nie obslugiwala Escape, nie lapala fokusa i nie
+    // miala aria-modal, a to panel, ktory klient otwiera przy kazdym zadaniu.
+    //
+    // Cztery nadpisania wzgledem SheetContent, kazde celowe:
+    //   bg-card       zamiast bg-background, zeby panel odcinal sie od tla
+    //   sm:max-w-lg   zamiast sm:max-w-sm, bo tresc zadania potrzebuje szerokosci
+    //   gap-0         bo sekcje maja wlasne odstepy (p-5 + border-b)
+    //   showCloseButton={false}  bo naglowek ma juz swoj krzyzyk
+    <Sheet open onOpenChange={next => { if (!next) onClose() }}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="w-full gap-0 border-border bg-card p-0 sm:max-w-lg"
+      >
+        {/* Radix wymaga tytulu do etykiety okna. Wizualny naglowek nizej ma
+            wlasny uklad, wiec tytul dla czytnikow ekranu jest ukryty. */}
+        <SheetTitle className="sr-only">{task.name}</SheetTitle>
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-border gap-3">
           <div className="flex-1 min-w-0">
@@ -404,7 +414,7 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
             </button>
           </form>
         </div>}
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   )
 }

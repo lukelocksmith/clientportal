@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { Send, Loader2, Bot, X, Plus, Paperclip } from 'lucide-react'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 
 interface ChatWindowProps {
   slug: string
@@ -147,15 +148,16 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
     : 'Napisz wiadomość...'
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/20 backdrop-blur-[2px] z-40"
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-card border-l border-border shadow-2xl z-50 flex flex-col">
+    // Jak TaskDrawer: Sheet zamiast recznego panelu, dla Escape, pulapki
+    // fokusa i aria-modal. Szerokosc zostaje przy sm:max-w-sm, czyli
+    // domyslnej dla Sheet, bo czat byl wezszy od szuflady zadania.
+    <Sheet open onOpenChange={next => { if (!next) onClose() }}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="w-full gap-0 border-border bg-card p-0"
+      >
+        <SheetTitle className="sr-only">{headerTitle}</SheetTitle>
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
           <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground flex-shrink-0">
@@ -317,7 +319,7 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
             </p>
           )}
         </div>
-      </div>
-    </>
+      </SheetContent>
+    </Sheet>
   )
 }

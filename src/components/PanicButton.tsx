@@ -1,6 +1,14 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { AlertTriangle, X, Send, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, Send, CheckCircle2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface Props {
   slug: string
@@ -8,6 +16,20 @@ interface Props {
 
 type State = 'idle' | 'open' | 'sending' | 'sent'
 
+/**
+ * Alarm dla agencji.
+ *
+ * Przepisany z ręcznego modalu na Dialog z Radiksa (przez shadcn), bo wersja
+ * ręczna nie obsługiwała klawisza Escape, nie łapiła fokusa w oknie i nie
+ * miała `aria-modal`. Przy funkcji, której klient używa w panice, zamknięcie
+ * klawiszem i porządna obsługa czytnika ekranu to nie ozdoba.
+ *
+ * Kolory przeszły z zaszytych na sztywno (`bg-white`, `text-gray-600`) na
+ * tokeny motywu. Poprzednia wersja wyglądałaby poprawnie tylko w trybie
+ * jasnym, a `.dark` jest już zdefiniowany w globals.css i czeka na włączenie.
+ * Czerwień zostaje dosłowna, bo to sygnał alarmu, a nie kolor interfejsu, i
+ * ma być identyczna w obu motywach.
+ */
 export function PanicButton({ slug }: Props) {
   const [state, setState] = useState<State>('idle')
   const [message, setMessage] = useState('')
@@ -58,93 +80,92 @@ export function PanicButton({ slug }: Props) {
     setAcknowledged(false)
   }
 
+  const sending = state === 'sending'
+
   return (
     <>
       <button
         onClick={() => setState('open')}
-        className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow hover:bg-red-700 transition-colors"
+        className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow transition-colors hover:bg-red-700"
         title="Wyślij alarm do agencji"
       >
         <AlertTriangle className="h-4 w-4" />
         Alarm
       </button>
 
-      {state !== 'idle' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-red-100 bg-red-50 rounded-t-xl">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-                <span className="font-semibold text-red-700">Alarm dla agencji</span>
-              </div>
-              <button onClick={reset} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
+      <Dialog
+        open={state !== 'idle'}
+        onOpenChange={next => {
+          // Radix woła to także przy Escape i kliknięciu w tło. Podczas
+          // wysyłania nie pozwalamy zamknąć, żeby klient nie stracił widoku
+          // potwierdzenia w połowie żądania.
+          if (!next && !sending) reset()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Alarm dla agencji
+            </DialogTitle>
+            {state !== 'sent' && (
+              <DialogDescription>
+                Opisz krótko, co się dzieje. Powiadomimy zespół natychmiast.
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          {state !== 'sent' && (
+            <>
+              <textarea
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                placeholder="np. Strona główna przestała działać, nie można składać zamówień"
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-red-500"
+                rows={4}
+                autoFocus
+              />
+              <DialogFooter className="sm:justify-between">
+                <button
+                  onClick={reset}
+                  disabled={sending}
+                  className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={handleSend}
+                  disabled={!message.trim() || sending}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" />
+                  {sending ? 'Wysyłanie...' : 'Wyślij alarm'}
+                </button>
+              </DialogFooter>
+            </>
+          )}
+
+          {state === 'sent' && (
+            <div className="py-4 text-center">
+              <CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-green-500" />
+              <p className="font-semibold text-foreground">
+                {acknowledged ? 'Zespół important reaguje!' : 'Zgłoszenie wysłane!'}
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                {acknowledged
+                  ? 'Ktoś z zespołu potwierdził, że zajmuje się problemem. Skontaktują się z Tobą mailowo lub telefonicznie.'
+                  : 'Zespół important został poinformowany. Skontaktują się z Tobą mailowo lub telefonicznie.'}
+              </p>
+              <button
+                onClick={reset}
+                className="mt-4 text-sm text-muted-foreground underline transition-colors hover:text-foreground"
+              >
+                Zamknij
               </button>
             </div>
-
-            <div className="p-5">
-              {(state === 'open' || state === 'sending') && (
-                <>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Opisz krótko co się dzieje — powiadomimy zespół natychmiast.
-                  </p>
-                  <textarea
-                    value={message}
-                    onChange={e => setMessage(e.target.value)}
-                    placeholder="np. Strona główna przestała działać, nie można składać zamówień"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-500"
-                    rows={4}
-                    autoFocus
-                  />
-                  <div className="flex gap-2 mt-3">
-                    <button
-                      onClick={reset}
-                      className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-                    >
-                      Anuluj
-                    </button>
-                    <button
-                      onClick={handleSend}
-                      disabled={!message.trim() || state === 'sending'}
-                      className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      <Send className="h-4 w-4" />
-                      {state === 'sending' ? 'Wysyłanie...' : 'Wyślij alarm'}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {state === 'sent' && (
-                <div className="text-center py-4">
-                  {acknowledged ? (
-                    <>
-                      <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                      <p className="font-semibold text-gray-900">Zespół important reaguje!</p>
-                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">Ktoś z zespołu potwierdził że zajmuje się problemem. Skontaktują się z Tobą mailowo lub telefonicznie.</p>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                      <p className="font-semibold text-gray-900">Zgłoszenie wysłane!</p>
-                      <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                        Zespół important został poinformowany. Skontaktują się z Tobą mailowo lub telefonicznie.
-                      </p>
-                    </>
-                  )}
-                  <button
-                    onClick={reset}
-                    className="mt-4 text-sm text-gray-400 hover:text-gray-600 underline"
-                  >
-                    Zamknij
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

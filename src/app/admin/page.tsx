@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3 } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 type Portal = {
   id: string; slug: string; name: string; isActive: boolean
@@ -485,15 +486,13 @@ export default function AdminPage() {
         ))}
       </main>
 
-      {/* Create user modal */}
-      {showCreate && (
-        <>
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" onClick={() => setShowCreate(false)} />
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-card rounded-xl border border-border shadow-2xl z-50">
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <h2 className="font-semibold text-foreground">Nowy użytkownik</h2>
-              <button onClick={() => setShowCreate(false)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-lg leading-none">×</button>
-            </div>
+      {/* Nowy uzytkownik. Dialog z Radiksa daje Escape, pulapke fokusa i
+          aria-modal, ktorych reczny modal nie mial. */}
+      <Dialog open={showCreate} onOpenChange={open => !open && setShowCreate(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nowy użytkownik</DialogTitle>
+          </DialogHeader>
             <form onSubmit={handleCreate} className="p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Portal</label>
@@ -526,19 +525,15 @@ export default function AdminPage() {
                   className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Utwórz</button>
               </div>
             </form>
-          </div>
-        </>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {/* Create portal modal */}
-      {showCreatePortal && (
-        <>
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" onClick={() => setShowCreatePortal(false)} />
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-card rounded-xl border border-border shadow-2xl z-50">
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <h2 className="font-semibold text-foreground">Nowy portal</h2>
-              <button onClick={() => setShowCreatePortal(false)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-lg leading-none">×</button>
-            </div>
+      {/* Nowy portal. Jak wyzej: Escape i fokus z Radiksa. */}
+      <Dialog open={showCreatePortal} onOpenChange={open => !open && setShowCreatePortal(false)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nowy portal</DialogTitle>
+          </DialogHeader>
             <form onSubmit={handleCreatePortal} className="p-5 space-y-4">
               {/* Step 1: pick folder */}
               <div>
@@ -601,9 +596,8 @@ export default function AdminPage() {
                   className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Utwórz portal</button>
               </div>
             </form>
-          </div>
-        </>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

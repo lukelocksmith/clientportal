@@ -26,6 +26,10 @@ export async function GET(request: NextRequest) {
       portalId: aiUsage.portalId,
       slug: portals.slug,
       name: portals.name,
+      // Kiedy ostatnio ktokolwiek w tym projekcie uzyl czatu. Bez tego nie da
+      // sie odroznic "projekt nie uzywa AI" od "projekt uzywal poltora miesiaca
+      // temu i przestal", a to inna informacja.
+      lastUsedAt: sql<string | null>`max(${aiUsage.createdAt})`,
       ...agg,
     })
     .from(aiUsage)
@@ -45,5 +49,24 @@ export async function GET(request: NextRequest) {
     .groupBy(aiUsage.provider, aiUsage.model)
     .orderBy(desc(sql`sum(${aiUsage.costUsd})`))
 
-  return NextResponse.json({ totals, byProject, byUser, byModel })
+  // Rozbicia z kluczem projektu, zeby panel mogl pokazac zuzycie W OBREBIE
+  // jednego projektu. Istniejace byUser i byModel zostaja globalne i nietkniete,
+  // bo widok ogolny na gorze panelu nadal z nich czyta.
+  //
+  // Wszystko jednym zadaniem, zamiast dociagania po otwarciu zakladki: przy
+  // kilkunastu portalach i kilku modelach to kilkadziesiat wierszy, wiec osobny
+  // endpoint per projekt bylby zlozonoscia bez zysku.
+  const byProjectUser = await db
+    .select({ portalId: aiUsage.portalId, userEmail: aiUsage.userEmail, ...agg })
+    .from(aiUsage)
+    .groupBy(aiUsage.portalId, aiUsage.userEmail)
+    .orderBy(desc(sql`sum(${aiUsage.costUsd})`))
+
+  const byProjectModel = await db
+    .select({ portalId: aiUsage.portalId, provider: aiUsage.provider, model: aiUsage.model, ...agg })
+    .from(aiUsage)
+    .groupBy(aiUsage.portalId, aiUsage.provider, aiUsage.model)
+    .orderBy(desc(sql`sum(${aiUsage.costUsd})`))
+
+  return NextResponse.json({ totals, byProject, byUser, byModel, byProjectUser, byProjectModel })
 }

@@ -4,6 +4,8 @@ import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2,
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -16,9 +18,12 @@ type Portal = {
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {
   totals: Stat
-  byProject: Array<Stat & { portalId: string; slug: string | null; name: string | null }>
+  byProject: Array<Stat & { portalId: string; slug: string | null; name: string | null; lastUsedAt: string | null }>
   byUser: Array<Stat & { userEmail: string | null }>
   byModel: Array<Stat & { provider: string; model: string }>
+  /** Rozbicia z kluczem projektu, pod zakładkę „Zużycie AI" w karcie projektu. */
+  byProjectUser: Array<Stat & { portalId: string; userEmail: string | null }>
+  byProjectModel: Array<Stat & { portalId: string; provider: string; model: string }>
 }
 
 const fmtNum = (n: number) => Math.round(n).toLocaleString('pl-PL')
@@ -84,6 +89,7 @@ export default function AdminPage() {
     setListsLoading(false)
   }
 
+  /** Zwraca false, gdy serwer odrzucil zadania, czyli sesja admina nie dziala. */
   const load = useCallback(async () => {
     setLoading(true)
     const [uRes, pRes, sRes] = await Promise.all([
@@ -95,11 +101,32 @@ export default function AdminPage() {
     if (pRes.ok) setPortals(await pRes.json().then((d: { portals: Portal[] }) => d.portals))
     if (sRes.ok) setStats(await sRes.json() as Stats)
     setLoading(false)
+    return pRes.ok
   }, [])
 
+  /**
+   * Sprawdzenie istniejacej sesji przy wejsciu na strone.
+   *
+   * `authed` to zwykly stan Reacta, wiec bez tego kazde odswiezenie /admin
+   * pokazywalo formularz logowania, mimo ze ciasteczko admina zyje 8 godzin.
+   * Wygladalo to jak wygasajaca sesja, a bylo brakiem jej sprawdzenia.
+   *
+   * Probujemy pobrac dane; 200 znaczy, ze ciasteczko dziala. Dzieki temu nie
+   * ma osobnego endpointu "czy jestem zalogowany", a jedno zadanie robi obie
+   * rzeczy: weryfikuje i wypelnia panel.
+   */
+  const [checkingSession, setCheckingSession] = useState(true)
   useEffect(() => {
-    if (authed) load()
-  }, [authed, load])
+    let cancelled = false
+    load().then(ok => {
+      if (cancelled) return
+      if (ok) setAuthed(true)
+      setCheckingSession(false)
+    })
+    return () => { cancelled = true }
+    // Tylko na wejsciu. Kolejne pobrania ida przez handleLogin i Odswiez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -108,8 +135,13 @@ export default function AdminPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: loginEmail, password: loginPassword }),
     })
-    if (res.ok) { setAuthed(true); setLoginError('') }
-    else {
+    if (res.ok) {
+      setAuthed(true)
+      setLoginError('')
+      // Konieczne, odkad `authed` nie ma juz efektu, ktory na nie reagowal:
+      // bez tego po zalogowaniu panel bylby pusty.
+      await load()
+    } else {
       const d = await res.json()
       setLoginError(d.error ?? 'Błąd logowania')
     }
@@ -220,6 +252,14 @@ export default function AdminPage() {
     await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' })
     load()
   }
+
+  // Bez tego przy waznej sesji formularz logowania mignalby na ekranie,
+  // zanim sprawdzenie wroci.
+  if (checkingSession) return (
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+      <p className="text-sm text-muted-foreground">Ładowanie panelu...</p>
+    </div>
+  )
 
   if (!authed) return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
@@ -387,8 +427,29 @@ export default function AdminPage() {
           </section>
         )}
 
-        {byPortal.map(({ portal, users: pu }) => (
-          <section key={portal.id}>
+        {/* Projekty w zakladkach, nie jedna sekcja pod druga: przy szesnastu
+            folderach klientow lista pionowa byla nie do przejscia.
+            overflow-x-auto na liscie, bo poziomy pasek zakladek musi sie dac
+            przewinac, a nie rozpychac strony. */}
+        <Tabs defaultValue={byPortal[0]?.portal.slug} className="gap-4">
+          <div className="overflow-x-auto">
+            <TabsList className="w-max">
+              {byPortal.map(({ portal, users: pu }) => (
+                <TabsTrigger key={portal.id} value={portal.slug} className="gap-1.5">
+                  {portal.name}
+                  {/* Licznik userow na samej zakladce: widac go bez wchodzenia
+                      w projekt, a to najczestsze pytanie przy tej liscie. */}
+                  <span className="text-[10px] text-muted-foreground">{pu.length}</span>
+                  {!portal.isActive && (
+                    <span className="text-[10px] text-destructive">nieaktywny</span>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+
+          {byPortal.map(({ portal, users: pu }) => (
+          <TabsContent key={portal.id} value={portal.slug} className="mt-0">
             <div className="flex items-center gap-2 mb-3">
               <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
                 {portal.name[0]}
@@ -403,107 +464,140 @@ export default function AdminPage() {
               >
                 ↗ otwórz portal
               </a>
-              {/* Zakładki per projekt. Każda poza kanbanem startuje wyłączona.
-                  Zakładka, której strona jeszcze nie istnieje (implemented:
-                  false), daje się tu włączyć, ale w portalu pojawi się dopiero
-                  po wdrożeniu strony. Dopisek "wkrótce" mówi to wprost, żeby
-                  włączenie nie wyglądało na zepsute. */}
-              <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-                {PORTAL_TABS.map(tab => (
-                  <label
-                    key={tab.key}
-                    title={tab.implemented ? undefined : 'Strona jeszcze nie wdrożona, zakładka pojawi się po wdrożeniu'}
-                    className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={portal[tab.flag]}
-                      onChange={() => toggleFlag(portal, tab.flag)}
-                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                    />
-                    {tab.label}
-                    {!tab.implemented && (
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">wkrótce</span>
-                    )}
-                  </label>
-                ))}
-              </div>
-              <span className="text-xs text-muted-foreground">{pu.length} użytkownik{pu.length === 1 ? '' : pu.length < 5 ? 'i' : 'ów'}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{pu.length} użytkownik{pu.length === 1 ? '' : pu.length < 5 ? 'i' : 'ów'}</span>
             </div>
 
-            <div className="bg-card rounded-xl border border-border overflow-hidden">
-              {/* Marka projektu nad listą userów: to konfiguracja projektu,
-                  nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}
-              <PortalConfigForm
-                portal={portal}
-                onSaved={changes =>
-                  setPortals(prev =>
-                    prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
-                  )
-                }
-              />
-              {pu.length === 0 ? (
-                <p className="text-sm text-muted-foreground p-4">Brak użytkowników</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/40">
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Email</th>
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Imię</th>
-                      <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Ostatnie logowanie</th>
-                      <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Akcje</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {pu.map(user => (
-                      <tr key={user.id} className={!user.isActive ? 'opacity-50' : ''}>
-                        <td className="px-4 py-3">
-                          <span className="font-medium text-foreground">{user.email}</span>
-                          {!user.isActive && <span className="ml-2 text-[10px] bg-destructive/10 text-destructive px-1.5 py-0.5 rounded-full">nieaktywny</span>}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">{user.name ?? '—'}</td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString('pl-PL') : 'nigdy'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button onClick={() => toggleActive(user)} title={user.isActive ? 'Dezaktywuj' : 'Aktywuj'}
-                              variant="ghost" size="iconSm" className="text-muted-foreground">
-                              {user.isActive ? <ToggleRight className="h-4 w-4 text-primary" /> : <ToggleLeft className="h-4 w-4" />}
-                            </Button>
-                            <Button onClick={() => { setResetUserId(user.id); setNewPassword('') }} title="Resetuj hasło"
-                              variant="ghost" size="iconSm" className="text-muted-foreground">
-                              <KeyRound className="h-4 w-4" />
-                            </Button>
-                            <Button onClick={() => handleDelete(user.id)} title="Usuń użytkownika"
-                              variant="ghost" size="iconSm" className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          {resetUserId === user.id && (
-                            <div className="flex items-center gap-2 mt-2">
-                              <Input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                                placeholder="Nowe hasło (min. 8 znaków)" autoFocus
-                                className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                              <Button onClick={() => handleResetPassword(user.id)} disabled={newPassword.length < 8}
-                                size="xs">
-                                Zapisz
-                              </Button>
-                              <Button onClick={() => setResetUserId(null)}
-                                variant="outline" size="xs" className="text-muted-foreground">
-                                Anuluj
-                              </Button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
+            <Tabs defaultValue="konfiguracja">
+              <TabsList>
+                <TabsTrigger value="konfiguracja">Konfiguracja</TabsTrigger>
+                <TabsTrigger value="uzytkownicy">Użytkownicy</TabsTrigger>
+                <TabsTrigger value="ai">Zużycie AI</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="konfiguracja">
+                <div className="overflow-hidden rounded-xl border border-border bg-card">
+                  {/* Zakładki per projekt. Każda poza kanbanem startuje wyłączona.
+                      Zakładka, której strona jeszcze nie istnieje (implemented:
+                      false), daje się tu włączyć, ale w portalu pojawi się dopiero
+                      po wdrożeniu strony. Dopisek "wkrótce" mówi to wprost, żeby
+                      włączenie nie wyglądało na zepsute. */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {PORTAL_TABS.map(tab => (
+                      <label
+                        key={tab.key}
+                        title={tab.implemented ? undefined : 'Strona jeszcze nie wdrożona, zakładka pojawi się po wdrożeniu'}
+                        className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={portal[tab.flag]}
+                          onChange={() => toggleFlag(portal, tab.flag)}
+                          className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                        />
+                        {tab.label}
+                        {!tab.implemented && (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">wkrótce</span>
+                        )}
+                      </label>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
-        ))}
+                  </div>
+                  {/* Marka projektu nad listą userów: to konfiguracja projektu,
+                      nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}
+                  <PortalConfigForm
+                    portal={portal}
+                    onSaved={changes =>
+                      setPortals(prev =>
+                        prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
+                      )
+                    }
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="uzytkownicy">
+                <div className="overflow-hidden rounded-xl border border-border bg-card">
+                  {pu.length === 0 ? (
+                    <p className="text-sm text-muted-foreground p-4">Brak użytkowników</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40">
+                          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Email</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Imię</th>
+                          <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Ostatnie logowanie</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Akcje</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pu.map(user => (
+                          <tr key={user.id} className={!user.isActive ? 'opacity-50' : ''}>
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-foreground">{user.email}</span>
+                              {!user.isActive && <span className="ml-2 text-[10px] bg-destructive/10 text-destructive px-1.5 py-0.5 rounded-full">nieaktywny</span>}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">{user.name ?? '—'}</td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString('pl-PL') : 'nigdy'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button onClick={() => toggleActive(user)} title={user.isActive ? 'Dezaktywuj' : 'Aktywuj'}
+                                  variant="ghost" size="iconSm" className="text-muted-foreground">
+                                  {user.isActive ? <ToggleRight className="h-4 w-4 text-primary" /> : <ToggleLeft className="h-4 w-4" />}
+                                </Button>
+                                <Button onClick={() => { setResetUserId(user.id); setNewPassword('') }} title="Resetuj hasło"
+                                  variant="ghost" size="iconSm" className="text-muted-foreground">
+                                  <KeyRound className="h-4 w-4" />
+                                </Button>
+                                <Button onClick={() => handleDelete(user.id)} title="Usuń użytkownika"
+                                  variant="ghost" size="iconSm" className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              {resetUserId === user.id && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                                    placeholder="Nowe hasło (min. 8 znaków)" autoFocus
+                                    className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+                                  <Button onClick={() => handleResetPassword(user.id)} disabled={newPassword.length < 8}
+                                    size="xs">
+                                    Zapisz
+                                  </Button>
+                                  <Button onClick={() => setResetUserId(null)}
+                                    variant="outline" size="xs" className="text-muted-foreground">
+                                    Anuluj
+                                  </Button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="ai">
+                <div className="overflow-hidden rounded-xl border border-border bg-card">
+                  {stats ? (
+                    <ProjectAiStats
+                      portalId={portal.id}
+                      byProject={stats.byProject}
+                      byProjectUser={stats.byProjectUser}
+                      byProjectModel={stats.byProjectModel}
+                    />
+                  ) : (
+                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Ładowanie statystyk...
+                    </p>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+          ))}
+        </Tabs>
       </main>
 
       {/* Nowy uzytkownik. Dialog z Radiksa daje Escape, pulapke fokusa i

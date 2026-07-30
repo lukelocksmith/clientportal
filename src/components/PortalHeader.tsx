@@ -2,14 +2,25 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { visibleTabs, type PortalFlags } from '@/lib/portalTabs'
+import type { PortalBranding } from '@/lib/branding'
 
 interface PortalHeaderProps {
   slug: string
   portalName: string
   userEmail: string
-  /** Flaga reportsEnabled portalu. Bez niej zakładka Raporty się nie pojawia. */
-  reportsEnabled: boolean
-  /** Akcje po prawej stronie. Tablica wstawia tu Alarm, Odśwież i Nowe zadanie. */
+  /**
+   * Kolor marki i logo projektu, już zwalidowane przez resolveBranding.
+   * Header nie waliduje nic sam: dostaje wartości gotowe do wstawienia.
+   */
+  branding: PortalBranding
+  /**
+   * Flagi zakładek portalu. Jeden obiekt, nie osobny boolean per zakładka:
+   * przy czterech zakładkach osobne propsy trzeba by przewlekać przez
+   * KanbanBoardClient i KanbanBoard za każdym dodaniem funkcji.
+   */
+  flags: PortalFlags
+  /** Akcje po prawej stronie. Kanban wstawia tu Alarm, Odśwież i Nowe zadanie. */
   children?: React.ReactNode
 }
 
@@ -17,14 +28,15 @@ export function PortalHeader({
   slug,
   portalName,
   userEmail,
-  reportsEnabled,
+  flags,
+  branding,
   children,
 }: PortalHeaderProps) {
   const pathname = usePathname()
-  const tabs = [
-    { href: `/${slug}`, label: 'Tablica' },
-    ...(reportsEnabled ? [{ href: `/${slug}/raporty`, label: 'Raporty' }] : []),
-  ]
+  const tabs = visibleTabs(flags).map(tab => ({
+    href: `/${slug}${tab.path}`,
+    label: tab.label,
+  }))
 
   return (
     <header className="border-b border-border bg-card px-6 py-4">
@@ -34,32 +46,56 @@ export function PortalHeader({
           układ na wąskich ekranach, gdzie tablica ma trzy przyciski. */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex flex-shrink-0 items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-            {portalName[0]?.toUpperCase()}
-          </div>
+          {branding.logoUrl ? (
+            // Zwykły <img>, nie next/image: adres jest dowolny (domena klienta
+            // albo data URI), a next/image wymagałby wpisania każdej domeny do
+            // remotePatterns w next.config, czyli deployu przy każdym nowym
+            // kliencie. object-contain, żeby logo o dowolnych proporcjach nie
+            // zostało zniekształcone.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.logoUrl}
+              alt={portalName}
+              className="h-8 w-8 rounded-lg object-contain"
+              style={{ backgroundColor: branding.brandColor }}
+            />
+          ) : (
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold"
+              style={{ backgroundColor: branding.brandColor, color: branding.brandForeground }}
+            >
+              {portalName[0]?.toUpperCase()}
+            </div>
+          )}
           <div>
             <h1 className="font-semibold text-foreground">{portalName}</h1>
             <p className="text-xs text-muted-foreground">{userEmail}</p>
           </div>
         </div>
 
-        {/* Jedna zakładka to nie nawigacja, więc przy wyłączonych raportach
-            header wygląda dokładnie jak przed dodaniem zakładek. */}
+        {/* Jedna zakładka to nie nawigacja, więc przy samym kanbanie header
+            wygląda dokładnie jak przed dodaniem zakładek. */}
         <nav className={cn('flex gap-1', tabs.length < 2 && 'hidden')}>
           {tabs.map(tab => {
-            // Tablica jest aktywna tylko przy dokładnym trafieniu, inaczej
-            // podświetlałaby się także na podstronach.
+            // Kanban jest aktywny tylko przy dokładnym trafieniu, inaczej
+            // podświetlałby się także na podstronach.
             const active =
               tab.href === `/${slug}` ? pathname === tab.href : pathname.startsWith(tab.href)
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
+                // Aktywna zakładka bierze kolor marki klienta. Tekst na niej
+                // liczy readableForeground, więc jasny brand nie daje białych
+                // liter na żółtym tle.
+                style={
+                  active
+                    ? { backgroundColor: branding.brandColor, color: branding.brandForeground }
+                    : undefined
+                }
                 className={cn(
                   'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                  active
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  active ? '' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
                 {tab.label}

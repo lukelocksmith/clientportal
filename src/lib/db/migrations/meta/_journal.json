@@ -36,6 +36,34 @@
       "when": 1785095853597,
       "tag": "0004_gigantic_paibok",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785364104056,
+      "tag": "0005_tab_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785399700881,
+      "tag": "0006_task_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785401758918,
+      "tag": "0007_brand_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785402311883,
+      "tag": "0008_portal_contact",
+      "breakpoints": true
     }
   ]
 }

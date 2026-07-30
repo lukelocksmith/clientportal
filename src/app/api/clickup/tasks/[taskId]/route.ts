@@ -6,8 +6,20 @@ import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { updateTask, verifyTaskBelongsToFolder, getTask } from '@/lib/clickup'
 
-// GET /api/clickup/tasks/{taskId}?slug=onyx — returns the task's attachments
-// (the list endpoint used for the board doesn't include them).
+/**
+ * GET /api/clickup/tasks/{taskId}?slug=onyx
+ *
+ * Zwraca zadanie ORAZ jego załączniki (endpointy listowe załączników nie
+ * dają, dlatego ta trasa powstała).
+ *
+ * `task` doszło dla zakładki Historia: tabela ma tylko chudą projekcję z
+ * indeksu, a szuflada szczegółów chce pełnego ClickUpTask. Kanban czyta
+ * dalej samo `attachments`, bo pełne zadanie ma już w stanie tablicy, więc
+ * ta zmiana niczego mu nie psuje.
+ *
+ * `attachments` zostaje jako osobne pole, mimo że jest też w `task`.
+ * Zdejmowanie go byłoby zmianą łamiącą dla kanbanu bez żadnego zysku.
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
@@ -32,7 +44,7 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  return NextResponse.json({ attachments: task.attachments ?? [] })
+  return NextResponse.json({ task, attachments: task.attachments ?? [] })
 }
 
 const patchSchema = z.object({

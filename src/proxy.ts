@@ -18,9 +18,16 @@ export function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check session cookie exists (full validation in layout)
+  // Check session cookie exists (full validation in layout).
+  // The admin cookie counts too: an admin browsing any portal has no
+  // portal_session, and getSession(slug) resolves the admin bypass. Without
+  // this the bypass is unreachable from a browser — the edge bounced the
+  // admin to the login page before any page code ran.
+  // Presence is all we check here (no DB, no crypto on Edge); admin_session
+  // is HMAC-verified downstream in getAdminSession().
   const sessionCookie = request.cookies.get('portal_session')
-  if (!sessionCookie?.value) {
+  const adminCookie = request.cookies.get('admin_session')
+  if (!sessionCookie?.value && !adminCookie?.value) {
     const loginUrl = new URL(`/${slug}/login`, request.url)
     loginUrl.searchParams.set('from', pathname)
     return NextResponse.redirect(loginUrl)

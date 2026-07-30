@@ -1,8 +1,14 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3 } from 'lucide-react'
+import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
+import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 
-type Portal = { id: string; slug: string; name: string; isActive: boolean; reportsEnabled: boolean }
+type Portal = {
+  id: string; slug: string; name: string; isActive: boolean
+  logoUrl: string | null; brandColor: string | null
+  contactName: string | null; contactEmail: string | null; contactPhone: string | null
+} & PortalFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {
   totals: Stat
@@ -149,22 +155,22 @@ export default function AdminPage() {
   }
 
   /**
-   * Włącza albo wyłącza zakładkę Raporty dla jednego projektu.
+   * Włącza albo wyłącza jedną zakładkę dla jednego projektu.
    * Optymistycznie odbija checkbox, żeby nie czekać na przeładowanie listy,
    * i cofa go, gdy zapis się nie udał.
    */
-  async function toggleReports(portal: Portal) {
-    const next = !portal.reportsEnabled
-    setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, reportsEnabled: next } : p)))
+  async function toggleFlag(portal: Portal, flag: keyof PortalFlags) {
+    const next = !portal[flag]
+    setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, [flag]: next } : p)))
 
     const res = await fetch('/api/admin/portals', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: portal.slug, reportsEnabled: next }),
+      body: JSON.stringify({ slug: portal.slug, [flag]: next }),
     })
 
     if (!res.ok) {
-      setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, reportsEnabled: !next } : p)))
+      setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, [flag]: !next } : p)))
     }
   }
 
@@ -376,21 +382,45 @@ export default function AdminPage() {
               >
                 ↗ otwórz portal
               </a>
-              {/* Zakładka Raporty jest domyślnie wyłączona dla każdego portalu
-                  i włącza się tutaj, osobno dla każdego projektu. */}
-              <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
-                <input
-                  type="checkbox"
-                  checked={portal.reportsEnabled}
-                  onChange={() => toggleReports(portal)}
-                  className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                />
-                Raporty
-              </label>
+              {/* Zakładki per projekt. Każda poza kanbanem startuje wyłączona.
+                  Zakładka, której strona jeszcze nie istnieje (implemented:
+                  false), daje się tu włączyć, ale w portalu pojawi się dopiero
+                  po wdrożeniu strony. Dopisek "wkrótce" mówi to wprost, żeby
+                  włączenie nie wyglądało na zepsute. */}
+              <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
+                {PORTAL_TABS.map(tab => (
+                  <label
+                    key={tab.key}
+                    title={tab.implemented ? undefined : 'Strona jeszcze nie wdrożona, zakładka pojawi się po wdrożeniu'}
+                    className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={portal[tab.flag]}
+                      onChange={() => toggleFlag(portal, tab.flag)}
+                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                    />
+                    {tab.label}
+                    {!tab.implemented && (
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60">wkrótce</span>
+                    )}
+                  </label>
+                ))}
+              </div>
               <span className="text-xs text-muted-foreground">{pu.length} użytkownik{pu.length === 1 ? '' : pu.length < 5 ? 'i' : 'ów'}</span>
             </div>
 
             <div className="bg-card rounded-xl border border-border overflow-hidden">
+              {/* Marka projektu nad listą userów: to konfiguracja projektu,
+                  nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}
+              <PortalConfigForm
+                portal={portal}
+                onSaved={changes =>
+                  setPortals(prev =>
+                    prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
+                  )
+                }
+              />
               {pu.length === 0 ? (
                 <p className="text-sm text-muted-foreground p-4">Brak użytkowników</p>
               ) : (

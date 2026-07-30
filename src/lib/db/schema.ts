@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex, doublePrecision } from 'drizzle-orm/pg-core'
+import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex, index, doublePrecision } from 'drizzle-orm/pg-core'
 
 export const portals = pgTable('portals', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -6,14 +6,45 @@ export const portals = pgTable('portals', {
   name: text('name').notNull(),
   clickupFolderId: text('clickup_folder_id').notNull(),
   clickupSpaceId: text('clickup_space_id').notNull().default('90100136256'),
+  /**
+   * Logo projektu: adres https albo wbudowany obrazek `data:image/...`.
+   * Wstawiane w /admin. Walidacja schematu jest w lib/branding.ts i działa
+   * przy ZAPISIE oraz przy odczycie, bo wiersz w bazie mógł powstać wcześniej.
+   */
   logoUrl: text('logo_url'),
+  /**
+   * Kolor marki klienta w postaci `#rrggbb`. Null oznacza kolor domyślny
+   * portalu. Kolor tekstu na tym tle liczymy z kontrastu WCAG, a nie wpisujemy
+   * ręcznie, bo jasny brand (żółty, limonka) z białym tekstem jest nieczytelny.
+   */
+  brandColor: text('brand_color'),
+  /**
+   * Kontakt pokazywany na zakładce Dashboard. Per projekt, bo każdy ma innego
+   * opiekuna. Null oznacza zapas na poziomie agencji (zmienne PORTAL_CONTACT_*
+   * albo wartości domyślne w lib/portalContact.ts), więc nowy projekt działa
+   * bez konfigurowania czegokolwiek.
+   */
+  contactName: text('contact_name'),
+  contactEmail: text('contact_email'),
+  contactPhone: text('contact_phone'),
   isActive: boolean('is_active').notNull().default(true),
   /**
-   * Zakładka Raporty. Domyślnie WYŁĄCZONA, włączana per projekt w /admin
-   * albo przez PATCH /api/admin/portals. Nowe portale startują bez raportów,
-   * żeby funkcja mogła pojechać na produkcję przed decyzją o jej pokazaniu.
+   * Flagi zakładek, per projekt. Włączane w /admin albo przez
+   * PATCH /api/admin/portals. Zasada: nowa funkcja jedzie na produkcję
+   * domyślnie WYŁĄCZONA, a jej pokazanie klientowi to osobna decyzja.
+   *
+   * Brama jest po stronie serwera (przekierowanie w page.tsx), nie tylko
+   * ukrycie zakładki w headerze. Ukrycie to kosmetyka, adres musi być
+   * zamknięty także dla kogoś, kto wpisze go z ręki.
+   *
+   * Kanban jest domyślnie WŁĄCZONY, bo to dotychczasowa strona główna
+   * portalu. Przy wyłączonym kanbanie `/[slug]` przekierowuje na pierwszą
+   * włączoną zakładkę.
    */
+  kanbanEnabled: boolean('kanban_enabled').notNull().default(true),
   reportsEnabled: boolean('reports_enabled').notNull().default(false),
+  historyEnabled: boolean('history_enabled').notNull().default(false),
+  dashboardEnabled: boolean('dashboard_enabled').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -87,6 +118,81 @@ export const aiUsage = pgTable('ai_usage', {
   costUsd: doublePrecision('cost_usd').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+/**
+ * Lustro zadań folderu klienta, pod zakładkę Historia i wyszukiwarkę.
+ *
+ * Po co lustro, a nie odpytywanie ClickUpa na żywo: ClickUp nie zwraca
+ * komentarzy ani załączników razem z listą zadań, tylko osobnym zapytaniem
+ * per zadanie. Szukanie po komentarzach na żywo to setki wywołań na jedno
+ * wciśnięcie klawisza, czyli niewykonalne. Poza tym Historia obejmuje zadania
+ * zamknięte, których kanban nie pobiera (`include_closed: false`).
+ *
+ * `search_text` to jedyne miejsce, gdzie żyje wyszukiwanie, i jedyne, gdzie
+ * żyje granica [PUBLIC]. Komentarz bez prefiksu nie jest odfiltrowywany przy
+ * wyświetlaniu, on NIGDY nie wchodzi do tej kolumny (lib/publicComments.ts).
+ */
+export const taskIndex = pgTable('task_index', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  clickupTaskId: text('clickup_task_id').notNull(),
+  name: text('name').notNull(),
+  /** `text_content` z ClickUpa, czyli opis bez znaczników markdown. */
+  description: text('description'),
+  status: text('status').notNull(),
+  /** 'open' | 'custom' | 'done' | 'closed' — pozwala odsiać zamknięte bez porównywania polskich nazw. */
+  statusType: text('status_type').notNull(),
+  priority: text('priority'),
+  listName: text('list_name'),
+  /** null oznacza zadanie nadrzędne. Subtaski indeksujemy, ale nie renderujemy jako wiersze. */
+  parentId: text('parent_id'),
+  url: text('url'),
+  dateCreated: bigint('date_created', { mode: 'number' }).notNull(),
+  dateUpdated: bigint('date_updated', { mode: 'number' }).notNull(),
+  dateClosed: bigint('date_closed', { mode: 'number' }),
+  attachmentCount: integer('attachment_count').notNull().default(0),
+  publicCommentCount: integer('public_comment_count').notNull().default(0),
+  subtaskCount: integer('subtask_count').notNull().default(0),
+  searchText: text('search_text').notNull().default(''),
+  /**
+   * Kiedy ostatnio dociągnęliśmy dla tego zadania komentarze i załączniki.
+   * Osobno od `indexedAt`, bo pola podstawowe odświeżamy przy każdym
+   * przebiegu (są darmowe, przychodzą z listą), a treść tylko gdy
+   * `date_updated` zadania jest świeższy niż ta data. To ta różnica sprawia,
+   * że codzienny przebieg kosztuje kilkanaście wywołań, nie kilkaset.
+   */
+  contentSyncedAt: timestamp('content_synced_at'),
+  indexedAt: timestamp('indexed_at').notNull().defaultNow(),
+}, (t) => ({
+  portalTaskUnique: uniqueIndex('task_index_portal_task_idx').on(t.portalId, t.clickupTaskId),
+  portalCreatedIdx: index('task_index_portal_created_idx').on(t.portalId, t.dateCreated),
+}))
+
+/**
+ * Rejestr przebiegów cronów. Powstał, bo dotychczasowy cron Track Time
+ * zwracał wynik w treści odpowiedzi HTTP, a wpis w crontabie kierował ją do
+ * /dev/null. Awaria była więc niewidoczna: jedynym sposobem sprawdzenia, czy
+ * cokolwiek się policzyło, było wejście po SSH do bazy.
+ *
+ * Historia jest na to wrażliwsza niż zamrożone godziny: klient, który widzi
+ * listę urwaną trzy tygodnie wcześniej, traci zaufanie do portalu, nie do
+ * ClickUpa. Dlatego portal pokazuje datę ostatniej udanej synchronizacji.
+ */
+export const cronRuns = pgTable('cron_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** 'task-index' | 'time-snapshot' */
+  job: text('job').notNull(),
+  /** null dla przebiegu obejmującego wszystkie portale. */
+  portalId: uuid('portal_id').references(() => portals.id, { onDelete: 'set null' }),
+  ok: boolean('ok').notNull(),
+  itemsProcessed: integer('items_processed').notNull().default(0),
+  /** Podsumowanie albo treść błędu. */
+  detail: text('detail'),
+  startedAt: timestamp('started_at').notNull(),
+  finishedAt: timestamp('finished_at').notNull().defaultNow(),
+}, (t) => ({
+  jobFinishedIdx: index('cron_runs_job_finished_idx').on(t.job, t.finishedAt),
+}))
 
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),

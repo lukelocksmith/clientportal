@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm'
 import { getAllTasksForFolder } from '@/lib/clickup'
 import { writeSnapshots } from '@/lib/timeSnapshots'
 import { verifyToken } from '@/lib/apiAuth'
+import { recordCronRun } from '@/lib/cronRuns'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,12 +33,34 @@ async function handle(request: NextRequest) {
 
   const results: Array<{ slug: string; tasks: number; ok: boolean; error?: string }> = []
   for (const portal of targets) {
+    // Wynik trafia do tabeli cron_runs, a porażka na Discorda. Wcześniej
+    // wynik szedł wyłącznie w treści odpowiedzi HTTP, a wpis w crontabie
+    // kieruje ją do /dev/null, więc awaria była niewidoczna.
+    const startedAt = new Date()
     try {
       const tasks = await getAllTasksForFolder(portal.folderId)
       const count = await writeSnapshots(portal.id, tasks)
       results.push({ slug: portal.slug, tasks: count, ok: true })
+      await recordCronRun({
+        job: 'time-snapshot',
+        portalId: portal.id,
+        portalSlug: portal.slug,
+        ok: true,
+        itemsProcessed: count,
+        detail: `zamrożono ${count} zadań`,
+        startedAt,
+      })
     } catch (e) {
-      results.push({ slug: portal.slug, tasks: 0, ok: false, error: String(e) })
+      const message = e instanceof Error ? e.message : String(e)
+      results.push({ slug: portal.slug, tasks: 0, ok: false, error: message })
+      await recordCronRun({
+        job: 'time-snapshot',
+        portalId: portal.id,
+        portalSlug: portal.slug,
+        ok: false,
+        detail: message,
+        startedAt,
+      })
     }
   }
 

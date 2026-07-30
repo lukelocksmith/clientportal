@@ -19,8 +19,10 @@ import { TaskDrawer } from './TaskDrawer'
 import { Plus, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
-import { PanicButton } from './PanicButton'
+import { PanicButton } from '@/components/PanicButton'
 import { PortalHeader } from '@/components/PortalHeader'
+import type { PortalFlags } from '@/lib/portalTabs'
+import type { PortalBranding } from '@/lib/branding'
 
 // Space-level statuses — consistent across all client lists
 const COLUMN_ORDER = ['backlog', 'do zrobienia', 'w trakcie', 'zablokowane', 'zrobione', 'zamknięte']
@@ -30,7 +32,8 @@ interface KanbanBoardProps {
   slug: string
   portalName: string
   userEmail: string
-  reportsEnabled: boolean
+  flags: PortalFlags
+  branding: PortalBranding
 }
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 }
@@ -80,7 +83,7 @@ function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
   }))
 }
 
-export function KanbanBoard({ initialTasks, slug, portalName, userEmail, reportsEnabled }: KanbanBoardProps) {
+export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<ClickUpTask[]>(initialTasks)
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
@@ -176,7 +179,8 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, reports
         slug={slug}
         portalName={portalName}
         userEmail={userEmail}
-        reportsEnabled={reportsEnabled}
+        flags={flags}
+        branding={branding}
       >
         <PanicButton slug={slug} />
 

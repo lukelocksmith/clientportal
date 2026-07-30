@@ -4,6 +4,9 @@ import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
+import { ensureAdminUser } from '@/lib/adminUser'
+import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
+import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 
 export async function GET(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -14,7 +17,15 @@ export async function GET(request: NextRequest) {
       slug: portals.slug,
       name: portals.name,
       isActive: portals.isActive,
+      kanbanEnabled: portals.kanbanEnabled,
       reportsEnabled: portals.reportsEnabled,
+      historyEnabled: portals.historyEnabled,
+      dashboardEnabled: portals.dashboardEnabled,
+      logoUrl: portals.logoUrl,
+      brandColor: portals.brandColor,
+      contactName: portals.contactName,
+      contactEmail: portals.contactEmail,
+      contactPhone: portals.contactPhone,
     })
     .from(portals)
     .orderBy(portals.name)
@@ -25,8 +36,66 @@ export async function GET(request: NextRequest) {
 const UpdatePortalSchema = z
   .object({
     slug: z.string().min(1).max(50),
-    reportsEnabled: z.boolean().optional(),
     isActive: z.boolean().optional(),
+    kanbanEnabled: z.boolean().optional(),
+    reportsEnabled: z.boolean().optional(),
+    historyEnabled: z.boolean().optional(),
+    dashboardEnabled: z.boolean().optional(),
+    /**
+     * Kolor marki `#rrggbb`, `#rgb` albo bez kratki. Pusty ciąg i null
+     * czyszczą pole, wracając do koloru domyślnego portalu.
+     *
+     * Walidacja jest TUTAJ, a nie tylko w formularzu: /api/admin/* przyjmuje
+     * też ADMIN_API_TOKEN, więc curl omija panel w całości. Wartość trafia
+     * potem do atrybutu style na stronie klienta.
+     */
+    brandColor: z
+      .string()
+      .max(20)
+      .nullable()
+      .optional()
+      .transform(v => (v === undefined ? undefined : v === null || v.trim() === '' ? null : v))
+      .refine(v => v === undefined || v === null || normalizeHexColor(v) !== null, {
+        message: 'Kolor musi być postaci #rrggbb albo #rgb',
+      })
+      .transform(v => (v === undefined || v === null ? v : normalizeHexColor(v))),
+    /** Adres logo (https, http albo data:image/...). Pusty ciąg czyści. */
+    logoUrl: z
+      .string()
+      .max(200_000)
+      .nullable()
+      .optional()
+      .transform(v => (v === undefined ? undefined : v === null || v.trim() === '' ? null : v.trim()))
+      .refine(v => v === undefined || v === null || isSafeLogoUrl(v), {
+        message: 'Logo musi być adresem https/http albo obrazkiem data:image/...',
+      }),
+    /**
+     * Kontakt opiekuna, pokazywany na zakładce Dashboard. Puste pole czyści
+     * wartość i zakładka spada na zapas agencji (PORTAL_CONTACT_*).
+     * Telefon i e-mail walidujemy, bo lądują w atrybutach href.
+     */
+    contactName: z
+      .string()
+      .max(120)
+      .nullable()
+      .optional()
+      .transform(v => (v === undefined ? undefined : v === null || v.trim() === '' ? null : v.trim())),
+    contactEmail: z
+      .string()
+      .max(200)
+      .nullable()
+      .optional()
+      .transform(v => (v === undefined ? undefined : v === null || v.trim() === '' ? null : v.trim()))
+      .refine(v => v === undefined || v === null || isPlausibleEmail(v), { message: 'Niepoprawny adres e-mail' }),
+    contactPhone: z
+      .string()
+      .max(32)
+      .nullable()
+      .optional()
+      .transform(v => (v === undefined ? undefined : v === null || v.trim() === '' ? null : v.trim()))
+      .refine(v => v === undefined || v === null || normalizePhone(v) !== null, {
+        message: 'Numer może zawierać tylko cyfry, +, spacje, myślniki i nawiasy',
+      }),
   })
   .strict()
 
@@ -34,10 +103,14 @@ const UpdatePortalSchema = z
  * Przełączanie flag portalu. Osobno od POST, bo POST tworzy portal razem
  * z listami, a tu chodzi o jedno pole.
  *
- * Zakładka Raporty startuje wyłączona dla każdego portalu i włącza się tutaj,
+ * Każda zakładka poza kanbanem startuje wyłączona i włącza się tutaj,
  * z /admin albo curlem z tokenem:
  *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
- *        -d '{"slug":"onyx","reportsEnabled":true}'
+ *        -d '{"slug":"onyx","reportsEnabled":true,"historyEnabled":true}'
+ *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+ *        -d '{"slug":"onyx","brandColor":"#c8a24a","logoUrl":"https://onyx.wroclaw.pl/logo.png"}'
+ *
+ * Zod ma `.strict()`, więc nieznane pole daje 400 zamiast cichego pominięcia.
  */
 export async function PATCH(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -47,7 +120,17 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { slug, ...changes } = parsed.data
+  const { slug, ...raw } = parsed.data
+
+  // Druga linia obrony po błędzie, w którym transformacja Zoda zamieniała
+  // NIEOBECNE pole na null, a `set()` sumiennie zerowało kolor, logo i kontakt
+  // przy każdym przełączeniu zwykłej flagi. Do bazy idą wyłącznie klucze,
+  // które klient faktycznie przysłał. `null` jest wartością znaczącą
+  // (wyczyść pole), `undefined` znaczy „nie dotykaj".
+  const changes = Object.fromEntries(
+    Object.entries(raw).filter(([, value]) => value !== undefined)
+  )
+
   if (Object.keys(changes).length === 0) {
     return NextResponse.json({ error: 'Brak pól do zmiany' }, { status: 400 })
   }
@@ -61,7 +144,15 @@ export async function PATCH(request: NextRequest) {
       slug: portals.slug,
       name: portals.name,
       isActive: portals.isActive,
+      kanbanEnabled: portals.kanbanEnabled,
       reportsEnabled: portals.reportsEnabled,
+      historyEnabled: portals.historyEnabled,
+      dashboardEnabled: portals.dashboardEnabled,
+      logoUrl: portals.logoUrl,
+      brandColor: portals.brandColor,
+      contactName: portals.contactName,
+      contactEmail: portals.contactEmail,
+      contactPhone: portals.contactPhone,
     })
 
   if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
@@ -119,6 +210,10 @@ export async function POST(request: NextRequest) {
       sortOrder: i,
     })
   }
+
+  // Admin ma konto w każdym projekcie od momentu jego powstania, nie dopiero
+  // po pierwszym ręcznym logowaniu.
+  await ensureAdminUser(portal.id)
 
   return NextResponse.json({ portal }, { status: 201 })
 }

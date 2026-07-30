@@ -4,6 +4,7 @@ import { portalUsers, portals } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { createSession, setSessionCookie } from '@/lib/auth'
+import { ensureAdminUser } from '@/lib/adminUser'
 
 const MAX_ATTEMPTS = 5
 const LOCKOUT_MINUTES = 15
@@ -36,29 +37,16 @@ export async function POST(request: NextRequest) {
     if (ADMIN_PASSWORD_HASH && normalizedEmail === ADMIN_EMAIL.toLowerCase()) {
       const adminValid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH)
       if (adminValid) {
-        // Find or auto-create admin user for this portal
-        let adminUser = await db
-          .select()
-          .from(portalUsers)
-          .where(and(eq(portalUsers.email, normalizedEmail), eq(portalUsers.portalId, portal[0].id)))
-          .limit(1)
-
-        if (!adminUser[0]) {
-          adminUser = await db
-            .insert(portalUsers)
-            .values({
-              portalId: portal[0].id,
-              email: normalizedEmail,
-              name: 'Admin',
-              passwordHash: ADMIN_PASSWORD_HASH,
-              isActive: true,
-            })
-            .returning()
+        // Konto admina w tym projekcie: znajdź albo utwórz. Ta sama funkcja
+        // wołana jest przy tworzeniu portalu, więc zwykle konto już istnieje.
+        const adminUserId = await ensureAdminUser(portal[0].id)
+        if (!adminUserId) {
+          return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
         }
 
         const ip = request.headers.get('x-forwarded-for') ?? undefined
         const ua = request.headers.get('user-agent') ?? undefined
-        const token = await createSession(adminUser[0].id, ip, ua)
+        const token = await createSession(adminUserId, ip, ua)
         await setSessionCookie(token)
         return NextResponse.json({ ok: true, slug })
       }

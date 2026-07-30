@@ -3,9 +3,30 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { getTask } from '@/lib/clickup'
+import { indexSingleTask, removeTaskFromIndex } from '@/lib/taskIndex'
 
 const WEBHOOK_SECRET = process.env.CLICKUP_WEBHOOK_SECRET
+
+/** Zdarzenia dotyczące samego zadania. */
+const TASK_EVENTS = [
+  'taskCreated',
+  'taskUpdated',
+  'taskDeleted',
+  'taskStatusUpdated',
+  'taskPriorityUpdated',
+  'taskMoved',
+]
+
+/**
+ * Zdarzenia komentarzy. Ważne dla indeksu Historii, bo wyszukiwarka obejmuje
+ * komentarze [PUBLIC], a zmiana komentarza NIE musi ruszyć `date_updated`
+ * zadania. Bez tych zdarzeń przyrostowa synchronizacja mogłaby przeoczyć
+ * zdjęcie prefiksu [PUBLIC], czyli zostawić wycofaną treść w indeksie.
+ * Tygodniowy przebieg z `force=1` jest siatką bezpieczeństwa, to jest ścieżka
+ * szybka.
+ */
+const COMMENT_EVENTS = ['taskCommentPosted', 'taskCommentUpdated']
 
 export async function POST(request: NextRequest) {
   if (!WEBHOOK_SECRET) {
@@ -32,13 +53,67 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const taskEvents = ['taskCreated', 'taskUpdated', 'taskDeleted', 'taskStatusUpdated', 'taskPriorityUpdated']
-  if (taskEvents.includes(payload.event)) {
-    const allPortals = await db.select({ slug: portals.slug }).from(portals)
-    for (const { slug } of allPortals) {
-      revalidatePath(`/${slug}`)
-    }
+  const isTaskEvent = TASK_EVENTS.includes(payload.event)
+  const isCommentEvent = COMMENT_EVENTS.includes(payload.event)
+  if (!isTaskEvent && !isCommentEvent) {
+    return NextResponse.json({ ok: true, ignored: payload.event })
   }
 
-  return NextResponse.json({ ok: true })
+  const allPortals = await db
+    .select({ id: portals.id, slug: portals.slug, folderId: portals.clickupFolderId })
+    .from(portals)
+
+  // Kanban czyta ClickUpa na żywo, więc jego wystarczy unieważnić.
+  for (const { slug } of allPortals) {
+    revalidatePath(`/${slug}`)
+  }
+
+  const taskId = payload.task_id
+  if (!taskId) return NextResponse.json({ ok: true })
+
+  if (payload.event === 'taskDeleted') {
+    // Usunięte zadanie nie da się już pobrać, więc nie wiemy, do którego
+    // folderu należało. Kasujemy z indeksu każdego portalu; wiersz istnieje
+    // najwyżej w jednym, a klucz (portal_id, clickup_task_id) czyni to tanim.
+    for (const portal of allPortals) {
+      await removeTaskFromIndex(portal.id, taskId)
+      revalidatePath(`/${portal.slug}/historia`)
+    }
+    return NextResponse.json({ ok: true, removed: taskId })
+  }
+
+  try {
+    // Folder zadania decyduje, do którego portalu należy. Bierzemy go z
+    // ClickUpa, nie z payloadu, bo payload folderu nie zawiera. To ta sama
+    // granica bezpieczeństwa co przy pozostałych ścieżkach.
+    const task = await getTask(taskId)
+    const folderId = task.folder?.id
+    const target = folderId ? allPortals.find(p => p.folderId === folderId) : undefined
+
+    if (!target) {
+      // Zadanie spoza folderów klienckich (np. wewnętrzne agencji). Jeśli
+      // wcześniej było w indeksie, znaczy że je przeniesiono i musi z niego
+      // wypaść, inaczej klient zachowałby przeszukiwalną kopię.
+      for (const portal of allPortals) {
+        await removeTaskFromIndex(portal.id, taskId)
+      }
+      return NextResponse.json({ ok: true, outsideClientFolders: true })
+    }
+
+    // Przeniesienie MIĘDZY folderami klientów: usuń ze wszystkich pozostałych,
+    // zanim zapiszesz w docelowym.
+    for (const portal of allPortals) {
+      if (portal.id !== target.id) await removeTaskFromIndex(portal.id, taskId)
+    }
+
+    await indexSingleTask(target.id, taskId)
+    revalidatePath(`/${target.slug}/historia`)
+
+    return NextResponse.json({ ok: true, indexed: taskId, portal: target.slug })
+  } catch (e) {
+    // Webhook nie może zwrócić błędu z powodu jednego zadania, bo ClickUp
+    // zacząłby ponawiać albo wyłączyłby subskrypcję. Cron i tak to nadrobi.
+    console.error(`[webhook] nie udało się zindeksować zadania ${taskId}:`, e)
+    return NextResponse.json({ ok: true, indexFailed: taskId })
+  }
 }

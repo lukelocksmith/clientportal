@@ -14,6 +14,8 @@ import {
 } from '@/lib/timeReports'
 import { ReportView } from '@/components/reports/ReportView'
 import { PortalHeader } from '@/components/PortalHeader'
+import { isTabEnabled, type PortalFlags } from '@/lib/portalTabs'
+import { resolveBranding } from '@/lib/branding'
 
 interface RaportyPageProps {
   params: Promise<{ slug: string }>
@@ -44,9 +46,18 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
   const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
   if (!portal) redirect('/')
 
+  const flags: PortalFlags = {
+    kanbanEnabled: portal.kanbanEnabled,
+    reportsEnabled: portal.reportsEnabled,
+    historyEnabled: portal.historyEnabled,
+    dashboardEnabled: portal.dashboardEnabled,
+  }
+
+  const branding = resolveBranding(portal)
+
   // Brama po stronie serwera. Ukrycie zakładki w headerze to tylko kosmetyka,
   // adres musi być zamknięty także dla kogoś, kto wpisze go z ręki.
-  if (!portal.reportsEnabled) redirect(`/${slug}`)
+  if (!isTabEnabled(flags, 'raporty')) redirect(`/${slug}`)
 
   const raw = await searchParams
   const { typ: kind, okres } = searchSchema.parse({ typ: first(raw.typ), okres: first(raw.okres) })
@@ -69,7 +80,8 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
         slug={slug}
         portalName={portal.name}
         userEmail={session.email}
-        reportsEnabled
+        flags={flags}
+        branding={branding}
       />
       <ReportView
         slug={slug}

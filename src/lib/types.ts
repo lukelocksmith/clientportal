@@ -66,6 +66,12 @@ export type ClickUpTask = {
   list: { id: string; name: string }
   folder: { id: string; name: string }
   parent: string | null
+  /** Opis bez znaczników markdown. Zwracany przez endpointy listowe obok `description`. */
+  text_content?: string | null
+  /** Milisekundy jako string, jak wszystkie daty ClickUpa. Null dla zadań otwartych. */
+  date_closed?: string | null
+  date_done?: string | null
+  archived?: boolean
   // Time fields from ClickUp, both in milliseconds
   time_estimate: number | null
   time_spent: number | null

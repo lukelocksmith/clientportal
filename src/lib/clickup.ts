@@ -3,22 +3,48 @@ import type { ClickUpTask, ClickUpComment, ClickUpStatus, PortalList, ClickUpTim
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 const TOKEN = process.env.CLICKUP_API_TOKEN!
 
-async function clickupFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${CLICKUP_API}${path}`, {
-    ...options,
-    headers: {
-      Authorization: TOKEN,
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  })
+/** Górna granica czekania po 429. Dłużej i tak lepiej zwrócić błąd. */
+const RATE_LIMIT_MAX_WAIT_MS = 65_000
 
-  if (!res.ok) {
-    const error = await res.text()
-    throw new Error(`ClickUp API error ${res.status}: ${error}`)
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function clickupFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  // Jedna próba ponowienia po 429. ClickUp daje 100 zapytań na minutę na token
+  // (Free/Unlimited/Business), a tym samym tokenem chodzi i portal klienta,
+  // i synchronizacja indeksu. Bez tego 429 z backfillu mógłby wylądować na
+  // żądaniu klienta i wyglądać jak awaria portalu.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(`${CLICKUP_API}${path}`, {
+      ...options,
+      headers: {
+        Authorization: TOKEN,
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    })
+
+    if (res.status === 429 && attempt === 0) {
+      // X-RateLimit-Reset to znacznik czasu w sekundach, nie liczba sekund.
+      const reset = Number(res.headers.get('x-ratelimit-reset'))
+      const waitMs = Number.isFinite(reset) && reset > 0
+        ? Math.min(Math.max(reset * 1000 - Date.now(), 1_000), RATE_LIMIT_MAX_WAIT_MS)
+        : 5_000
+      console.warn(`[clickup] 429 na ${path}, czekam ${Math.round(waitMs / 1000)}s i ponawiam`)
+      await sleep(waitMs)
+      continue
+    }
+
+    if (!res.ok) {
+      const error = await res.text()
+      throw new Error(`ClickUp API error ${res.status}: ${error}`)
+    }
+
+    return res.json()
   }
 
-  return res.json()
+  throw new Error(`ClickUp API error 429: limit zapytań nadal przekroczony po ponowieniu (${path})`)
 }
 
 export async function getListsForFolder(folderId: string): Promise<Array<{ id: string; name: string }>> {
@@ -44,6 +70,9 @@ export async function getTasksForList(
   return { tasks: data.tasks ?? [], lastPage: data.last_page ?? true }
 }
 
+/** Sufit stron na listę. Zabezpieczenie przed pętlą, nie normalny tryb pracy. */
+const MAX_PAGES_PER_LIST = 11
+
 export async function getAllTasksForFolder(folderId: string): Promise<ClickUpTask[]> {
   const lists = await getListsForFolder(folderId)
   const allTasks: ClickUpTask[] = []
@@ -56,11 +85,85 @@ export async function getAllTasksForFolder(folderId: string): Promise<ClickUpTas
       allTasks.push(...tasks)
       lastPage = isLast
       page++
-      if (page > 10) break
+      if (page >= MAX_PAGES_PER_LIST) {
+        // Wcześniej ten warunek ucinał pobór po cichu. Objawem byłyby po prostu
+        // brakujące zadania, bez żadnego śladu w logach.
+        if (!lastPage) {
+          console.warn(
+            `[clickup] pobór listy ${list.id} (folder ${folderId}) UCIĘTY na ${MAX_PAGES_PER_LIST} stronach — część zadań pominięta`
+          )
+        }
+        break
+      }
     }
   }
 
   return buildTaskTree(allTasks)
+}
+
+/**
+ * Wszystkie zadania folderu, włącznie z zamkniętymi, jednym przelotem przez
+ * endpoint zespołowy. Źródło danych dla indeksu Historii.
+ *
+ * Czemu nie pętla po listach jak w getAllTasksForFolder: `/team/{id}/task`
+ * z `project_ids[]` bierze cały folder naraz, po 100 zadań na stronę, więc
+ * zużywa mniej zapytań i nie ma sufitu per lista.
+ *
+ * Sprawdzone empirycznie na folderze Onyx, dwie rzeczy zaskakują:
+ *
+ * 1. `order_by=created` SAM daje malejąco, czyli najnowsze pierwsze.
+ *    Dodanie `reverse=true` odwraca to na rosnąco. Parametr o nazwie
+ *    "reverse" robi więc odwrotność tego, czego się po nim spodziewać, i
+ *    dlatego go tu NIE MA. Nie dopisuj go "dla porządku".
+ * 2. `last_page` w odpowiedzi JEST, mimo że dokumentacja go nie wymienia
+ *    dla tego endpointu. Ufamy mu, ale trzymamy też warunek na krótką
+ *    stronę, gdyby ClickUp przestał go zwracać.
+ *
+ * Odpowiedź NIE zawiera załączników ani komentarzy — te idą osobno,
+ * per zadanie, i to jest powód istnienia lustra w naszej bazie.
+ *
+ * `project_ids[]` jest granicą bezpieczeństwa między klientami. Wartość musi
+ * pochodzić z rekordu portalu w bazie, nigdy z URL-a.
+ */
+export async function getFolderTaskHistory(
+  folderId: string,
+  options: { maxPages?: number } = {}
+): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
+  const teamId = process.env.CLICKUP_TEAM_ID
+  if (!teamId) throw new Error('Brak CLICKUP_TEAM_ID w env')
+
+  const maxPages = options.maxPages ?? 60 // 6000 zadań, daleko powyżej realnych rozmiarów
+  const tasks: ClickUpTask[] = []
+  let page = 0
+  let truncated = false
+
+  while (page < maxPages) {
+    const params = new URLSearchParams({
+      include_closed: 'true',
+      subtasks: 'true',
+      order_by: 'created',
+      page: String(page),
+    })
+    params.append('project_ids[]', folderId)
+
+    const data = await clickupFetch<{ tasks?: ClickUpTask[]; last_page?: boolean }>(
+      `/team/${teamId}/task?${params.toString()}`
+    )
+    const batch = data.tasks ?? []
+    tasks.push(...batch)
+
+    if (data.last_page === true || batch.length === 0 || batch.length < 100) break
+    page++
+
+    if (page >= maxPages) {
+      truncated = true
+      console.warn(
+        `[clickup] historia folderu ${folderId} UCIĘTA na ${maxPages} stronach — rekoncyliacja zostanie pominięta`
+      )
+    }
+  }
+
+  return { tasks, truncated }
 }
 
 /**

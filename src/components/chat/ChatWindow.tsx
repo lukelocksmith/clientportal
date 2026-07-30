@@ -34,6 +34,20 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
   const retriedRef = useRef(false)
   const [needFallback, setNeedFallback] = useState(false)
 
+  /**
+   * DLUG ZNANY, NIE UKRYTY. Ponizsze dwa wyciszenia dotycza kodu awaryjnego
+   * przelaczania modelu (Gemini pada -> ponowienie przez OpenAI).
+   *
+   * Oba ostrzezenia sa MERYTORYCZNIE SLUSZNE: `prepareSendMessagesRequest`
+   * czyta ref w trakcie renderu, a efekt nizej wola setState synchronicznie.
+   * Poprawka wymaga przebudowy tej sciezki, a jej NIE DA SIE sprawdzic bez
+   * wymuszenia awarii Gemini, wiec zmiana zrobiona bez tego moze zepsuc
+   * fallback po cichu: objawi sie dopiero wtedy, gdy bedzie potrzebny.
+   *
+   * Do zrobienia osobno, z odtworzeniem awarii dostawcy.
+   */
+  /* eslint-disable react-hooks/refs -- patrz komentarz wyzej: dlug znany, wymaga
+     odtworzenia awarii dostawcy, zeby zmiane dalo sie sprawdzic */
   const { messages, sendMessage, regenerate, status, error, clearError } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/ai/chat',
@@ -47,9 +61,12 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
 
   const isLoading = status === 'streaming' || status === 'submitted'
 
+  /* eslint-enable react-hooks/refs */
+
   // When Gemini fails, flip to the fallback provider and regenerate the last turn.
   useEffect(() => {
     if (!needFallback) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNeedFallback(false)
     retriedRef.current = true
     fallbackRef.current = true

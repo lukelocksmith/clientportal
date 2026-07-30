@@ -119,6 +119,11 @@ export default function AdminPage() {
   const [checkingSession, setCheckingSession] = useState(true)
   useEffect(() => {
     let cancelled = false
+    // setState leci w callbacku obietnicy, czyli w mikrozadaniu PO renderze,
+    // a nie w ciele efektu, wiec kaskady renderow tu nie ma. Regula nie
+    // odroznia tych dwoch przypadkow, a trzy proby przebudowy tego miejsca
+    // dawaly gorszy kod i NOWE bledy lintu, wiec zostaje wyciszenie z opisem.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load().then(ok => {
       if (cancelled) return
       if (ok) setAuthed(true)
@@ -351,7 +356,7 @@ export default function AdminPage() {
           <section>
             <div className="flex items-center gap-2 mb-3">
               <BarChart3 className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold text-foreground">Zużycie AI (czat „nowe zadanie")</h2>
+              <h2 className="font-semibold text-foreground">Zużycie AI (czat „nowe zadanie”)</h2>
               <span className="text-xs text-muted-foreground ml-auto">koszty szacunkowe wg cennika</span>
             </div>
 

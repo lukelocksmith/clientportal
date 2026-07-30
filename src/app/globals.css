@@ -2,7 +2,11 @@
 
 @theme {
   --font-sans: var(--font-brand-sans);
-  --font-mono: var(--font-brand-mono);
+  /* Monospace z systemu, nie webfont. Uzywamy go w dwoch polach (token
+     zaproszenia i kod hex), gdzie stala szerokosc znaku faktycznie pomaga, ale
+     wczytywanie drugiego fontu Google dla dwoch inputow to przesada. Rubik
+     zostaje jedynym webfontem, zgodnie z brandem. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Light mode — defaults baked into design tokens AND CSS vars on :root */
   --color-background: #ffffff;

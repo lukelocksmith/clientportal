@@ -70,7 +70,7 @@ export function HistorySearch({ placeholder }: { placeholder?: string }) {
         type="search"
         value={value}
         onChange={e => setValue(e.target.value)}
-        placeholder={placeholder ?? 'Szukaj w nazwach, opisach i załącznikach'}
+        placeholder={placeholder ?? 'Szukaj w zgłoszeniach, opisach i komentarzach'}
         aria-label="Szukaj zgłoszeń"
         className="h-9 w-full rounded-lg border border-border bg-card pl-9 pr-16 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
       />

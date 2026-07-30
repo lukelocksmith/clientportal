@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'crypto'
 import { and, desc, eq, gt, isNull } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { db } from './db'
-import { portalUsers, userInvites } from './db/schema'
+import { portals, portalUsers, userInvites } from './db/schema'
 
 /**
  * Zaproszenia do portalu: nowy użytkownik dostaje mailem jednorazowy link,
@@ -140,7 +140,6 @@ export async function checkInvite(token: string): Promise<InviteCheck> {
   if (row.expiresAt.getTime() <= Date.now()) return { ok: false, reason: 'expired' }
 
   // Slug portalu potrzebny do przekierowania po ustawieniu hasła.
-  const { portals } = await import('./db/schema')
   const [portal] = await db
     .select({ slug: portals.slug })
     .from(portals)

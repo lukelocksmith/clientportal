@@ -101,6 +101,7 @@ export default async function HistoriaPage({ params, searchParams }: HistoriaPag
             }}
             statuses={facets.statuses}
             priorities={facets.priorities}
+            branding={branding}
           />
         </div>
 

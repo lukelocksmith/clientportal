@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/table'
 import { formatDuration, getStatusColor } from '@/lib/utils'
 import { PeriodPicker } from './PeriodPicker'
+import type { PortalBranding } from '@/lib/branding'
 import type { Period, PeriodKind, TimeReport } from '@/lib/timeReports'
 
 interface ReportViewProps {
@@ -21,6 +22,7 @@ interface ReportViewProps {
   report: TimeReport | null
   olderKey: string | null
   newerKey: string | null
+  branding: PortalBranding
 }
 
 export function ReportView({
@@ -31,6 +33,7 @@ export function ReportView({
   report,
   olderKey,
   newerKey,
+  branding,
 }: ReportViewProps) {
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-8">
@@ -41,6 +44,7 @@ export function ReportView({
 
       <div className="mt-6">
         <PeriodPicker
+          branding={branding}
           slug={slug}
           kind={kind}
           period={period}

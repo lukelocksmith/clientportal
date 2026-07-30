@@ -10,6 +10,7 @@ import {
 import { cn, getPriorityLabel } from '@/lib/utils'
 import { HistorySearch } from './HistorySearch'
 import type { HistoryScope } from '@/lib/historyParams'
+import type { PortalBranding } from '@/lib/branding'
 
 /**
  * Pasek filtrów. Wszystko poza polem szukania to zwykłe linki na warianty
@@ -26,6 +27,13 @@ interface HistoryFiltersProps {
   current: { q: string | null; status: string | null; priorytet: string | null; zakres: HistoryScope }
   statuses: Array<{ status: string; count: number }>
   priorities: Array<{ priority: string; count: number }>
+  /**
+   * Marka klienta. Aktywny filtr musi mieć TEN SAM kolor co aktywna zakładka
+   * w headerze. Wcześniej header był w kolorze klienta, a ten przełącznik
+   * w czerwieni important.is, czyli na jednym ekranie były dwie konwencje
+   * „to jest wybrane".
+   */
+  branding: PortalBranding
 }
 
 const SCOPES: Array<{ value: HistoryScope; label: string }> = [
@@ -34,7 +42,7 @@ const SCOPES: Array<{ value: HistoryScope; label: string }> = [
   { value: 'zamkniete', label: 'Zamknięte' },
 ]
 
-export function HistoryFilters({ slug, current, statuses, priorities }: HistoryFiltersProps) {
+export function HistoryFilters({ slug, current, statuses, priorities, branding }: HistoryFiltersProps) {
   function href(changes: Record<string, string | null>): string {
     const params = new URLSearchParams()
     if (current.q) params.set('q', current.q)
@@ -68,11 +76,14 @@ export function HistoryFilters({ slug, current, statuses, priorities }: HistoryF
           <Link
             key={scope.value}
             href={href({ zakres: scope.value === 'wszystkie' ? null : scope.value })}
+            style={
+              scope.value === current.zakres
+                ? { backgroundColor: branding.brandColor, color: branding.brandForeground }
+                : undefined
+            }
             className={cn(
               'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-              scope.value === current.zakres
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
+              scope.value === current.zakres ? '' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {scope.label}

@@ -67,6 +67,7 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
         branding={branding}
       />
       <ReportView
+        branding={branding}
         slug={slug}
         kind={kind}
         periods={periods}

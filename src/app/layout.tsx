@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Rubik, Geist_Mono } from 'next/font/google'
+import { Rubik } from 'next/font/google'
 import { Toaster } from 'sonner'
 import './globals.css'
 
@@ -8,7 +8,7 @@ import './globals.css'
 // latin-ext jest KONIECZNE dla polskich znakow: bez niego ą, ć, ę, ł, ń, ś, ź, ż
 // leca na font zapasowy i tekst rozjezdza sie w polowie wyrazu.
 const rubik = Rubik({ variable: '--font-brand-sans', subsets: ['latin', 'latin-ext'] })
-const geistMono = Geist_Mono({ variable: '--font-brand-mono', subsets: ['latin'] })
+
 
 export const metadata: Metadata = {
   // Szablon dokleja marke do kazdej podstrony, ktora ustawi wlasny tytul,
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pl" className={`${rubik.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="pl" className={`${rubik.variable} h-full antialiased`}>
       <body className="min-h-full bg-background text-foreground">
         {children}
         <Toaster richColors position="top-right" />

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import type { Period, PeriodKind } from '@/lib/timeReports'
+import type { PortalBranding } from '@/lib/branding'
 
 interface PeriodPickerProps {
   slug: string
@@ -19,13 +20,15 @@ interface PeriodPickerProps {
   olderKey: string | null
   /** Klucz nowszego okresu albo null, gdy jesteśmy na ostatnim zamkniętym. */
   newerKey: string | null
+  /** Marka klienta. Aktywny wybór ma ten sam kolor co aktywna zakładka. */
+  branding: PortalBranding
 }
 
 function href(slug: string, kind: PeriodKind, key: string): string {
   return `/${slug}/raporty?typ=${kind}&okres=${key}`
 }
 
-export function PeriodPicker({ slug, kind, period, periods, olderKey, newerKey }: PeriodPickerProps) {
+export function PeriodPicker({ slug, kind, period, periods, olderKey, newerKey, branding }: PeriodPickerProps) {
   const arrow =
     'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors'
   const arrowActive = 'hover:bg-muted hover:text-foreground'
@@ -40,11 +43,14 @@ export function PeriodPicker({ slug, kind, period, periods, olderKey, newerKey }
           <Link
             key={option}
             href={`/${slug}/raporty?typ=${option}`}
+            style={
+              option === kind
+                ? { backgroundColor: branding.brandColor, color: branding.brandForeground }
+                : undefined
+            }
             className={cn(
               'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-              option === kind
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground'
+              option === kind ? '' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {option === 'tydzien' ? 'Tydzień' : 'Miesiąc'}

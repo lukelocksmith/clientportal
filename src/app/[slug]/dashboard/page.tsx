@@ -7,6 +7,7 @@ import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { PortalHeader } from '@/components/PortalHeader'
 import { PanicButton } from '@/components/PanicButton'
 import { BrandMark } from '@/components/BrandMark'
+import { IdeaForm } from '@/components/dashboard/IdeaForm'
 
 interface DashboardPageProps {
   params: Promise<{ slug: string }>
@@ -109,6 +110,22 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
             </div>
           </section>
         </div>
+
+        {/* Pomysly klienta na ulepszenie portalu. Osobna sekcja na pelnej
+            szerokosci, bo to zaproszenie do pisania, a nie kolejna kafelka
+            w rzedzie: obok Kontaktu i Alarmu przepadloby. */}
+        <section className="mt-4 rounded-xl border border-border bg-card p-5">
+          <h2 className="text-sm font-semibold text-foreground">
+            Masz pomysł, jak ulepszyć ten portal?
+          </h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Napisz, czego brakuje albo co przeszkadza. Czytamy każdy pomysł i dopisujemy je do
+            naszej listy zadań.
+          </p>
+          <div className="mt-3">
+            <IdeaForm slug={slug} />
+          </div>
+        </section>
 
         {shortcuts.length > 0 && (
           <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3">

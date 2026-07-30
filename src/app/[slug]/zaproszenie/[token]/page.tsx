@@ -6,6 +6,7 @@ import { portals } from '@/lib/db/schema'
 import { checkInvite } from '@/lib/invites'
 import { resolveBranding } from '@/lib/branding'
 import { SetPasswordForm } from '@/components/invite/SetPasswordForm'
+import { BrandMark } from '@/components/BrandMark'
 
 interface Props {
   params: Promise<{ slug: string; token: string }>
@@ -54,6 +55,7 @@ export default async function InvitePage({ params }: Props) {
           <h1 className="text-lg font-semibold text-foreground">{portal.name}</h1>
         </div>
         <div className="rounded-xl border border-border bg-card p-6">{children}</div>
+        <BrandMark className="mt-6 text-center text-xs text-muted-foreground" />
       </div>
     </div>
   )

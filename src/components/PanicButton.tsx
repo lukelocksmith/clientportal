@@ -89,10 +89,11 @@ export function PanicButton({ slug }: Props) {
   return (
     <>
       <Button
-        variant="destructive"
+        variant="outline"
         size="sm"
         onClick={() => setState('open')}
         title="Wyślij alarm do agencji"
+        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
       >
         <AlertTriangle className="h-4 w-4" />
         Alarm

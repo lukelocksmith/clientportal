@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { resolveBranding } from '@/lib/branding'
 import { ForgotPasswordForm } from '@/components/invite/ForgotPasswordForm'
+import { BrandMark } from '@/components/BrandMark'
 
 interface Props {
   params: Promise<{ slug: string }>
@@ -63,6 +64,8 @@ export default async function ForgotPasswordPage({ params }: Props) {
             Wróć do logowania
           </Link>
         </p>
+
+        <BrandMark className="mt-6 text-center text-xs text-muted-foreground" />
       </div>
     </div>
   )

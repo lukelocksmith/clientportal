@@ -1,110 +1,75 @@
-'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { use } from 'react'
+import { redirect } from 'next/navigation'
+import { eq } from 'drizzle-orm'
+import { db } from '@/lib/db'
+import { portals } from '@/lib/db/schema'
+import { resolveBranding } from '@/lib/branding'
+import { LoginForm } from '@/components/auth/LoginForm'
 
-export default function LoginPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params)
-  const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+interface Props {
+  params: Promise<{ slug: string }>
+}
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
+/**
+ * Ekran logowania do portalu klienta.
+ *
+ * Serwerowy, żeby pobrać markę projektu z bazy. Wcześniej cała strona była
+ * kliencka i przez to rysowała kwadrat w kolorze important.is oraz pierwszą
+ * literę SLUGA zamiast nazwy projektu. Pierwszy ekran, jaki widzi klient,
+ * pokazywał więc naszą markę zamiast jego, dokładnie odwrotnie do zamiaru.
+ *
+ * Strona jest publiczna, `proxy.ts` przepuszcza `/login` bez sesji.
+ */
+export async function generateMetadata({ params }: Props) {
+  const { slug } = await params
+  const [portal] = await db
+    .select({ name: portals.name })
+    .from(portals)
+    .where(eq(portals.slug, slug))
+    .limit(1)
+  // Szablon w layoucie dokleja " · important.is".
+  return { title: portal ? `Logowanie: ${portal.name}` : 'Logowanie' }
+}
 
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, slug }),
-    })
+export default async function LoginPage({ params }: Props) {
+  const { slug } = await params
 
-    const data = await res.json()
-    setLoading(false)
+  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
+  if (!portal) redirect('/')
 
-    if (!res.ok) {
-      setError(data.error ?? 'Błąd logowania')
-      return
-    }
-
-    router.push(`/${slug}`)
-    router.refresh()
-  }
+  const branding = resolveBranding(portal)
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md">
-        {/* Logo area */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-primary text-primary-foreground text-xl font-bold mb-4">
-            {slug[0].toUpperCase()}
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">Portal klienta</h1>
-          <p className="text-muted-foreground text-sm mt-1">Zaloguj się, aby zobaczyć swoje zadania</p>
-        </div>
-
-        <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                placeholder="twoj@email.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">
-                Hasło
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                placeholder="••••••••"
-              />
-            </div>
-
-            {error && (
-              <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none h-9"
+        <div className="mb-8 text-center">
+          {branding.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.logoUrl}
+              alt={portal.name}
+              className="mx-auto mb-4 h-12 w-12 rounded-xl object-contain"
+              style={{ backgroundColor: branding.brandColor }}
+            />
+          ) : (
+            <div
+              className="mx-auto mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl text-xl font-bold"
+              style={{ backgroundColor: branding.brandColor, color: branding.brandForeground }}
             >
-              {loading ? 'Logowanie...' : 'Zaloguj się'}
-            </button>
-          </form>
-
-          {/* Link publiczny, jak sama strona logowania. */}
-          <p className="mt-4 text-center text-sm">
-            <a
-              href={`/${slug}/przypomnienie`}
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Nie pamiętam hasła
-            </a>
+              {/* Pierwsza litera NAZWY projektu, nie sluga. */}
+              {portal.name[0]?.toUpperCase()}
+            </div>
+          )}
+          <h1 className="text-2xl font-bold text-foreground">{portal.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Zaloguj się, aby zobaczyć swoje zadania
           </p>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <LoginForm slug={slug} />
+        </div>
+
+        <p className="mt-6 text-center text-xs text-muted-foreground">
           Problemy z logowaniem? Skontaktuj się z nami.
         </p>
       </div>

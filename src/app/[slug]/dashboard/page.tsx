@@ -6,6 +6,7 @@ import { getPortalForSession } from '@/lib/portalSession'
 import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { PortalHeader } from '@/components/PortalHeader'
 import { PanicButton } from '@/components/PanicButton'
+import { BrandMark } from '@/components/BrandMark'
 
 interface DashboardPageProps {
   params: Promise<{ slug: string }>
@@ -123,6 +124,8 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
             ))}
           </div>
         )}
+
+        <BrandMark className="mt-10 text-center text-xs text-muted-foreground" />
       </main>
     </div>
   )

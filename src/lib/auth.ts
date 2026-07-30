@@ -63,7 +63,21 @@ export async function getSession(slug?: string): Promise<Session | null> {
         .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, now)))
         .limit(1)
 
-      if (result[0]?.isActive) {
+      // Sesja klienta liczy się tylko dla JEGO portalu. Gdy pytamy o inny slug,
+      // schodzimy niżej, do obejścia admina.
+      //
+      // Wcześniej ta gałąź zwracała sesję bezwarunkowo, a wołający porównywał
+      // `session.portalSlug !== slug` i odbijał na logowanie. Skutek: admin,
+      // który był ZARAZEM zalogowany do jakiegokolwiek portalu klienta, nie
+      // mógł otworzyć żadnego innego, bo obejście z linii niżej było
+      // nieosiągalne. Naprawa w proxy.ts przepuszczała żądanie, ale ta warstwa
+      // dalej zwracała nie ten portal.
+      //
+      // To nie poszerza uprawnień: sesja klienta A nadal nie daje dostępu do
+      // portalu B. Zwężamy ją do własnego portalu i pozwalamy dojść do
+      // sprawdzenia admina.
+      const sameSlug = !slug || result[0]?.portalSlug === slug
+      if (result[0]?.isActive && sameSlug) {
         return {
           userId: result[0].userId,
           portalId: result[0].portalId,

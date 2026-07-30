@@ -5,6 +5,7 @@ import { DEFAULT_BRAND_COLOR, normalizeHexColor, readableForeground, isSafeLogoU
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TEAM_MEMBERS, parseContactMemberIds } from '@/lib/team'
 
 /**
  * Konfiguracja projektu: marka (logo, kolor) i kontakt opiekuna.
@@ -21,6 +22,7 @@ interface Props {
   portal: {
     slug: string; name: string
     logoUrl: string | null; brandColor: string | null
+    contactMemberIds: string | null
     contactName: string | null; contactEmail: string | null; contactPhone: string | null
   }
   onSaved: (changes: Partial<Props['portal']>) => void
@@ -29,6 +31,13 @@ interface Props {
 export function PortalConfigForm({ portal, onSaved }: Props) {
   const [color, setColor] = useState(portal.brandColor ?? '')
   const [logo, setLogo] = useState(portal.logoUrl ?? '')
+  // null w bazie znaczy "domyślnie cały zespół", więc w formularzu pokazujemy
+  // wszystkich zaznaczonych. Pusty ciąg znaczy "świadomie nikt".
+  const [members, setMembers] = useState<string[]>(() =>
+    portal.contactMemberIds === null
+      ? TEAM_MEMBERS.map(m => m.id)
+      : parseContactMemberIds(portal.contactMemberIds).map(m => m.id)
+  )
   const [cName, setCName] = useState(portal.contactName ?? '')
   const [cEmail, setCEmail] = useState(portal.contactEmail ?? '')
   const [cPhone, setCPhone] = useState(portal.contactPhone ?? '')
@@ -46,7 +55,15 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const phoneInvalid = cPhone.trim().length > 0 && normalizePhone(cPhone) === null
   const invalid = colorInvalid || logoInvalid || emailInvalid || phoneInvalid
 
+  const savedMembers =
+    portal.contactMemberIds === null
+      ? TEAM_MEMBERS.map(m => m.id)
+      : parseContactMemberIds(portal.contactMemberIds).map(m => m.id)
+  const membersDirty =
+    savedMembers.length !== members.length || savedMembers.some(id => !members.includes(id))
+
   const dirty =
+    membersDirty ||
     (portal.brandColor ?? '') !== color ||
     (portal.logoUrl ?? '') !== logo ||
     (portal.contactName ?? '') !== cName ||
@@ -93,6 +110,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         slug: portal.slug,
         brandColor: color.trim() === '' ? null : color.trim(),
         logoUrl: logo.trim() === '' ? null : logo.trim(),
+        contactMemberIds: members,
         contactName: cName.trim() === '' ? null : cName.trim(),
         contactEmail: cEmail.trim() === '' ? null : cEmail.trim(),
         contactPhone: cPhone.trim() === '' ? null : cPhone.trim(),
@@ -114,6 +132,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
       }
       const data = await res.json()
       onSaved({
+        contactMemberIds: data.portal?.contactMemberIds ?? null,
         logoUrl: data.portal?.logoUrl ?? null,
         brandColor: data.portal?.brandColor ?? null,
         contactName: data.portal?.contactName ?? null,
@@ -242,12 +261,37 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
 
       </div>
 
-      {/* Kontakt opiekuna. Puste pole nie znaczy "brak kontaktu", tylko
-          "użyj zapasu agencji" (PORTAL_CONTACT_* albo hi@important.is),
-          dlatego podpowiedzi w polach pokazują właśnie ten zapas. */}
+      {/* Kontakty projektu: wybór z zespołu, a pod nim opcjonalny kontakt
+          spoza zespołu. Pola dodatkowego kontaktu są puste u większości
+          projektów i to normalne, bo zwykle wystarcza zespół. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border/60 pt-3">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Kontakt z zespołu
+        </span>
+        {TEAM_MEMBERS.map(m => (
+          <label
+            key={m.id}
+            className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
+          >
+            <input
+              type="checkbox"
+              checked={members.includes(m.id)}
+              onChange={e =>
+                setMembers(prev =>
+                  e.target.checked ? [...prev, m.id] : prev.filter(id => id !== m.id)
+                )
+              }
+              className="h-3.5 w-3.5 cursor-pointer accent-primary"
+            />
+            <span className="text-foreground">{m.name}</span>
+            <span className="text-muted-foreground/70">{m.roleLabel}</span>
+          </label>
+        ))}
+      </div>
+
       <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-border/60 pt-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Opiekun</span>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Kontakt dodatkowy</span>
           <Input
             type="text"
             value={cName}

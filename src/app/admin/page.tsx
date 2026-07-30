@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 type Portal = {
   id: string; slug: string; name: string; isActive: boolean
   logoUrl: string | null; brandColor: string | null
+  contactMemberIds: string | null
   contactName: string | null; contactEmail: string | null; contactPhone: string | null
 } & PortalFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }

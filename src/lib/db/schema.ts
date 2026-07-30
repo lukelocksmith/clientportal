@@ -24,6 +24,16 @@ export const portals = pgTable('portals', {
    * albo wartości domyślne w lib/portalContact.ts), więc nowy projekt działa
    * bez konfigurowania czegokolwiek.
    */
+  /**
+   * Kto z zespołu jest kontaktem dla tego projektu. Lista identyfikatorów
+   * z lib/team.ts, rozdzielona przecinkami (np. "filip,paulina").
+   * Null oznacza domyślny skład, czyli cały zespół.
+   */
+  contactMemberIds: text('contact_member_ids'),
+  /**
+   * Dodatkowy kontakt spoza zespołu, opcjonalny. Przydaje się, gdy klient ma
+   * dedykowaną osobę, której nie ma w TEAM_MEMBERS. Puste pola oznaczają brak.
+   */
   contactName: text('contact_name'),
   contactEmail: text('contact_email'),
   contactPhone: text('contact_phone'),

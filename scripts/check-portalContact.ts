@@ -4,11 +4,12 @@
  */
 import assert from 'node:assert'
 import {
-  resolveContact,
+  resolveContacts,
   isPlausibleEmail,
   normalizePhone,
   phoneHref,
 } from '../src/lib/portalContact'
+import { TEAM_MEMBERS, parseContactMemberIds, serializeContactMemberIds } from '../src/lib/team'
 
 function testEmail() {
   assert.ok(isPlausibleEmail('paulina.a@important.is'))
@@ -33,49 +34,80 @@ function testPhone() {
   assert.strictEqual(phoneHref('(22) 123-45-67'), 'tel:221234567')
 }
 
-function testResolve() {
-  // Nic nie ustawione: portal musi mieć sensowny kontakt bez konfiguracji.
-  const bare = resolveContact({})
-  assert.strictEqual(bare.email, 'hi@important.is')
-  assert.strictEqual(bare.name, 'Zespół important.is')
-  assert.strictEqual(bare.phone, null)
-  assert.strictEqual(bare.fromPortal, false)
+function testTeamRoster() {
+  // Identyfikatory sa zapisywane do bazy, wiec musza byc unikalne i stabilne.
+  const ids = TEAM_MEMBERS.map(m => m.id)
+  assert.strictEqual(new Set(ids).size, ids.length, 'zduplikowany id w TEAM_MEMBERS')
+  for (const m of TEAM_MEMBERS) {
+    assert.ok(isPlausibleEmail(m.email), `zly e-mail: ${m.id}`)
+    assert.ok(m.roleLabel.length > 0, `brak podpisu roli: ${m.id}`)
+  }
 
-  // Zmienne agencji nadpisują wartości domyślne.
-  const fromEnv = resolveContact({}, { name: 'Filip G.', email: 'filip.g@important.is', phone: '+48 600 111 222' })
-  assert.strictEqual(fromEnv.name, 'Filip G.')
-  assert.strictEqual(fromEnv.email, 'filip.g@important.is')
-  assert.strictEqual(fromEnv.phone, '+48 600 111 222')
-  assert.strictEqual(fromEnv.fromPortal, false, 'env to nie ustawienie projektu')
+  assert.deepStrictEqual(parseContactMemberIds('filip,paulina').map(m => m.id), ['filip', 'paulina'])
+  assert.deepStrictEqual(parseContactMemberIds('paulina').map(m => m.id), ['paulina'])
+  assert.deepStrictEqual(parseContactMemberIds('').map(m => m.id), [], 'pusty ciag to swiadomy brak')
+  assert.deepStrictEqual(parseContactMemberIds(null).map(m => m.id), [])
 
-  // Pola projektu biją zmienne agencji.
-  const fromPortal = resolveContact(
-    { contactName: 'Paulina A.', contactEmail: 'paulina.a@important.is' },
-    { name: 'Filip G.', email: 'filip.g@important.is', phone: '+48 600 111 222' }
+  // Kolejnosc idzie z TEAM_MEMBERS, nie z zapisu, zeby byla ta sama wszedzie.
+  assert.deepStrictEqual(
+    parseContactMemberIds('paulina,filip').map(m => m.id),
+    TEAM_MEMBERS.filter(m => ['filip', 'paulina'].includes(m.id)).map(m => m.id),
+    'kolejnosc z rostera, nie z bazy'
   )
-  assert.strictEqual(fromPortal.name, 'Paulina A.')
-  assert.strictEqual(fromPortal.email, 'paulina.a@important.is')
-  assert.strictEqual(fromPortal.phone, '+48 600 111 222', 'niewypełnione pole spada na env')
-  assert.strictEqual(fromPortal.fromPortal, true)
 
-  // Śmieci w bazie nie mogą wysadzić strony, tylko spaść na zapas.
-  const junk = resolveContact(
-    { contactEmail: 'niepoprawny', contactPhone: 'javascript:alert(1)' },
-    { email: 'filip.g@important.is' }
-  )
-  assert.strictEqual(junk.email, 'filip.g@important.is')
-  assert.strictEqual(junk.phone, null)
+  // Nieznany id nie moze wysadzic strony, tylko zostac pominiety.
+  assert.deepStrictEqual(parseContactMemberIds('filip,ktos-kogo-nie-ma').map(m => m.id), ['filip'])
+  assert.strictEqual(serializeContactMemberIds(['paulina', 'zmyslony']), 'paulina')
+}
 
-  // Puste ciągi i same spacje traktujemy jak brak.
-  const blank = resolveContact({ contactName: '   ', contactEmail: '', contactPhone: '  ' })
-  assert.strictEqual(blank.name, 'Zespół important.is')
-  assert.strictEqual(blank.fromPortal, false, 'same spacje to nie konfiguracja')
+function testResolveContacts() {
+  // null = projekt nieskonfigurowany => caly zespol.
+  const fresh = resolveContacts({})
+  assert.strictEqual(fresh.length, TEAM_MEMBERS.length, 'null daje caly zespol')
+  assert.ok(fresh.every(c => c.roleLabel !== null), 'czlonkowie zespolu maja podpis roli')
+
+  // Wybor jednej osoby.
+  const one = resolveContacts({ contactMemberIds: 'paulina' })
+  assert.strictEqual(one.length, 1)
+  assert.strictEqual(one[0].email, 'paulina.a@important.is')
+
+  // Kontakt dodatkowy doklada sie NA KONIEC i nie ma podpisu roli.
+  const withExtra = resolveContacts({
+    contactMemberIds: 'filip',
+    contactName: 'Anna z Onyxu',
+    contactEmail: 'anna@onyx.pl',
+    contactPhone: '+48 600 111 222',
+  })
+  assert.strictEqual(withExtra.length, 2)
+  assert.strictEqual(withExtra[1].name, 'Anna z Onyxu')
+  assert.strictEqual(withExtra[1].roleLabel, null)
+  assert.strictEqual(withExtra[1].phone, '+48 600 111 222')
+
+  // Niepoprawny e-mail kontaktu dodatkowego => kontakt nie wchodzi.
+  const badExtra = resolveContacts({ contactMemberIds: 'filip', contactEmail: 'bezmalpy' })
+  assert.strictEqual(badExtra.length, 1, 'kontakt bez poprawnego e-maila jest pomijany')
+
+  // Pusty ciag to swiadome odznaczenie wszystkich. Musi zostac zapas, bo
+  // sekcja kontaktu bez ani jednego adresu byla by dla klienta bezuzyteczna.
+  const noneSelected = resolveContacts({ contactMemberIds: '' })
+  assert.strictEqual(noneSelected.length, 1, 'brak wybranych spada na zapas')
+  assert.strictEqual(noneSelected[0].email, 'hi@important.is')
+
+  // Odznaczeni wszyscy, ale jest kontakt dodatkowy => tylko on, bez zapasu.
+  const onlyExtra = resolveContacts({ contactMemberIds: '', contactEmail: 'anna@onyx.pl' })
+  assert.strictEqual(onlyExtra.length, 1)
+  assert.strictEqual(onlyExtra[0].email, 'anna@onyx.pl')
+
+  // Adresy sa unikalne, zeby React nie dostal dwoch tych samych kluczy.
+  const all = resolveContacts({})
+  assert.strictEqual(new Set(all.map(c => c.email)).size, all.length, 'zduplikowany e-mail w liscie')
 }
 
 function main() {
   testEmail()
   testPhone()
-  testResolve()
+  testTeamRoster()
+  testResolveContacts()
   console.log('check-portalContact: OK')
 }
 

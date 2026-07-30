@@ -1,0 +1,1 @@
+ALTER TABLE "portals" ADD COLUMN "contact_member_ids" text;

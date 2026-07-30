@@ -64,6 +64,13 @@
       "when": 1785402311883,
       "tag": "0008_portal_contact",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785411826358,
+      "tag": "0009_contact_members",
+      "breakpoints": true
     }
   ]
 }

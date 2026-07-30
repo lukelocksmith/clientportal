@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { ArrowRight, Mail, Phone } from 'lucide-react'
 import { isTabEnabled, visibleTabs } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
-import { contactEnv, phoneHref, resolveContact } from '@/lib/portalContact'
+import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { PortalHeader } from '@/components/PortalHeader'
 import { PanicButton } from '@/components/PanicButton'
 
@@ -31,7 +31,7 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
   // Brama po stronie serwera, jak w pozostałych zakładkach.
   if (!isTabEnabled(flags, 'dashboard')) redirect(`/${slug}`)
 
-  const contact = resolveContact(portal, contactEnv())
+  const contacts = resolveContacts(portal, contactEnv())
 
   // Skróty do wszystkiego poza samym dashboardem. Lista jedzie z tego samego
   // źródła co zakładki w headerze, więc nie może się z nimi rozjechać.
@@ -60,31 +60,41 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
               Piszcie w każdej sprawie, także drobnej.
             </p>
 
-            <p className="mt-4 text-sm font-medium text-foreground">{contact.name}</p>
-
-            <div className="mt-3 space-y-2">
-              <a
-                href={`mailto:${contact.email}`}
-                className="inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
-              >
-                <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-                {contact.email}
-              </a>
-
-              {/* Telefon rysujemy tylko wtedy, gdy ktoś go faktycznie podał.
-                  Puste pole „Telefon:" wygląda na niedokończony portal. */}
-              {contact.phone && (
-                <div>
+            {/* Lista, nie jedna osoba: projekt ma opiekuna technicznego i
+                project managera, a klient powinien wiedzieć, do kogo z czym. */}
+            <ul className="mt-4 space-y-4">
+              {contacts.map(contact => (
+                <li key={contact.email}>
+                  {contact.roleLabel && (
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {contact.roleLabel}
+                    </p>
+                  )}
+                  <p className="text-sm font-medium text-foreground">{contact.name}</p>
                   <a
-                    href={phoneHref(contact.phone)}
-                    className="inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
+                    href={`mailto:${contact.email}`}
+                    className="mt-0.5 inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
                   >
-                    <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    {contact.phone}
+                    <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {contact.email}
                   </a>
-                </div>
-              )}
-            </div>
+
+                  {/* Telefon rysujemy tylko wtedy, gdy ktoś go faktycznie podał.
+                      Puste pole „Telefon:" wygląda na niedokończony portal. */}
+                  {contact.phone && (
+                    <div>
+                      <a
+                        href={phoneHref(contact.phone)}
+                        className="inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
+                      >
+                        <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        {contact.phone}
+                      </a>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
           </section>
 
           <section className="rounded-xl border border-border bg-card p-5">

@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { ensureAdminUser } from '@/lib/adminUser'
 import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
+import { serializeContactMemberIds, TEAM_MEMBERS } from '@/lib/team'
 
 export async function GET(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
       dashboardEnabled: portals.dashboardEnabled,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
+      contactMemberIds: portals.contactMemberIds,
       contactName: portals.contactName,
       contactEmail: portals.contactEmail,
       contactPhone: portals.contactPhone,
@@ -74,6 +76,20 @@ const UpdatePortalSchema = z
      * wartość i zakładka spada na zapas agencji (PORTAL_CONTACT_*).
      * Telefon i e-mail walidujemy, bo lądują w atrybutach href.
      */
+    /**
+     * Kto z zespołu jest kontaktem. Tablica identyfikatorów z lib/team.ts.
+     * Pusta tablica to świadome odznaczenie wszystkich i zapisuje się jako
+     * pusty ciąg, co jest czymś INNYM niż null (null = domyślnie cały zespół).
+     */
+    contactMemberIds: z
+      .array(z.string().max(40))
+      .max(20)
+      .optional()
+      .refine(
+        v => v === undefined || v.every(id => TEAM_MEMBERS.some(m => m.id === id)),
+        { message: 'Nieznany członek zespołu' }
+      )
+      .transform(v => (v === undefined ? undefined : serializeContactMemberIds(v))),
     contactName: z
       .string()
       .max(120)
@@ -150,6 +166,7 @@ export async function PATCH(request: NextRequest) {
       dashboardEnabled: portals.dashboardEnabled,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
+      contactMemberIds: portals.contactMemberIds,
       contactName: portals.contactName,
       contactEmail: portals.contactEmail,
       contactPhone: portals.contactPhone,

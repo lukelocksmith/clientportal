@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { db } from './db'
 import { auditLog } from './db/schema'
-import { normalizeActorId } from './reporter'
+import { normalizeActorId, isAdminActor } from './reporter'
 
 /**
  * Historia zdarzeń portalu, przypisana do osoby.
@@ -152,6 +152,46 @@ export async function listPortalEvents(options: {
     actionLabel: EVENT_LABELS[r.action as EventAction] ?? r.action,
     meta: parseMeta(r.meta),
   }))
+}
+
+/**
+ * Kto zgłosił konkretne zadanie, do pokazania KLIENTOWI w szczegółach zadania.
+ *
+ * Zwraca null, gdy zgłoszenia nie ma w historii, i to jest stan normalny, nie
+ * błąd: tak wygląda każde zadanie, które założyliśmy sami w ClickUpie, oraz
+ * wszystko sprzed wprowadzenia tej historii. Wołający pokazuje wtedy nas.
+ *
+ * Sesja admina liczy się jako my, a nie jako klient. Zadanie założone w trybie
+ * obejścia ma w historii `admin@important.is`, a podpisanie go klientowi
+ * fałszowałoby historię współpracy, na którą powołujemy się przy rozliczeniu.
+ */
+export async function getTaskReporter(
+  portalId: string,
+  clickupTaskId: string
+): Promise<{ name: string | null; email: string | null; isAgency: boolean } | null> {
+  const rows = await db
+    .select({ userEmail: auditLog.userEmail, userName: auditLog.userName })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.portalId, portalId),
+        eq(auditLog.action, EVENT_TASK_CREATED),
+        eq(auditLog.resourceId, clickupTaskId)
+      )
+    )
+    // Najnowszy wiersz, gdyby to samo zadanie trafiło do historii dwa razy.
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1)
+
+  const row = rows[0]
+  if (!row) return null
+
+  const isAgency = isAdminActor({ email: row.userEmail })
+  return {
+    name: isAgency ? null : row.userName,
+    email: isAgency ? null : row.userEmail,
+    isAgency,
+  }
 }
 
 /**

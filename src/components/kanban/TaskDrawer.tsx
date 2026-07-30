@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
 import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText } from 'lucide-react'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User } from 'lucide-react'
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 
@@ -89,6 +89,12 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
   const [loadingComments, setLoadingComments] = useState(true)
   const [sendingComment, setSendingComment] = useState(false)
   const [attachments, setAttachments] = useState<ClickUpAttachment[]>([])
+  /** Null oznacza „nie wiemy", czyli zadanie założone przez nas. Patrz niżej. */
+  const [reporter, setReporter] = useState<{
+    name: string | null
+    email: string | null
+    isAgency: boolean
+  } | null>(null)
 
   useEffect(() => {
     async function loadComments() {
@@ -102,10 +108,14 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
     }
     async function loadAttachments() {
       setAttachments([])
+      setReporter(null)
       const res = await fetch(`/api/clickup/tasks/${task.id}?slug=${slug}`)
       if (res.ok) {
         const data = await res.json()
         setAttachments(data.attachments ?? [])
+        // Ta sama odpowiedź, bez drugiego zapytania: autor i załączniki
+        // pochodzą z jednego zadania.
+        setReporter(data.reporter ?? null)
       }
     }
     loadComments()
@@ -208,6 +218,31 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
 
           {/* Meta info */}
           <div className="px-5 py-4 border-b border-border space-y-3">
+            {/* Kiedy i przez kogo zgłoszone. Ten wiersz jest BEZWARUNKOWY i to
+                jest jego drugie zadanie: cały blok ma stałe `py-4` i `border-b`,
+                więc zadanie bez terminu i bez czasu renderowało tu sam pusty
+                pasek między dwiema kreskami. Data utworzenia przychodzi z
+                ClickUpa zawsze, więc pusty pasek przestaje być osiągalny.
+
+                Zgłaszający pochodzi z naszej historii, nie z ClickUpa: tam
+                autorem każdego zadania jest nasze konto serwisowe. Brak wpisu
+                oznacza zadanie założone przez nas, i wtedy podpisujemy się
+                jako Important.is. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                <span>Zgłoszone: {formatDate(task.date_created)}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <User className="h-3.5 w-3.5" />
+                <span>
+                  {reporter && !reporter.isAgency
+                    ? (reporter.name ?? reporter.email)
+                    : 'Important.is'}
+                </span>
+              </div>
+            </div>
+
             {(task.date_due || task.date_start) && (
               <div className="flex items-center gap-4 text-sm">
                 {task.date_start && (

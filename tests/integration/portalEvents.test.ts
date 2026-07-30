@@ -21,6 +21,7 @@ import {
   listPortalEvents,
   portalEventActors,
   attachResourceId,
+  getTaskReporter,
   EVENT_TASK_CREATED,
   EVENT_PANIC_ALERT,
   EVENT_COMMENT_ADDED,
@@ -178,6 +179,70 @@ describe.skipIf(!reachable)('portalEvents', () => {
     // Zapis zdarzenia mogl sie nie udac (zwraca null). Dopisanie do niczego
     // musi byc wtedy operacja pusta, nie bledem.
     await attachResourceId(null, 'clickup-000')
+  })
+
+  it('zglaszajacy pokazywany klientowi: osoba, my, albo my przy braku wpisu', async () => {
+    const portal = await freshPortal('ev-rep')
+    const userId = await createTestUser(portal.id, 'anna@test.pl')
+
+    // 1. Zgloszenie klienta: klient widzi swoja osobe.
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId, email: 'anna@test.pl', name: 'Anna' },
+      action: EVENT_TASK_CREATED,
+      resourceId: 'zad-klienta',
+    })
+    const klient = await getTaskReporter(portal.id, 'zad-klienta')
+    assert.strictEqual(klient?.name, 'Anna')
+    assert.strictEqual(klient?.isAgency, false)
+
+    // 2. Zadanie zalozone w trybie admina: podpisujemy sie MY, nie klient.
+    // Podpisanie tego klientem falszowalo by historie wspolpracy.
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId: 'admin', email: 'admin@important.is', name: 'Admin' },
+      action: EVENT_TASK_CREATED,
+      resourceId: 'zad-admina',
+    })
+    const admin = await getTaskReporter(portal.id, 'zad-admina')
+    assert.strictEqual(admin?.isAgency, true, 'sesja admina to my, nie klient')
+    assert.strictEqual(admin?.name, null, 'imie admina nie ma wychodzic do klienta')
+    assert.strictEqual(admin?.email, null, 'adres obejsciowy nie ma wychodzic do klienta')
+
+    // 3. Zadanie sprzed tej historii albo zalozone przez nas wprost w ClickUpie.
+    // Null to stan NORMALNY, wolajacy pokazuje wtedy "Important.is".
+    assert.strictEqual(await getTaskReporter(portal.id, 'zad-nieznane'), null)
+
+    // 4. Komentarz do zadania NIE czyni z nikogo zglaszajacego.
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId, email: 'anna@test.pl', name: 'Anna' },
+      action: EVENT_COMMENT_ADDED,
+      resourceId: 'zad-tylko-komentarz',
+    })
+    assert.strictEqual(
+      await getTaskReporter(portal.id, 'zad-tylko-komentarz'),
+      null,
+      'autor komentarza nie jest autorem zgloszenia'
+    )
+  })
+
+  it('zglaszajacy nie przecieka miedzy projektami', async () => {
+    const a = await freshPortal('rep-a')
+    const b = await freshPortal('rep-b')
+    const userA = await createTestUser(a.id, 'a@test.pl')
+
+    // To samo id zadania odpytane z DRUGIEGO projektu. Bez warunku na portalId
+    // klient B zobaczylby imie pracownika klienta A.
+    await logEvent({
+      portalId: a.id,
+      actor: { userId: userA, email: 'a@test.pl', name: 'Pracownik A' },
+      action: EVENT_TASK_CREATED,
+      resourceId: 'wspolne-id',
+    })
+
+    assert.strictEqual((await getTaskReporter(a.id, 'wspolne-id'))?.name, 'Pracownik A')
+    assert.strictEqual(await getTaskReporter(b.id, 'wspolne-id'), null, 'WYCIEK autora miedzy klientami')
   })
 
   it('uszkodzone meta nie przewracaja listy', async () => {

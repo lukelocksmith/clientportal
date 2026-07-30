@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
 import { ProjectEvents } from '@/components/admin/ProjectEvents'
+import { ProjectSyncLog } from '@/components/admin/ProjectSyncLog'
 import { plural, USERS } from '@/lib/plural'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -480,6 +481,7 @@ export default function AdminPage() {
                 <TabsTrigger value="uzytkownicy">Użytkownicy</TabsTrigger>
                 <TabsTrigger value="ai">Zużycie AI</TabsTrigger>
                 <TabsTrigger value="zgloszenia">Zgłoszenia</TabsTrigger>
+                <TabsTrigger value="synchronizacja">Synchronizacja</TabsTrigger>
               </TabsList>
 
               <TabsContent value="konfiguracja">
@@ -613,6 +615,10 @@ export default function AdminPage() {
                     renderuje nieaktywnej treści, więc zapytanie o historię
                     wszystkich projektów nie leci przy wejściu do panelu. */}
                 <ProjectEvents slug={portal.slug} />
+              </TabsContent>
+
+              <TabsContent value="synchronizacja">
+                <ProjectSyncLog slug={portal.slug} />
               </TabsContent>
             </Tabs>
           </TabsContent>

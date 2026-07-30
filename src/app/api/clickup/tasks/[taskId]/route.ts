@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { updateTask, verifyTaskBelongsToFolder, getTask } from '@/lib/clickup'
+import { getTaskReporter } from '@/lib/portalEvents'
 
 /**
  * GET /api/clickup/tasks/{taskId}?slug=onyx
@@ -44,7 +45,12 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  return NextResponse.json({ task, attachments: task.attachments ?? [] })
+  // Zgłaszający. Dopiero PO sprawdzeniu przynależności zadania do folderu
+  // klienta, żeby zapytanie o autora nie było drogą do podejrzenia, czy dane
+  // zadanie w ogóle istnieje w innym projekcie.
+  const reporter = await getTaskReporter(portal[0].id, taskId)
+
+  return NextResponse.json({ task, attachments: task.attachments ?? [], reporter })
 }
 
 const patchSchema = z.object({

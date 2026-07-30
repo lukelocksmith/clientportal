@@ -5,10 +5,28 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(dateString: string | null | undefined): string {
+/**
+ * Data dla klienta. Rok POKAZUJEMY, gdy jest inny niż bieżący.
+ *
+ * Wcześniej rok nie pojawiał się nigdy, więc zadanie zgłoszone 6 listopada 2025
+ * wyglądało w portalu jak „6 lis" i czytane w lipcu 2026 znaczyło coś zupełnie
+ * innego, niż znaczyło. Przy terminach mijało to bez szkody, ale data
+ * zgłoszenia jest z natury historyczna: to jest pole, w którym klient sprawdza,
+ * jak dawno o coś prosił.
+ *
+ * `now` da się wstrzyknąć, bo inaczej test tej funkcji zależałby od zegara i
+ * przestałby cokolwiek sprawdzać po 1 stycznia.
+ */
+export function formatDate(dateString: string | null | undefined, now: Date = new Date()): string {
   if (!dateString) return ''
   const date = new Date(Number(dateString))
-  return date.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })
+  if (Number.isNaN(date.getTime())) return ''
+  const sameYear = date.getFullYear() === now.getFullYear()
+  return date.toLocaleDateString('pl-PL', {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
 }
 
 export function getPriorityLabel(priority: string | null | undefined): string {

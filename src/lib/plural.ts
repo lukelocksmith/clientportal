@@ -58,6 +58,12 @@ export const SUBTASKS: PluralForms = {
   many: 'podzadań',
 }
 
+export const DAYS: PluralForms = {
+  one: 'dzień',
+  few: 'dni',
+  many: 'dni',
+}
+
 export const HOURS_LOCATIVE: PluralForms = {
   // Miejscownik, bo używane po przyimku „po": „po 1 godzinie", „po 2 godzinach".
   one: 'godzinie',

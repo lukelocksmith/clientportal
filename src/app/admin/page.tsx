@@ -6,6 +6,7 @@ import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
+import { plural, USERS } from '@/lib/plural'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -460,11 +461,11 @@ export default function AdminPage() {
               <a
                 href={`/${portal.slug}`}
                 target="_blank"
-                className="text-xs text-primary hover:underline ml-1"
+                className="ml-1 text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline"
               >
                 ↗ otwórz portal
               </a>
-              <span className="ml-auto text-xs text-muted-foreground">{pu.length} użytkownik{pu.length === 1 ? '' : pu.length < 5 ? 'i' : 'ów'}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{plural(pu.length, USERS)}</span>
             </div>
 
             <Tabs defaultValue="konfiguracja">
@@ -481,7 +482,12 @@ export default function AdminPage() {
                       false), daje się tu włączyć, ale w portalu pojawi się dopiero
                       po wdrożeniu strony. Dopisek "wkrótce" mówi to wprost, żeby
                       włączenie nie wyglądało na zepsute. */}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 px-4 py-3">
+                    {/* Bez etykiety grupy nie wiadomo, czym sa te ptaszki:
+                        wygladaly jak luzne opcje, a sa lista zakladek portalu. */}
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Zakładki w portalu
+                    </span>
                     {PORTAL_TABS.map(tab => (
                       <label
                         key={tab.key}
@@ -492,7 +498,7 @@ export default function AdminPage() {
                           type="checkbox"
                           checked={portal[tab.flag]}
                           onChange={() => toggleFlag(portal, tab.flag)}
-                          className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                          className="h-3.5 w-3.5 cursor-pointer accent-foreground"
                         />
                         {tab.label}
                         {!tab.implemented && (

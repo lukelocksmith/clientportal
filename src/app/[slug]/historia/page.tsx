@@ -6,6 +6,7 @@ import { getLastSuccessfulRun } from '@/lib/cronRuns'
 import { isTabEnabled } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
 import { parseHistoryParams, scopeToFilters, nextPageHref } from '@/lib/historyParams'
+import { plural, REQUESTS } from '@/lib/plural'
 import { PortalHeader } from '@/components/PortalHeader'
 import { HistoryFilters } from '@/components/history/HistoryFilters'
 import { HistoryTable } from '@/components/history/HistoryTable'
@@ -128,8 +129,7 @@ export default async function HistoriaPage({ params, searchParams }: HistoriaPag
         ) : (
           <>
             <p className="mt-6 text-xs text-muted-foreground">
-              {page.total}{' '}
-              {page.total === 1 ? 'zgłoszenie' : page.total < 5 ? 'zgłoszenia' : 'zgłoszeń'}
+              {plural(page.total, REQUESTS)}
               {filtered ? ' po filtrach' : ''}
             </p>
 

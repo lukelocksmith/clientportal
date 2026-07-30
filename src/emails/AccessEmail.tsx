@@ -1,5 +1,6 @@
 import { EmailShell } from './EmailShell'
 import type { InviteKind } from '@/lib/invites'
+import { pluralForm, HOURS_LOCATIVE } from '@/lib/plural'
 
 /**
  * Mail z linkiem dostępowym: pierwsze zaproszenie albo odzyskiwanie hasła.
@@ -33,8 +34,7 @@ export function AccessEmail({
   const isReset = kind === 'reset'
 
   // Po przyimku „po" idzie miejscownik: „po godzinie", „po godzinach".
-  // Nie „po 2 godziny", co byłoby formą jak w „ważny 2 godziny".
-  const godzin = expiresInHours === 1 ? 'godzinie' : 'godzinach'
+  const godzin = pluralForm(expiresInHours, HOURS_LOCATIVE)
 
   return EmailShell({
     portalName,

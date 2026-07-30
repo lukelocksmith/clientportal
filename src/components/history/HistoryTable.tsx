@@ -13,6 +13,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { TaskDrawer } from '@/components/kanban/TaskDrawer'
 import { toast } from 'sonner'
 import { getPriorityLabel } from '@/lib/utils'
+import { plural, SUBTASKS } from '@/lib/plural'
 import type { HistoryRow } from '@/lib/taskIndex'
 import type { ClickUpTask } from '@/lib/types'
 
@@ -124,10 +125,7 @@ export function HistoryTable({ rows, slug, userEmail }: HistoryTableProps) {
 
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   {row.subtaskCount > 0 && (
-                    <span>
-                      {row.subtaskCount}{' '}
-                      {row.subtaskCount === 1 ? 'podzadanie' : row.subtaskCount < 5 ? 'podzadania' : 'podzadań'}
-                    </span>
+                    <span>{plural(row.subtaskCount, SUBTASKS)}</span>
                   )}
                   {row.attachmentCount > 0 && (
                     <span className="inline-flex items-center gap-1">

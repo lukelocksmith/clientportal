@@ -281,33 +281,46 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
                   e.target.checked ? [...prev, m.id] : prev.filter(id => id !== m.id)
                 )
               }
-              className="h-3.5 w-3.5 cursor-pointer accent-primary"
+              className="h-3.5 w-3.5 cursor-pointer accent-foreground"
             />
             <span className="text-foreground">{m.name}</span>
-            <span className="text-muted-foreground/70">{m.roleLabel}</span>
+            <span className="text-muted-foreground">{m.roleLabel}</span>
           </label>
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-border/60 pt-3">
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Kontakt dodatkowy, spoza zespołu
+        </p>
+        {/* Jawne zdanie o tym, co znaczy pusto. Podpowiedzi w polach wyglądają
+            jak wpisane wartości, więc bez tego admin nie wie, czy kontakt jest
+            już ustawiony, czy pola są puste. */}
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Zostaw puste, jeśli wystarczy zespół powyżej. Wypełnij tylko wtedy, gdy projekt ma
+          dedykowaną osobę, której nie ma na liście.
+        </p>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Kontakt dodatkowy</span>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Imię i nazwisko</span>
           <Input
             type="text"
             value={cName}
             onChange={e => setCName(e.target.value)}
-            placeholder="Zespół important.is"
+            placeholder="np. Anna Nowak"
             className={`${field} w-40`}
           />
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">E-mail kontaktowy</span>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">E-mail</span>
           <Input
             type="text"
             value={cEmail}
             onChange={e => setCEmail(e.target.value)}
-            placeholder="hi@important.is"
+            placeholder="np. anna@klient.pl"
             spellCheck={false}
             className={`${field} w-52 ${emailInvalid ? 'border-destructive' : ''}`}
           />
@@ -319,13 +332,21 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
             type="text"
             value={cPhone}
             onChange={e => setCPhone(e.target.value)}
-            placeholder="+48 600 000 000"
+            placeholder="np. +48 600 100 200"
             spellCheck={false}
             className={`${field} w-40 ${phoneInvalid ? 'border-destructive' : ''}`}
           />
         </label>
 
-        <Button type="button" size="xs" onClick={save} disabled={saving || !dirty || invalid}>
+        {/* Domyślne disabled:opacity-50 na czerwieni daje róż, który czyta się
+            jak zepsuty przycisk. Wyłączony ma być szary, czyli wyraźnie nieaktywny. */}
+        <Button
+          type="button"
+          size="xs"
+          onClick={save}
+          disabled={saving || !dirty || invalid}
+          className="disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+        >
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
           {saved && !dirty ? 'Zapisane' : 'Zapisz'}
         </Button>

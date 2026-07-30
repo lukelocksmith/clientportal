@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Search, X, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 /**
  * Pole wyszukiwania. Jedyny kliencki element paska filtrów, bo pozostałe
@@ -76,14 +77,16 @@ export function HistorySearch({ placeholder }: { placeholder?: string }) {
       <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
         {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
         {value && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="iconSm"
             onClick={() => setValue('')}
             aria-label="Wyczyść szukanie"
-            className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="text-muted-foreground"
           >
             <X className="h-3.5 w-3.5" />
-          </button>
+          </Button>
         )}
       </div>
     </div>

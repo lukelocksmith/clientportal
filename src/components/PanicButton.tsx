@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   slug: string
@@ -27,8 +28,11 @@ type State = 'idle' | 'open' | 'sending' | 'sent'
  * Kolory przeszły z zaszytych na sztywno (`bg-white`, `text-gray-600`) na
  * tokeny motywu. Poprzednia wersja wyglądałaby poprawnie tylko w trybie
  * jasnym, a `.dark` jest już zdefiniowany w globals.css i czeka na włączenie.
- * Czerwień zostaje dosłowna, bo to sygnał alarmu, a nie kolor interfejsu, i
- * ma być identyczna w obu motywach.
+ *
+ * Czerwień idzie przez `variant="destructive"`, nie przez zaszyte `bg-red-600`.
+ * Token motywu to #ef4444 w jasnym i #dc2626 w ciemnym, oba jednoznacznie
+ * czerwone, a wariant daje jedno miejsce na kolor alarmu i spójność z
+ * pozostałymi akcjami niszczącymi w aplikacji.
  */
 export function PanicButton({ slug }: Props) {
   const [state, setState] = useState<State>('idle')
@@ -84,14 +88,15 @@ export function PanicButton({ slug }: Props) {
 
   return (
     <>
-      <button
+      <Button
+        variant="destructive"
+        size="sm"
         onClick={() => setState('open')}
-        className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white shadow transition-colors hover:bg-red-700"
         title="Wyślij alarm do agencji"
       >
         <AlertTriangle className="h-4 w-4" />
         Alarm
-      </button>
+      </Button>
 
       <Dialog
         open={state !== 'idle'}
@@ -104,7 +109,7 @@ export function PanicButton({ slug }: Props) {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" />
               Alarm dla agencji
             </DialogTitle>
@@ -121,26 +126,22 @@ export function PanicButton({ slug }: Props) {
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 placeholder="np. Strona główna przestała działać, nie można składać zamówień"
-                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-destructive"
                 rows={4}
                 autoFocus
               />
               <DialogFooter className="sm:justify-between">
-                <button
-                  onClick={reset}
-                  disabled={sending}
-                  className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                >
+                <Button variant="outline" onClick={reset} disabled={sending}>
                   Anuluj
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="destructive"
                   onClick={handleSend}
                   disabled={!message.trim() || sending}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
                   {sending ? 'Wysyłanie...' : 'Wyślij alarm'}
-                </button>
+                </Button>
               </DialogFooter>
             </>
           )}
@@ -156,12 +157,9 @@ export function PanicButton({ slug }: Props) {
                   ? 'Ktoś z zespołu potwierdził, że zajmuje się problemem. Skontaktują się z Tobą mailowo lub telefonicznie.'
                   : 'Zespół important został poinformowany. Skontaktują się z Tobą mailowo lub telefonicznie.'}
               </p>
-              <button
-                onClick={reset}
-                className="mt-4 text-sm text-muted-foreground underline transition-colors hover:text-foreground"
-              >
+              <Button variant="link" size="sm" onClick={reset} className="mt-4 text-muted-foreground">
                 Zamknij
-              </button>
+              </Button>
             </div>
           )}
         </DialogContent>

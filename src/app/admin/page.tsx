@@ -4,6 +4,8 @@ import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2,
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 type Portal = {
   id: string; slug: string; name: string; isActive: boolean
@@ -213,31 +215,31 @@ export default function AdminPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
-              <input
+              <Input
                 type="email"
                 value={loginEmail}
                 onChange={e => setLoginEmail(e.target.value)}
                 autoFocus
                 required
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+               
                 placeholder="admin@important.is"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">Hasło</label>
-              <input
+              <Input
                 type="password"
                 value={loginPassword}
                 onChange={e => setLoginPassword(e.target.value)}
                 required
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+               
                 placeholder="••••••••"
               />
             </div>
             {loginError && <p className="text-sm text-destructive">{loginError}</p>}
-            <button type="submit" className="w-full h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+            <Button type="submit" className="w-full">
               Zaloguj
-            </button>
+            </Button>
           </form>
         </div>
       </div>
@@ -257,30 +259,30 @@ export default function AdminPage() {
           <p className="text-xs text-muted-foreground">Client Portal — important.is</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} disabled={loading} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-50">
+          <Button onClick={load} disabled={loading} variant="ghost" size="sm" className="text-muted-foreground">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Odśwież
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={openCreatePortal}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            variant="outline" size="sm"
           >
             <FolderPlus className="h-4 w-4" />
             Nowy portal
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+            size="sm"
           >
             <UserPlus className="h-4 w-4" />
             Nowy użytkownik
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={async () => { await fetch('/api/admin/logout', { method: 'POST' }); setAuthed(false) }}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            variant="ghost" size="iconSm" className="text-muted-foreground"
           >
             <LogOut className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -447,32 +449,32 @@ export default function AdminPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
-                            <button onClick={() => toggleActive(user)} title={user.isActive ? 'Dezaktywuj' : 'Aktywuj'}
-                              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                            <Button onClick={() => toggleActive(user)} title={user.isActive ? 'Dezaktywuj' : 'Aktywuj'}
+                              variant="ghost" size="iconSm" className="text-muted-foreground">
                               {user.isActive ? <ToggleRight className="h-4 w-4 text-primary" /> : <ToggleLeft className="h-4 w-4" />}
-                            </button>
-                            <button onClick={() => { setResetUserId(user.id); setNewPassword('') }} title="Resetuj hasło"
-                              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                            </Button>
+                            <Button onClick={() => { setResetUserId(user.id); setNewPassword('') }} title="Resetuj hasło"
+                              variant="ghost" size="iconSm" className="text-muted-foreground">
                               <KeyRound className="h-4 w-4" />
-                            </button>
-                            <button onClick={() => handleDelete(user.id)} title="Usuń użytkownika"
-                              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                            </Button>
+                            <Button onClick={() => handleDelete(user.id)} title="Usuń użytkownika"
+                              variant="ghost" size="iconSm" className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
                               <Trash2 className="h-4 w-4" />
-                            </button>
+                            </Button>
                           </div>
                           {resetUserId === user.id && (
                             <div className="flex items-center gap-2 mt-2">
-                              <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                              <Input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)}
                                 placeholder="Nowe hasło (min. 8 znaków)" autoFocus
                                 className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
-                              <button onClick={() => handleResetPassword(user.id)} disabled={newPassword.length < 8}
-                                className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
+                              <Button onClick={() => handleResetPassword(user.id)} disabled={newPassword.length < 8}
+                                size="xs">
                                 Zapisz
-                              </button>
-                              <button onClick={() => setResetUserId(null)}
-                                className="h-8 px-3 rounded-md border border-input text-xs text-muted-foreground hover:text-foreground transition-colors">
+                              </Button>
+                              <Button onClick={() => setResetUserId(null)}
+                                variant="outline" size="xs" className="text-muted-foreground">
                                 Anuluj
-                              </button>
+                              </Button>
                             </div>
                           )}
                         </td>
@@ -504,25 +506,23 @@ export default function AdminPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Imię i nazwisko</label>
-                <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" placeholder="Jan Kowalski" />
+                <Input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required
+                  placeholder="Jan Kowalski" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
-                <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" placeholder="jan@firma.pl" />
+                <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required
+                  placeholder="jan@firma.pl" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Hasło tymczasowe</label>
-                <input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={8}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" placeholder="min. 8 znaków" />
+                <Input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={8}
+                  placeholder="min. 8 znaków" />
               </div>
               {formError && <p className="text-sm text-destructive">{formError}</p>}
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowCreate(false)}
-                  className="flex-1 h-9 rounded-md border border-input bg-background text-sm hover:bg-accent transition-colors">Anuluj</button>
-                <button type="submit"
-                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Utwórz</button>
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setShowCreate(false)}>Anuluj</Button>
+                <Button type="submit" className="flex-1">Utwórz</Button>
               </div>
             </form>
         </DialogContent>
@@ -578,22 +578,20 @@ export default function AdminPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Nazwa klienta</label>
-                  <input type="text" value={portalForm.name} onChange={e => setPortalForm(f => ({ ...f, name: e.target.value }))} required
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" placeholder="Onyx" />
+                  <Input type="text" value={portalForm.name} onChange={e => setPortalForm(f => ({ ...f, name: e.target.value }))} required
+                    placeholder="Onyx" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Slug URL <span className="text-muted-foreground font-normal">(auto)</span></label>
-                  <input type="text" value={portalForm.slug} onChange={e => setPortalForm(f => ({ ...f, slug: e.target.value }))}
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  <Input type="text" value={portalForm.slug} onChange={e => setPortalForm(f => ({ ...f, slug: e.target.value }))}
+                   
                     placeholder={portalForm.name ? portalForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') : 'onyx'} />
                 </div>
               </div>
               {portalFormError && <p className="text-sm text-destructive">{portalFormError}</p>}
               <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowCreatePortal(false)}
-                  className="flex-1 h-9 rounded-md border border-input bg-background text-sm hover:bg-accent transition-colors">Anuluj</button>
-                <button type="submit"
-                  className="flex-1 h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Utwórz portal</button>
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setShowCreatePortal(false)}>Anuluj</Button>
+                <Button type="submit" className="flex-1">Utwórz portal</Button>
               </div>
             </form>
         </DialogContent>

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { Check, Loader2, Upload, X } from 'lucide-react'
 import { DEFAULT_BRAND_COLOR, normalizeHexColor, readableForeground, isSafeLogoUrl } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 /**
  * Konfiguracja projektu: marka (logo, kolor) i kontakt opiekuna.
@@ -167,7 +169,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
               aria-label="Wybierz kolor marki"
               className="h-8 w-8 cursor-pointer rounded-md border border-border bg-background p-0.5"
             />
-            <input
+            <Input
               type="text"
               value={color}
               onChange={e => setColor(e.target.value)}
@@ -176,14 +178,16 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
               className={`${field} w-24 font-mono ${colorInvalid ? 'border-destructive' : ''}`}
             />
             {color && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="iconSm"
                 onClick={() => setColor('')}
                 title="Wróć do koloru domyślnego"
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="text-muted-foreground"
               >
                 <X className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
           </div>
         </label>
@@ -193,7 +197,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
             Logo: adres albo wgrany plik
           </span>
           <div className="flex items-center gap-1.5">
-            <input
+            <Input
               type="text"
               value={logo.startsWith('data:') ? `(wgrany plik, ${Math.round(logo.length / 1024)} kB)` : logo}
               readOnly={logo.startsWith('data:')}
@@ -222,14 +226,16 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
               />
             </label>
             {logo && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="iconSm"
                 onClick={() => setLogo('')}
                 title="Usuń logo"
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="text-muted-foreground"
               >
                 <X className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
           </div>
         </label>
@@ -242,7 +248,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
       <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-border/60 pt-3">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Opiekun</span>
-          <input
+          <Input
             type="text"
             value={cName}
             onChange={e => setCName(e.target.value)}
@@ -253,7 +259,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
 
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">E-mail kontaktowy</span>
-          <input
+          <Input
             type="text"
             value={cEmail}
             onChange={e => setCEmail(e.target.value)}
@@ -265,7 +271,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
 
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Telefon</span>
-          <input
+          <Input
             type="text"
             value={cPhone}
             onChange={e => setCPhone(e.target.value)}
@@ -275,15 +281,10 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
           />
         </label>
 
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving || !dirty || invalid}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-40"
-        >
+        <Button type="button" size="xs" onClick={save} disabled={saving || !dirty || invalid}>
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
           {saved && !dirty ? 'Zapisane' : 'Zapisz'}
-        </button>
+        </Button>
       </div>
 
       {(error || invalid) && (

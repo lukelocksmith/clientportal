@@ -20,6 +20,14 @@ const buttonVariants = cva(
         sm: 'h-8 rounded-md px-3 text-xs',
         lg: 'h-10 rounded-md px-8',
         icon: 'h-9 w-9',
+        // Dwa rozmiary dolozone do skali shadcn. Powod: ikonki czyszczace pole
+        // i przyciski w gestych paskach narzedzi siedza w wierszach o
+        // wysokosci 32 px, a najmniejszy fabryczny rozmiar (sm = h-8,
+        // icon = h-9 w-9) jest wtedy rownej wysokosci albo wyzszy od pola.
+        // Bez tego kazde takie miejsce wymagalo by nadpisania className, co
+        // jest wiecej kodu niz goly <button> i przeczy sensowi migracji.
+        xs: 'h-8 rounded-md px-2.5 text-xs',
+        iconSm: 'h-6 w-6 rounded',
       },
     },
     defaultVariants: {

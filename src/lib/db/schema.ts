@@ -112,6 +112,18 @@ export const sessions = pgTable('sessions', {
 export const panicAlerts = pgTable('panic_alerts', {
   id: uuid('id').primaryKey().defaultRandom(),
   portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  /**
+   * Kto wcisnął alarm. Wcześniej alarm zapisywał tylko projekt, więc
+   * powiadomienie brzmiało „ALARM od klienta Onyx" i przy kilku osobach u
+   * jednego klienta nie było do kogo oddzwonić.
+   *
+   * `userId` jest NULL dla sesji admina (nie jest wierszem w portal_users) i po
+   * usunięciu konta. Adres i imię są zdenormalizowane, więc alarm zostaje
+   * czytelny nawet wtedy, gdy konto autora już nie istnieje.
+   */
+  userId: uuid('user_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  userEmail: text('user_email'),
+  userName: text('user_name'),
   message: text('message').notNull(),
   ackToken: text('ack_token').notNull().unique(),
   acknowledgedAt: timestamp('acknowledged_at'),
@@ -251,12 +263,34 @@ export const userInvites = pgTable('user_invites', {
   userIdx: index('user_invites_user_idx').on(t.userId),
 }))
 
+/**
+ * Historia zdarzeń portalu, przypisana do osoby: kto zgłosił zadanie, kto
+ * wcisnął alarm, kto napisał komentarz, kto wysłał pomysł.
+ *
+ * Jedna tabela na wszystkie zdarzenia, z kolumną `action` jako rozróżnieniem
+ * (lib/portalEvents.ts). Osobne tabele per rodzaj wymagałyby sumowania kilku
+ * zapytań tylko po to, żeby pokazać jedną listę „co ta osoba u nas zrobiła",
+ * a to jest dokładnie to pytanie, na które ta tabela odpowiada.
+ *
+ * `userEmail` i `userName` są ZDENORMALIZOWANE celowo, tak samo jak w
+ * `ai_usage`. Historia musi przeżyć usunięcie konta, bo inaczej po odejściu
+ * osoby z firmy klienta zostają zdarzenia bez autora, czyli tabela przestaje
+ * odpowiadać na jedyne pytanie, po które się do niej sięga.
+ */
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').references(() => portalUsers.id),
-  portalId: uuid('portal_id').references(() => portals.id),
+  /** NULL dla sesji admina (nie jest wierszem w portal_users) i po usunięciu konta. */
+  userId: uuid('user_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  userEmail: text('user_email'),
+  userName: text('user_name'),
+  portalId: uuid('portal_id').references(() => portals.id, { onDelete: 'cascade' }),
   action: text('action').notNull(),
+  /** Identyfikator rzeczy, której zdarzenie dotyczy: zadanie w ClickUpie, alarm. */
   resourceId: text('resource_id'),
+  /** JSON w tekście: nazwa zadania, adres, priorytet. Czytany przez lib/portalEvents.ts. */
   meta: text('meta'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (t) => ({
+  portalCreatedIdx: index('audit_log_portal_created_idx').on(t.portalId, t.createdAt),
+  userActionIdx: index('audit_log_user_action_idx').on(t.userId, t.action, t.createdAt),
+}))

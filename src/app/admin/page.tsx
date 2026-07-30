@@ -6,6 +6,7 @@ import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
+import { ProjectEvents } from '@/components/admin/ProjectEvents'
 import { plural, USERS } from '@/lib/plural'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -478,6 +479,7 @@ export default function AdminPage() {
                 <TabsTrigger value="konfiguracja">Konfiguracja</TabsTrigger>
                 <TabsTrigger value="uzytkownicy">Użytkownicy</TabsTrigger>
                 <TabsTrigger value="ai">Zużycie AI</TabsTrigger>
+                <TabsTrigger value="zgloszenia">Zgłoszenia</TabsTrigger>
               </TabsList>
 
               <TabsContent value="konfiguracja">
@@ -604,6 +606,13 @@ export default function AdminPage() {
                     </p>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="zgloszenia">
+                {/* Montowane dopiero po wejściu w zakładkę: Radix domyślnie nie
+                    renderuje nieaktywnej treści, więc zapytanie o historię
+                    wszystkich projektów nie leci przy wejściu do panelu. */}
+                <ProjectEvents slug={portal.slug} />
               </TabsContent>
             </Tabs>
           </TabsContent>

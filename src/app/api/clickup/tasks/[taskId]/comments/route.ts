@@ -5,6 +5,7 @@ import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { getTaskComments, addComment, verifyTaskBelongsToFolder } from '@/lib/clickup'
 import { filterPublicComments, PUBLIC_PREFIX } from '@/lib/publicComments'
+import { logEvent, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
 
 export async function GET(
   request: NextRequest,
@@ -51,5 +52,16 @@ export async function POST(
   // Agency team must manually add [PUBLIC] in ClickUp to expose their replies.
   const clientLabel = session.name ? `(${session.name})` : '(Klient)'
   const comment = await addComment(taskId, `${PUBLIC_PREFIX}${clientLabel} ${text}`)
+
+  // Podpis "(Imię)" w ClickUpie jest tekstem i imiona się powtarzają, więc
+  // rozstrzygające przypisanie do konta trzymamy u siebie.
+  await logEvent({
+    portalId: session.portalId,
+    actor: { userId: session.userId, email: session.email, name: session.name },
+    action: EVENT_COMMENT_ADDED,
+    resourceId: taskId,
+    meta: { excerpt: text.trim().slice(0, 200) },
+  })
+
   return NextResponse.json({ comment })
 }

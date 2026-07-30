@@ -11,6 +11,8 @@ import { portals, portalLists, aiUsage } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { createTask } from '@/lib/clickup'
 import { computeCost } from '@/lib/aiPricing'
+import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
+import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -154,12 +156,30 @@ Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
 
       const task = await createTask(targetListId, {
         name,
-        description,
+        // Stopkę dokleja serwer, nie model. Prompt prosi o „zgłaszającego" w
+        // opisie, ale to jest tekst generowany, więc podlega halucynacji i
+        // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym
+        // sposobem dla wszystkich kanałów.
+        description: withReporterFooter(description, {
+          name: session.name,
+          email: session.email,
+          portalName: portal[0].name,
+          portalSlug: portal[0].slug,
+          source: 'ai',
+        }),
         priority: priority ?? null,
         due_date: due_date ?? null,
         // Client-submitted tasks land in "do zrobienia" (to-do), not the default backlog,
         // so the team sees incoming requests instead of them being buried.
         status: 'do zrobienia',
+      })
+
+      await logEvent({
+        portalId: portal[0].id,
+        actor: { userId: session.userId, email: session.email, name: session.name },
+        action: EVENT_TASK_CREATED,
+        resourceId: task.id,
+        meta: { source: 'ai', taskName: task.name, url: task.url ?? null, priority: priority ?? null },
       })
 
       return {
@@ -187,7 +207,11 @@ Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
         const total = u?.totalTokens ?? input + output
         await db.insert(aiUsage).values({
           portalId: portal[0].id,
-          userId: session.userId,
+          // `session.userId` bywa łańcuchem 'admin' (obejście admina w
+          // lib/auth.ts), a kolumna jest typu uuid. Bez tej normalizacji insert
+          // leciał wyjątkiem, ten catch go zjadał i zużycie AI z sesji admina
+          // NIGDY się nie zapisywało, bez żadnego sygnału w panelu.
+          userId: normalizeActorId(session.userId),
           userEmail: session.email,
           provider,
           model: modelId,

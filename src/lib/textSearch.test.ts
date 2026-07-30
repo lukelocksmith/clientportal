@@ -79,9 +79,17 @@ describe('textSearch', () => {
 
   it('public filter', () => {
     assert.ok(isPublicComment('[PUBLIC] cokolwiek'))
-    assert.ok(!isPublicComment('[Public] zła wielkość liter'))
-    assert.ok(!isPublicComment('[PUBLIC]bez spacji'))
+    // ZMIANA REGUŁY 2026-07-30: krótszy prefiks `[P]`, dopasowanie tolerancyjne
+    // (wielkość liter, brak spacji, dowolne miejsce w treści). Te dwie asercje
+    // były wcześniej odwrócone i kodowały dosłowne `startsWith('[PUBLIC] ')`.
+    // Pełny zestaw przypadków jest w publicComments.test.ts.
+    assert.ok(isPublicComment('[Public] inna wielkość liter'))
+    assert.ok(isPublicComment('[PUBLIC]bez spacji'))
+    assert.ok(isPublicComment('[P] krótki prefiks'))
+    assert.ok(isPublicComment('gotowe, sprawdź [P]'), 'znacznik na końcu treści')
     assert.ok(!isPublicComment('wewnętrzna uwaga zespołu'))
+    // Granica pozostaje wąska: inne oznaczenia w nawiasach nie przechodzą.
+    assert.ok(!isPublicComment('[Pilne] poprawić do wtorku'))
     assert.ok(!isPublicComment(null))
     assert.ok(!isPublicComment(undefined))
 
@@ -98,16 +106,22 @@ describe('textSearch', () => {
       comment('1', '[PUBLIC] Poprawione, prosimy o sprawdzenie'),
       comment('2', 'Klient znowu marudzi, doliczyć godziny'),
       comment('3', '[PUBLIC] (Mikołaj) działa, dziękuję'),
-      comment('4', '[Public] literówka w prefiksie'),
+      // Po zmianie reguły to JEST komentarz publiczny: wcześniej inna wielkość
+      // liter cicho blokowała odpowiedź, a autor widział ją w ClickUpie i
+      // zakładał, że dotarła.
+      comment('4', '[Public] inna wielkość liter'),
+      comment('5', '[Pilne] wewnętrzne, nie pokazywać klientowi'),
     ]
 
     const shown = filterPublicComments(mixed)
-    assert.strictEqual(shown.length, 2, 'przechodzą tylko dwa komentarze publiczne')
-    assert.deepStrictEqual(shown.map(c => c.sender), ['Important.is', 'Mikołaj'])
+    assert.strictEqual(shown.length, 3, 'przechodzą trzy komentarze oznaczone')
+    assert.deepStrictEqual(shown.map(c => c.sender), ['Important.is', 'Mikołaj', 'Important.is'])
 
     const texts = publicCommentTexts(mixed)
-    assert.strictEqual(texts.length, 2)
+    assert.strictEqual(texts.length, 3)
+    // Asercja, o którą w tym teście naprawdę chodzi: nic wewnętrznego nie wyszło.
     assert.ok(!texts.join(' ').includes('marudzi'))
+    assert.ok(!texts.join(' ').includes('nie pokazywać'))
   })
 
   it('index never leaks internal', () => {

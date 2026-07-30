@@ -4,6 +4,8 @@ import { db } from '@/lib/db'
 import { portals, panicAlerts } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import crypto from 'crypto'
+import { normalizeActorId, reporterLabel } from '@/lib/reporter'
+import { logEvent, EVENT_PANIC_ALERT } from '@/lib/portalEvents'
 
 function esc(s: string) {
   return String(s)
@@ -73,16 +75,32 @@ export async function POST(request: NextRequest) {
 
   const [alert] = await db.insert(panicAlerts).values({
     portalId: portal[0].id,
+    userId: normalizeActorId(session.userId),
+    userEmail: session.email,
+    userName: session.name,
     message: message.trim(),
     ackToken,
   }).returning()
 
+  await logEvent({
+    portalId: portal[0].id,
+    actor: { userId: session.userId, email: session.email, name: session.name },
+    action: EVENT_PANIC_ALERT,
+    resourceId: alert.id,
+    meta: { message: message.trim().slice(0, 200) },
+  })
+
   const ackUrl = `${APP_URL}/api/panic/${alert.id}/ack?token=${ackToken}`
+
+  // Kto wcisnął. Przy alarmie to jest najważniejsza informacja po samej treści:
+  // reakcją jest telefon do konkretnej osoby, a nie „do klienta".
+  const who = reporterLabel({ name: session.name, email: session.email })
 
   // Discord notification
   await sendDiscord(
     `🚨 **ALARM od klienta ${portal[0].name}!**\n\n` +
     `> ${message.trim()}\n\n` +
+    `**Zgłasza:** ${who}\n\n` +
     `**Kliknij żeby potwierdzić że się tym zajmujesz:**\n${ackUrl}`
   )
 
@@ -96,6 +114,9 @@ export async function POST(request: NextRequest) {
       </div>
       <div style="border:1px solid #e5e7eb;border-top:0;padding:24px;border-radius:0 0 8px 8px">
         <p style="font-size:16px;color:#111827;margin-top:0">${esc(message.trim())}</p>
+        <p style="font-size:14px;color:#374151;margin:0">
+          <strong>Zgłasza:</strong> ${esc(who)}
+        </p>
         <a href="${esc(ackUrl)}" style="display:inline-block;background:#ef4444;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px">
           Zajmuję się tym →
         </a>

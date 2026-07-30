@@ -2,6 +2,7 @@ import { and, eq, gt, sql } from 'drizzle-orm'
 import { db } from './db'
 import { auditLog } from './db/schema'
 import { createTask } from './clickup'
+import { withReporterFooter } from './reporter'
 
 /**
  * Pomysły klientów na ulepszenie portalu.
@@ -81,14 +82,15 @@ export async function submitIdea(input: {
     const firstLine = text.split('\n')[0].slice(0, 80)
     const task = await createTask(listId, {
       name: `[portal ${input.portalSlug}] ${firstLine}`,
-      description: [
-        text,
-        '',
-        '---',
-        `Projekt: ${input.portalName} (/${input.portalSlug})`,
-        `Autor: ${input.authorName ?? 'bez imienia'} <${input.authorEmail}>`,
-        `Zgłoszono z Dashboardu portalu.`,
-      ].join('\n'),
+      // Ta sama stopka, co przy zadaniach klienta (lib/reporter.ts). Dwa
+      // formaty „kto zgłosił" w jednym ClickUpie różniłyby się z czasem.
+      description: withReporterFooter(text, {
+        name: input.authorName,
+        email: input.authorEmail,
+        portalName: input.portalName,
+        portalSlug: input.portalSlug,
+        source: 'idea',
+      }),
       status: 'backlog',
     })
 
@@ -106,6 +108,7 @@ async function recordIdea(input: {
   portalId: string
   text: string
   authorEmail: string
+  authorName: string | null
   taskId: string | null
 }): Promise<string> {
   const [row] = await db
@@ -113,6 +116,11 @@ async function recordIdea(input: {
     .values({
       // userId jest nullem dla admina, ktory nie ma prawdziwego konta w portalu.
       userId: input.userId,
+      // Autor idzie do KOLUMN, nie tylko do meta. Wcześniej adres siedział w
+      // JSON-ie i wspólna historia zdarzeń (lib/portalEvents.ts) pokazywałaby
+      // pomysł jako zgłoszenie bez autora.
+      userEmail: input.authorEmail,
+      userName: input.authorName,
       portalId: input.portalId,
       action: IDEA_ACTION,
       resourceId: input.taskId,

@@ -6,6 +6,7 @@ import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TEAM_MEMBERS, parseContactMemberIds } from '@/lib/team'
+import { ProjectLinksForm } from './ProjectLinksForm'
 
 /**
  * Konfiguracja projektu: marka (logo, kolor) i kontakt opiekuna.
@@ -350,6 +351,17 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
           {saved && !dirty ? 'Zapisane' : 'Zapisz'}
         </Button>
+      </div>
+
+      {/* Linki projektu. Osobny zapis, bo podmieniaja caly zestaw wierszy,
+          a nie pojedyncze pola portalu jak reszta tego formularza. */}
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Linki projektu na Dashboardzie
+        </p>
+        <div className="mt-2">
+          <ProjectLinksForm slug={portal.slug} />
+        </div>
       </div>
 
       {(error || invalid) && (

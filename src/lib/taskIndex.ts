@@ -498,6 +498,45 @@ export async function queryHistory(
   }
 }
 
+/**
+ * Ostatnio domknięte zgłoszenia, pod blok „Ostatnia aktywność" na Dashboardzie.
+ *
+ * Świadomie tylko domknięte i tylko lista, bez żadnych liczb. Licznik typu
+ * „w tym miesiącu zamknęliśmy 12" rozjechałby się z kanbanem, który liczy na
+ * żywo z ClickUpa, a lustro ma stan z ostatniej synchronizacji. Lista pozycji
+ * takiego problemu nie ma: jest albo jej nie ma.
+ *
+ * `date_closed` bierzemy z ClickUpa i dla części zadań bywa puste (status
+ * zmieniony bez domknięcia), dlatego warunek jest na NOT NULL, a nie na
+ * `status_type`. Inaczej w bloku pojawiałyby się pozycje bez daty.
+ */
+export async function getRecentlyClosed(
+  portalId: string,
+  limit = 5
+): Promise<Array<{ clickupTaskId: string; name: string; status: string; dateClosed: number }>> {
+  const rows = await db.execute<{
+    clickup_task_id: string
+    name: string
+    status: string
+    date_closed: string
+  }>(sql`
+    SELECT t.clickup_task_id, t.name, t.status, t.date_closed::text
+    FROM task_index t
+    WHERE t.portal_id = ${portalId}
+      AND t.date_closed IS NOT NULL
+      AND ${IS_ROOT_TASK}
+    ORDER BY t.date_closed DESC
+    LIMIT ${Math.min(Math.max(limit, 1), 20)}
+  `)
+
+  return rows.map(r => ({
+    clickupTaskId: r.clickup_task_id,
+    name: r.name,
+    status: r.status,
+    dateClosed: Number(r.date_closed),
+  }))
+}
+
 /** Statusy i priorytety obecne w indeksie portalu, do zasilenia filtrów. */
 export async function getHistoryFacets(portalId: string): Promise<{
   statuses: Array<{ status: string; count: number }>

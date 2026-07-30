@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowRight, Mail, Phone } from 'lucide-react'
+import { ArrowRight, Check, ExternalLink, Mail, Phone } from 'lucide-react'
 import { isTabEnabled, visibleTabs } from '@/lib/portalTabs'
+import { getRecentlyClosed } from '@/lib/taskIndex'
+import { getProjectLinks } from '@/lib/projectLinksStore'
 import { getPortalForSession } from '@/lib/portalSession'
 import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { PortalHeader } from '@/components/PortalHeader'
@@ -34,6 +36,15 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
   if (!isTabEnabled(flags, 'dashboard')) redirect(`/${slug}`)
 
   const contacts = resolveContacts(portal, contactEnv())
+
+  // Ostatnia aktywnosc czytana z lustra Historii. Gdy Historia nie jest
+  // wlaczona dla projektu, indeks moze byc pusty albo zalegly, wiec blok
+  // pokazujemy tylko wtedy, gdy faktycznie cos w nim jest. Pusta sekcja
+  // "Ostatnio zrobione" wygladalaby, jakbysmy nic nie robili.
+  const [recentlyClosed, projectLinks] = await Promise.all([
+    getRecentlyClosed(portal.id, 5),
+    getProjectLinks(portal.id),
+  ])
 
   // Skróty do wszystkiego poza samym dashboardem. Lista jedzie z tego samego
   // źródła co zakładki w headerze, więc nie może się z nimi rozjechać.
@@ -110,6 +121,58 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
             </div>
           </section>
         </div>
+
+        {/* Linki projektu. Pokazujemy sekcje tylko wtedy, gdy cokolwiek jest
+            skonfigurowane: pusta ramka "Linki" mowilaby klientowi, ze czegos
+            zapomnielismy, a najczesciej po prostu nie ma czego linkowac. */}
+        {projectLinks.length > 0 && (
+          <section className="mt-4 rounded-xl border border-border bg-card p-5">
+            <h2 className="text-sm font-semibold text-foreground">Linki projektu</h2>
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {projectLinks.map(link => (
+                <li key={link.url}>
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
+                  >
+                    <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {recentlyClosed.length > 0 && (
+          <section className="mt-4 rounded-xl border border-border bg-card p-5">
+            <h2 className="text-sm font-semibold text-foreground">Ostatnio zrobione</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Pięć najnowszych domkniętych zgłoszeń. Pełna lista jest w Historii.
+            </p>
+            {/* Swiadomie BEZ licznikow typu "w tym miesiacu zamknelismy 12".
+                Taka liczba rozjechalaby sie z kanbanem, ktory liczy na zywo
+                z ClickUpa, a lustro ma stan z ostatniej synchronizacji. Lista
+                pozycji tego problemu nie ma. */}
+            <ul className="mt-3 space-y-2">
+              {recentlyClosed.map(task => (
+                <li key={task.clickupTaskId} className="flex items-start gap-2 text-sm">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                  <span className="flex-1 text-foreground">{task.name}</span>
+                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                    {new Date(task.dateClosed).toLocaleDateString('pl-PL', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {/* Pomysly klienta na ulepszenie portalu. Osobna sekcja na pelnej
             szerokosci, bo to zaproszenie do pisania, a nie kolejna kafelka

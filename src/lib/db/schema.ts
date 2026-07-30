@@ -80,6 +80,25 @@ export const portalUsers = pgTable('portal_users', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+/**
+ * Linki projektu pokazywane na Dashboardzie: strona produkcyjna, staging,
+ * panel WP, GA4, Search Console. Osobna tabela, nie kolumna JSON, bo panel
+ * admina edytuje je wierszami, a nie jako tekst.
+ *
+ * Kolejnosc trzymamy jawnie (`sortOrder`), zeby nie zalezala od kolejnosci
+ * wstawiania. Klient widzi zawsze ten sam uklad.
+ */
+export const portalLinks = pgTable('portal_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  label: text('label').notNull(),
+  /** Tylko http/https. Walidacja w lib/projectLinks.ts, przy zapisie i odczycie. */
+  url: text('url').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+}, (t) => ({
+  portalIdx: index('portal_links_portal_idx').on(t.portalId, t.sortOrder),
+}))
+
 export const sessions = pgTable('sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => portalUsers.id, { onDelete: 'cascade' }),

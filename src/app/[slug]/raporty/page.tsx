@@ -1,9 +1,5 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
-import { eq } from 'drizzle-orm'
-import { getSession } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { portals } from '@/lib/db/schema'
 import { getTimeEntries } from '@/lib/clickup'
 import {
   buildReport,
@@ -14,8 +10,8 @@ import {
 } from '@/lib/timeReports'
 import { ReportView } from '@/components/reports/ReportView'
 import { PortalHeader } from '@/components/PortalHeader'
-import { isTabEnabled, type PortalFlags } from '@/lib/portalTabs'
-import { resolveBranding } from '@/lib/branding'
+import { isTabEnabled } from '@/lib/portalTabs'
+import { getPortalForSession } from '@/lib/portalSession'
 
 interface RaportyPageProps {
   params: Promise<{ slug: string }>
@@ -38,22 +34,9 @@ function first(value: string | string[] | undefined): string | undefined {
 export default async function RaportyPage({ params, searchParams }: RaportyPageProps) {
   const { slug } = await params
 
-  const session = await getSession(slug)
-  if (!session || session.portalSlug !== slug) {
-    redirect(`/${slug}/login`)
-  }
-
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) redirect('/')
-
-  const flags: PortalFlags = {
-    kanbanEnabled: portal.kanbanEnabled,
-    reportsEnabled: portal.reportsEnabled,
-    historyEnabled: portal.historyEnabled,
-    dashboardEnabled: portal.dashboardEnabled,
-  }
-
-  const branding = resolveBranding(portal)
+  const result = await getPortalForSession(slug)
+  if (!result.ok) redirect(result.reason === 'no-portal' ? '/' : `/${slug}/login`)
+  const { session, portal, flags, branding } = result
 
   // Brama po stronie serwera. Ukrycie zakładki w headerze to tylko kosmetyka,
   // adres musi być zamknięty także dla kogoś, kto wpisze go z ręki.

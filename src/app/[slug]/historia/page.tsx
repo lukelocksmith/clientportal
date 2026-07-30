@@ -1,14 +1,10 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { eq } from 'drizzle-orm'
 import { ChevronRight, Clock } from 'lucide-react'
-import { getSession } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { portals } from '@/lib/db/schema'
 import { getHistoryFacets, queryHistory } from '@/lib/taskIndex'
 import { getLastSuccessfulRun } from '@/lib/cronRuns'
-import { isTabEnabled, type PortalFlags } from '@/lib/portalTabs'
-import { resolveBranding } from '@/lib/branding'
+import { isTabEnabled } from '@/lib/portalTabs'
+import { getPortalForSession } from '@/lib/portalSession'
 import { parseHistoryParams, scopeToFilters, nextPageHref } from '@/lib/historyParams'
 import { PortalHeader } from '@/components/PortalHeader'
 import { HistoryFilters } from '@/components/history/HistoryFilters'
@@ -34,22 +30,9 @@ function formatSyncDate(date: Date): string {
 export default async function HistoriaPage({ params, searchParams }: HistoriaPageProps) {
   const { slug } = await params
 
-  const session = await getSession(slug)
-  if (!session || session.portalSlug !== slug) {
-    redirect(`/${slug}/login`)
-  }
-
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) redirect('/')
-
-  const flags: PortalFlags = {
-    kanbanEnabled: portal.kanbanEnabled,
-    reportsEnabled: portal.reportsEnabled,
-    historyEnabled: portal.historyEnabled,
-    dashboardEnabled: portal.dashboardEnabled,
-  }
-
-  const branding = resolveBranding(portal)
+  const result = await getPortalForSession(slug)
+  if (!result.ok) redirect(result.reason === 'no-portal' ? '/' : `/${slug}/login`)
+  const { session, portal, flags, branding } = result
 
   // Brama po stronie serwera. Ukrycie zakładki w headerze to kosmetyka,
   // adres musi być zamknięty także dla kogoś, kto wpisze go z ręki.

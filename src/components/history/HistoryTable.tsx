@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table'
 import { StatusBadge } from '@/components/StatusBadge'
 import { TaskDrawer } from '@/components/kanban/TaskDrawer'
+import { toast } from 'sonner'
 import { getPriorityLabel } from '@/lib/utils'
 import type { HistoryRow } from '@/lib/taskIndex'
 import type { ClickUpTask } from '@/lib/types'
@@ -49,10 +50,27 @@ export function HistoryTable({ rows, slug, userEmail }: HistoryTableProps) {
       setLoadingId(taskId)
       try {
         const res = await fetch(`/api/clickup/tasks/${taskId}?slug=${encodeURIComponent(slug)}`)
-        if (res.ok) {
-          const data = await res.json()
-          setTask(data.task ?? data)
+        if (!res.ok) {
+          // Historia czyta z lustra, więc zadanie mogło zostać w ClickUpie
+          // usunięte albo przeniesione po ostatniej synchronizacji. Wcześniej
+          // taki wiersz po prostu gasił kręciołek i nie robił nic, co wygląda
+          // jak zepsuty portal.
+          toast.error(
+            res.status === 403 || res.status === 404
+              ? 'Tego zadania już nie ma. Lista odświeży się przy najbliższej synchronizacji.'
+              : 'Nie udało się otworzyć zadania.'
+          )
+          return
         }
+        const data = await res.json()
+        const full = data.task ?? null
+        if (!full?.id) {
+          toast.error('Nie udało się otworzyć zadania.')
+          return
+        }
+        setTask(full)
+      } catch {
+        toast.error('Brak połączenia. Spróbuj ponownie.')
       } finally {
         setLoadingId(null)
       }

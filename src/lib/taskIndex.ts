@@ -299,6 +299,26 @@ export async function removeTaskFromIndex(portalId: string, taskId: string): Pro
 // Zapytania pod widok Historii
 // ---------------------------------------------------------------------------
 
+/**
+ * Co uznajemy za wiersz tabeli Historii: zadanie bez rodzica ALBO sierotę,
+ * czyli podzadanie, którego rodzica nie ma w indeksie (rodzic leży poza
+ * folderem klienta). Bez drugiego warunku takie zadanie byłoby niewidoczne.
+ * Tak samo zachowuje się buildTaskTree dla kanbanu, więc oba widoki są spójne.
+ *
+ * Wyciągnięte do stałej, bo używają tego DWA zapytania: lista i liczniki przy
+ * filtrach. Dwie osobne definicje dawały licznik „Zrobione 12" przy trzynastu
+ * wierszach po kliknięciu, czyli widoczny dla klienta rozjazd.
+ *
+ * Zakłada alias tabeli `t` i, w podzapytaniu, `p`.
+ */
+const IS_ROOT_TASK = sql`(
+  t.parent_id IS NULL
+  OR NOT EXISTS (
+    SELECT 1 FROM task_index p
+    WHERE p.portal_id = t.portal_id AND p.clickup_task_id = t.parent_id
+  )
+)`
+
 export type HistoryRow = {
   clickupTaskId: string
   name: string
@@ -373,16 +393,7 @@ export async function queryHistory(
   const q = normalizeQuery(filters.q)
   const pattern = q ? `%${escapeLikePattern(q)}%` : null
 
-  // Zadanie nadrzędne albo sierota.
-  const isRoot = sql`(
-    t.parent_id IS NULL
-    OR NOT EXISTS (
-      SELECT 1 FROM task_index p
-      WHERE p.portal_id = t.portal_id AND p.clickup_task_id = t.parent_id
-    )
-  )`
-
-  const conditions = [sql`t.portal_id = ${portalId}`, isRoot]
+  const conditions = [sql`t.portal_id = ${portalId}`, IS_ROOT_TASK]
 
   if (pattern) {
     // Trafienie w samym zadaniu albo w którymkolwiek z jego podzadań.
@@ -493,18 +504,21 @@ export async function getHistoryFacets(portalId: string): Promise<{
   priorities: Array<{ priority: string; count: number }>
   indexedCount: number
 }> {
+  // Ta sama definicja wiersza co w queryHistory (IS_ROOT_TASK). Wcześniej było
+  // tu `parent_id IS NULL`, co przy sierocie dawało licznik „Zrobione 12" i
+  // trzynaście wierszy po kliknięciu, czyli rozjazd widoczny dla klienta.
   const statuses = await db.execute<{ status: string; count: string }>(sql`
-    SELECT status, count(*)::text AS count
-    FROM task_index
-    WHERE portal_id = ${portalId} AND parent_id IS NULL
-    GROUP BY status
+    SELECT t.status, count(*)::text AS count
+    FROM task_index t
+    WHERE t.portal_id = ${portalId} AND ${IS_ROOT_TASK}
+    GROUP BY t.status
     ORDER BY count(*) DESC
   `)
   const priorities = await db.execute<{ priority: string; count: string }>(sql`
-    SELECT priority, count(*)::text AS count
-    FROM task_index
-    WHERE portal_id = ${portalId} AND parent_id IS NULL AND priority IS NOT NULL
-    GROUP BY priority
+    SELECT t.priority, count(*)::text AS count
+    FROM task_index t
+    WHERE t.portal_id = ${portalId} AND ${IS_ROOT_TASK} AND t.priority IS NOT NULL
+    GROUP BY t.priority
     ORDER BY count(*) DESC
   `)
   const total = await db.execute<{ count: string }>(sql`

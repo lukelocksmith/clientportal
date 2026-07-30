@@ -1,12 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { eq } from 'drizzle-orm'
 import { ArrowRight, Mail, Phone } from 'lucide-react'
-import { getSession } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { portals } from '@/lib/db/schema'
-import { isTabEnabled, visibleTabs, type PortalFlags } from '@/lib/portalTabs'
-import { resolveBranding } from '@/lib/branding'
+import { isTabEnabled, visibleTabs } from '@/lib/portalTabs'
+import { getPortalForSession } from '@/lib/portalSession'
 import { contactEnv, phoneHref, resolveContact } from '@/lib/portalContact'
 import { PortalHeader } from '@/components/PortalHeader'
 import { PanicButton } from '@/components/PanicButton'
@@ -28,22 +24,9 @@ interface DashboardPageProps {
 export default async function DashboardPage({ params }: DashboardPageProps) {
   const { slug } = await params
 
-  const session = await getSession(slug)
-  if (!session || session.portalSlug !== slug) {
-    redirect(`/${slug}/login`)
-  }
-
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) redirect('/')
-
-  const flags: PortalFlags = {
-    kanbanEnabled: portal.kanbanEnabled,
-    reportsEnabled: portal.reportsEnabled,
-    historyEnabled: portal.historyEnabled,
-    dashboardEnabled: portal.dashboardEnabled,
-  }
-
-  const branding = resolveBranding(portal)
+  const result = await getPortalForSession(slug)
+  if (!result.ok) redirect(result.reason === 'no-portal' ? '/' : `/${slug}/login`)
+  const { session, portal, flags, branding } = result
 
   // Brama po stronie serwera, jak w pozostałych zakładkach.
   if (!isTabEnabled(flags, 'dashboard')) redirect(`/${slug}`)

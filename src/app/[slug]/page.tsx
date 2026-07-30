@@ -1,13 +1,9 @@
 import { redirect } from 'next/navigation'
-import { getSession } from '@/lib/auth'
 import { getAllTasksForFolder } from '@/lib/clickup'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
-import { db } from '@/lib/db'
-import { portals } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
 import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
-import { firstEnabledTabPath, isTabEnabled, type PortalFlags } from '@/lib/portalTabs'
-import { resolveBranding } from '@/lib/branding'
+import { firstEnabledTabPath, isTabEnabled } from '@/lib/portalTabs'
+import { getPortalForSession } from '@/lib/portalSession'
 
 export const revalidate = 60 // Revalidate every 60s, webhooks invalidate sooner
 
@@ -18,27 +14,9 @@ interface PortalPageProps {
 export default async function PortalPage({ params }: PortalPageProps) {
   const { slug } = await params
 
-  const session = await getSession(slug)
-  if (!session || session.portalSlug !== slug) {
-    redirect(`/${slug}/login`)
-  }
-
-  const portal = await db
-    .select()
-    .from(portals)
-    .where(eq(portals.slug, slug))
-    .limit(1)
-
-  if (!portal[0]) redirect('/')
-
-  const flags: PortalFlags = {
-    kanbanEnabled: portal[0].kanbanEnabled,
-    reportsEnabled: portal[0].reportsEnabled,
-    historyEnabled: portal[0].historyEnabled,
-    dashboardEnabled: portal[0].dashboardEnabled,
-  }
-
-  const branding = resolveBranding(portal[0])
+  const result = await getPortalForSession(slug)
+  if (!result.ok) redirect(result.reason === 'no-portal' ? '/' : `/${slug}/login`)
+  const { session, portal, flags, branding } = result
 
   // Brama serwerowa, tak samo jak w raportach: ukrycie zakładki to kosmetyka,
   // adres musi być zamknięty też dla wpisanego z ręki. Kanban jest korzeniem
@@ -59,15 +37,15 @@ export default async function PortalPage({ params }: PortalPageProps) {
     )
   }
 
-  const rawTasks = await getAllTasksForFolder(portal[0].clickupFolderId)
-  const snapshots = await getSnapshotMap(portal[0].id)
+  const rawTasks = await getAllTasksForFolder(portal.clickupFolderId)
+  const snapshots = await getSnapshotMap(portal.id)
   const tasks = mergeTrackedTime(rawTasks, snapshots)
 
   return (
     <KanbanBoardClient
       initialTasks={tasks}
       slug={slug}
-      portalName={portal[0].name}
+      portalName={portal.name}
       flags={flags}
       branding={branding}
       userEmail={session.email}

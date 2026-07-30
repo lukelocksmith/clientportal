@@ -5,6 +5,11 @@ import { portals, portalUsers } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import { render } from '@react-email/render'
+import { createInvite, unusablePasswordHash, INVITE_TTL_HOURS } from '@/lib/invites'
+import { sendMail, isMailConfigured } from '@/lib/mailer'
+import { resolveBranding } from '@/lib/branding'
+import { InviteEmail } from '@/emails/InviteEmail'
 
 const createSchema = z.object({
   // Provide either portalId (uuid) or slug — slug is friendlier for AI/curl use.
@@ -12,7 +17,13 @@ const createSchema = z.object({
   slug: z.string().min(1).max(50).optional(),
   email: z.string().email().toLowerCase(),
   name: z.string().min(1).max(100),
-  password: z.string().min(8).max(100),
+  /**
+   * Opcjonalne. BRAK hasła to teraz ścieżka domyślna: użytkownik dostaje
+   * mailem jednorazowy link i ustawia hasło sam, więc my go nigdy nie znamy.
+   * Podanie hasła zostaje dla przypadków awaryjnych (klient bez dostępu do
+   * maila, konto techniczne) i wtedy zaproszenie nie jest wysyłane.
+   */
+  password: z.string().min(8).max(100).optional(),
 }).strict().refine(d => d.portalId || d.slug, {
   message: 'Podaj portalId albo slug',
 })
@@ -58,8 +69,71 @@ export async function POST(request: NextRequest) {
     .limit(1)
   if (existing[0]) return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
 
-  const passwordHash = await bcrypt.hash(password, 12)
-  const [user] = await db.insert(portalUsers).values({ portalId: portal[0].id, email, name, passwordHash }).returning()
+  // Bez hasła konto powstaje z hashem, do którego nie istnieje żadne hasło.
+  // Konto jest widoczne w panelu od razu, a formularz logowania jest dla niego
+  // otwarty, więc puste albo przewidywalne hasło byłoby dziurą.
+  const passwordHash = password ? await bcrypt.hash(password, 12) : await unusablePasswordHash()
+  const [user] = await db
+    .insert(portalUsers)
+    .values({ portalId: portal[0].id, email, name, passwordHash })
+    .returning()
 
-  return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } }, { status: 201 })
+  // Hasło podane z ręki oznacza świadome pominięcie zaproszenia.
+  if (password) {
+    return NextResponse.json(
+      { user: { id: user.id, email: user.email, name: user.name }, invite: null },
+      { status: 201 }
+    )
+  }
+
+  const { token, expiresAt } = await createInvite(user.id, portal[0].id)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+  const inviteUrl = `${appUrl}/${portal[0].slug}/zaproszenie/${token}`
+
+  const branding = resolveBranding(portal[0])
+  const html = await render(
+    InviteEmail({
+      portalName: portal[0].name,
+      recipientName: name,
+      inviteUrl,
+      expiresInHours: INVITE_TTL_HOURS,
+      brandColor: branding.brandColor,
+      brandForeground: branding.brandForeground,
+    })
+  )
+  const text = await render(
+    InviteEmail({
+      portalName: portal[0].name,
+      recipientName: name,
+      inviteUrl,
+      expiresInHours: INVITE_TTL_HOURS,
+      brandColor: branding.brandColor,
+      brandForeground: branding.brandForeground,
+    }),
+    { plainText: true }
+  )
+
+  const result = await sendMail({
+    to: email,
+    subject: `Twój dostęp do portalu ${portal[0].name}`,
+    html,
+    text,
+  })
+
+  return NextResponse.json(
+    {
+      user: { id: user.id, email: user.email, name: user.name },
+      invite: {
+        sent: result.sent,
+        expiresAt,
+        // Link wracamy WYŁĄCZNIE gdy mail nie poszedł, żeby admin miał co
+        // przekazać ręcznie. Przy udanej wysyłce nie ma powodu, by token
+        // krążył poza mailem.
+        url: result.sent ? null : inviteUrl,
+        reason: result.sent ? null : result.reason,
+        mailConfigured: isMailConfigured(),
+      },
+    },
+    { status: 201 }
+  )
 }

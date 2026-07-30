@@ -42,6 +42,7 @@ export default function AdminPage() {
   const [showCreatePortal, setShowCreatePortal] = useState(false)
   const [form, setForm] = useState({ portalId: '', email: '', name: '', password: '' })
   const [formError, setFormError] = useState('')
+  const [inviteLink, setInviteLink] = useState<{ email: string; url: string; reason: string } | null>(null)
   const [resetUserId, setResetUserId] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [portalForm, setPortalForm] = useState({
@@ -117,14 +118,30 @@ export default function AdminPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setFormError('')
+    // Puste hasło jest ścieżką domyślną: serwer wysyła zaproszenie mailem,
+    // a użytkownik ustawia hasło sam. Dlatego pola nie wysyłamy, gdy puste.
+    const payload: Record<string, string> = {
+      portalId: form.portalId,
+      email: form.email,
+      name: form.name,
+    }
+    if (form.password.trim()) payload.password = form.password.trim()
+
     const res = await fetch('/api/admin/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(payload),
     })
     const data = await res.json()
     if (!res.ok) { setFormError(data.error?.formErrors?.[0] ?? data.error ?? 'Błąd'); return }
-    setShowCreate(false)
+
+    // Gdy mail nie poszedł (brak SMTP albo błąd wysyłki), pokazujemy link do
+    // przekazania z ręki. Bez tego konto istniałoby, a nikt nie mógłby wejść.
+    if (data.invite && !data.invite.sent && data.invite.url) {
+      setInviteLink({ email: data.user.email, url: data.invite.url, reason: data.invite.reason })
+    } else {
+      setShowCreate(false)
+    }
     setForm({ portalId: '', email: '', name: '', password: '' })
     load()
   }
@@ -491,11 +508,50 @@ export default function AdminPage() {
 
       {/* Nowy uzytkownik. Dialog z Radiksa daje Escape, pulapke fokusa i
           aria-modal, ktorych reczny modal nie mial. */}
-      <Dialog open={showCreate} onOpenChange={open => !open && setShowCreate(false)}>
+      <Dialog
+        open={showCreate}
+        onOpenChange={open => {
+          if (!open) { setShowCreate(false); setInviteLink(null) }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nowy użytkownik</DialogTitle>
+            <DialogTitle>{inviteLink ? 'Konto utworzone' : 'Nowy użytkownik'}</DialogTitle>
           </DialogHeader>
+
+          {/* Mail nie poszedl, wiec pokazujemy link do przekazania z reki.
+              Bez tego konto by istnialo, a nikt nie moglby na nie wejsc. */}
+          {inviteLink && (
+            <div className="space-y-3">
+              <p className="text-sm text-foreground">
+                Konto <span className="font-medium">{inviteLink.email}</span> jest gotowe, ale
+                {inviteLink.reason === 'not-configured'
+                  ? ' SMTP nie jest skonfigurowany, więc mail nie wyszedł.'
+                  : ' wysyłka maila się nie udała.'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Przekaż ten link. Jest jednorazowy i wygasa po 72 godzinach.
+              </p>
+              <textarea
+                readOnly
+                value={inviteLink.url}
+                onClick={e => (e.target as HTMLTextAreaElement).select()}
+                className="w-full resize-none rounded-md border border-input bg-muted/40 px-3 py-2 font-mono text-xs text-foreground"
+                rows={3}
+              />
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  onClick={() => { setShowCreate(false); setInviteLink(null) }}
+                >
+                  Gotowe
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!inviteLink && (
+          <>
             <form onSubmit={handleCreate} className="p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Portal</label>
@@ -516,8 +572,14 @@ export default function AdminPage() {
                   placeholder="jan@firma.pl" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Hasło tymczasowe</label>
-                <Input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={8}
+                <label className="block text-sm font-medium text-foreground mb-1.5">
+                  Hasło <span className="font-normal text-muted-foreground">(zostaw puste)</span>
+                </label>
+                <p className="mb-1.5 text-xs text-muted-foreground">
+                  Puste pole to wariant domyślny: użytkownik dostanie mailem link i ustawi hasło sam,
+                  więc my go nie poznamy. Wpisz hasło tylko wtedy, gdy ktoś nie ma dostępu do maila.
+                </p>
+                <Input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} minLength={8}
                   placeholder="min. 8 znaków" />
               </div>
               {formError && <p className="text-sm text-destructive">{formError}</p>}
@@ -526,6 +588,8 @@ export default function AdminPage() {
                 <Button type="submit" className="flex-1">Utwórz</Button>
               </div>
             </form>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 

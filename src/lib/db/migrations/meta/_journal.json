@@ -71,6 +71,13 @@
       "when": 1785411826358,
       "tag": "0009_contact_members",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785412517571,
+      "tag": "0010_user_invites",
+      "breakpoints": true
     }
   ]
 }

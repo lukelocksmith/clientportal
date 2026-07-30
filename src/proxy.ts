@@ -13,8 +13,13 @@ export function proxy(request: NextRequest) {
   const slug = slugMatch[1]
   const subpath = slugMatch[2] ?? ''
 
-  // Skip auth for login page, API routes and admin panel
-  if (subpath === '/login' || pathname.startsWith('/api/') || slug === 'admin') {
+  // Skip auth for login page, invite page, API routes and admin panel.
+  //
+  // Strona zaproszenia MUSI być publiczna: użytkownik trafia na nią z maila,
+  // jeszcze nie mając hasła, więc sesji mieć nie może. Autoryzacją jest tam
+  // jednorazowy token w adresie, sprawdzany po stronie serwera.
+  const isInvite = subpath.startsWith('/zaproszenie/')
+  if (subpath === '/login' || isInvite || pathname.startsWith('/api/') || slug === 'admin') {
     return NextResponse.next()
   }
 

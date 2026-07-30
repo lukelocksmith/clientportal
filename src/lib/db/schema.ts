@@ -204,6 +204,28 @@ export const cronRuns = pgTable('cron_runs', {
   jobFinishedIdx: index('cron_runs_job_finished_idx').on(t.job, t.finishedAt),
 }))
 
+/**
+ * Zaproszenia do portalu. Nowy użytkownik NIE dostaje hasła od nas: dostaje
+ * mailem jednorazowy link, pod którym ustawia własne.
+ *
+ * Po co osobna tabela, a nie kolumny w portal_users: zaproszenie da się
+ * wysłać ponownie (stare traci moc, nowe powstaje), a historia zostaje do
+ * wglądu. Trzymamy HASH tokenu, nie token, tak samo jak w tabeli sesji:
+ * wyciek bazy nie może dać nikomu możliwości ustawienia hasła klientowi.
+ */
+export const userInvites = pgTable('user_invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => portalUsers.id, { onDelete: 'cascade' }),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  /** Null dopóki nikt nie ustawił hasła tym linkiem. Jednorazowość. */
+  usedAt: timestamp('used_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index('user_invites_user_idx').on(t.userId),
+}))
+
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').references(() => portalUsers.id),

@@ -54,6 +54,13 @@ export function EmailShell({
         <Container style={container}>
           <Section style={{ ...header, backgroundColor: brandColor }}>
             <Heading style={{ ...headerText, color: brandForeground }}>{portalName}</Heading>
+            {/* Kto pisze. W nagłówku stoi nazwa KLIENTA, bo to jego portal, więc
+                bez tej linii pierwszy mail w życiu przychodzi od podmiotu, którego
+                odbiorca nie kojarzy z nami. `opacity` zamiast drugiego koloru,
+                żeby czytało się na każdym kolorze marki. */}
+            <Text style={{ ...headerSub, color: brandForeground }}>
+              Portal klienta · important.is
+            </Text>
           </Section>
 
           <Section style={content}>
@@ -71,6 +78,16 @@ export function EmailShell({
               {buttonLabel}
             </Button>
 
+            {/* Adres wprost, do skopiowania. Przycisk w mailu jest zwyczajnym
+                linkiem ze stylem tła, a część klientów pocztowych (i tryby
+                „tekst zwykły") style zdejmuje, zostawiając napis, w który nie da
+                się kliknąć. Bez tej linii odbiorca ma wtedy mail bez wyjścia:
+                widzi, że ma coś ustawić, i nie ma jak. */}
+            <Text style={muted}>
+              Jeśli przycisk nie działa, skopiuj ten adres do przeglądarki:
+            </Text>
+            <Text style={urlText}>{buttonUrl}</Text>
+
             {notes.map((n, i) => (
               <Text key={i} style={muted}>
                 {n}
@@ -79,7 +96,9 @@ export function EmailShell({
           </Section>
 
           <Section style={footer}>
-            <Text style={footerText}>important.is</Text>
+            <Text style={footerText}>
+              Portal dostarcza important.is. Odpisz na tę wiadomość, jeśli coś nie działa.
+            </Text>
           </Section>
         </Container>
       </Body>
@@ -92,6 +111,7 @@ const body = { backgroundColor: '#f6f7f9', fontFamily: 'Helvetica, Arial, sans-s
 const container = { maxWidth: '560px', margin: '0 auto', padding: '24px 12px' }
 const header = { borderRadius: '8px 8px 0 0', padding: '24px' }
 const headerText = { fontSize: '20px', fontWeight: 700, margin: 0 }
+const headerSub = { fontSize: '12px', margin: '4px 0 0', opacity: 0.75 }
 const content = {
   backgroundColor: '#ffffff',
   border: '1px solid #e5e7eb',
@@ -110,5 +130,15 @@ const button = {
   margin: '6px 0 18px',
 }
 const muted = { fontSize: '13px', lineHeight: '20px', color: '#6b7280', margin: '0 0 8px' }
+// `wordBreak` jest tu konieczny: token dostępowy to 64 znaki bez spacji, więc
+// bez tego rozpycha maila w poziomie i na telefonie ucina treść.
+const urlText = {
+  fontSize: '12px',
+  lineHeight: '18px',
+  color: '#6b7280',
+  margin: '0 0 14px',
+  wordBreak: 'break-all' as const,
+  fontFamily: 'Menlo, Consolas, monospace',
+}
 const footer = { padding: '16px 4px 0' }
 const footerText = { fontSize: '12px', color: '#9ca3af', margin: 0 }

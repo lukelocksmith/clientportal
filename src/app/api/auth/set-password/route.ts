@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { portalUsers } from '@/lib/db/schema'
 import { checkInvite, consumeInvite } from '@/lib/invites'
 import { createSession, setSessionCookie } from '@/lib/auth'
+import { sendPasswordChangedNotice } from '@/lib/passwordNotice'
 
 /**
  * Ustawienie hasła z zaproszenia. Trasa PUBLICZNA: użytkownik jeszcze nie ma
@@ -58,6 +59,20 @@ export async function POST(request: NextRequest) {
     const sessionToken = await createSession(user.id, ip, ua)
     await setSessionCookie(sessionToken)
   }
+
+  // Powiadomienie PO fakcie, na adres konta. Zabezpieczenie, nie uprzejmość:
+  // link do ustawienia hasła idzie mailem, a skrzynka jest tym, co przeciwnik
+  // przechwytuje najczęściej. Bez tego maila przejęcie konta jest ciche.
+  //
+  // Dane bierzemy z `check`, czyli ze sprawdzenia SPRZED zużycia tokenu. Po
+  // `consumeInvite` zaproszenie jest już oznaczone jako użyte, więc powtórne
+  // `checkInvite` zwróciłoby 'used' i nie dałoby ani adresu, ani imienia.
+  await sendPasswordChangedNotice({
+    to: check.email,
+    recipientName: check.name,
+    portalId: check.portalId,
+    portalSlug: result.portalSlug,
+  })
 
   return NextResponse.json({ ok: true, slug: result.portalSlug })
 }

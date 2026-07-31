@@ -1,0 +1,10 @@
+Ten plik istnieje, żeby katalog public/ przetrwał w repozytorium.
+
+Git nie śledzi pustych katalogów. Dockerfile kopiuje `/app/public` do obrazu
+(COPY --from=builder /app/public ./public), więc gdy katalog zniknie z repo,
+build w Dockerze przerywa się na "/app/public: not found". Lokalny `next build`
+tego NIE łapie, bo katalog nadal leży na dysku dewelopera.
+
+Zdarzyło się 31.07.2026: z public/ usunięto ostatnie pliki (ikony z
+create-next-app), katalog wypadł z repozytorium i wdrożenie na produkcję padło.
+Nie usuwaj tego pliku, dopóki Dockerfile kopiuje ten katalog.

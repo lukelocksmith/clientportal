@@ -84,7 +84,7 @@ export function stripPublicPrefix(text: string): { text: string; sender: string 
   if (match) {
     return { text: cleaned.slice(match[0].length), sender: match[1] }
   }
-  return { text: cleaned, sender: 'Important.is' }
+  return { text: cleaned, sender: 'important.is' }
 }
 
 /** Komentarze widoczne dla klienta, z zdjętym prefiksem i rozpoznanym autorem. */

@@ -227,7 +227,7 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
                 Zgłaszający pochodzi z naszej historii, nie z ClickUpa: tam
                 autorem każdego zadania jest nasze konto serwisowe. Brak wpisu
                 oznacza zadanie założone przez nas, i wtedy podpisujemy się
-                jako Important.is. */}
+                jako important.is. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Calendar className="h-3.5 w-3.5" />
@@ -238,7 +238,7 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
                 <span>
                   {reporter && !reporter.isAgency
                     ? (reporter.name ?? reporter.email)
-                    : 'Important.is'}
+                    : 'important.is'}
                 </span>
               </div>
             </div>
@@ -394,7 +394,7 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
             ) : (
               <div className="space-y-4">
                 {comments.map(comment => {
-                  const isAgency = comment.sender === 'Important.is'
+                  const isAgency = comment.sender === 'important.is'
                   const initials = isAgency ? 'IM' : (comment.sender?.slice(0, 2).toUpperCase() ?? '?')
                   const bgColor = isAgency ? '#3b6fe8' : '#6b7280'
                   return (

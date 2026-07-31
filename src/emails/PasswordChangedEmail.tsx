@@ -51,7 +51,7 @@ export function PasswordChangedEmail({
     notes: [
       // Konkretne polecenie zamiast „skontaktuj się z administratorem": odbiorca
       // w panice ma wiedzieć, gdzie napisać, bez szukania adresu.
-      `Jeśli to NIE Ty zmieniałeś hasło, napisz natychmiast na ${contactEmail}. Zablokujemy dostęp do konta i sprawdzimy, co się stało.`,
+      `Jeśli zmiana hasła NIE pochodzi od Ciebie, napisz natychmiast na ${contactEmail}. Zablokujemy dostęp do konta i sprawdzimy, co się stało.`,
       'Nie prosimy w mailach o hasło ani o jego potwierdzenie. Jeśli dostaniesz taką wiadomość, nie odpowiadaj na nią.',
     ],
   })

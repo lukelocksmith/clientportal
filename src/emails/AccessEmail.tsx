@@ -60,11 +60,11 @@ export function AccessEmail({
           `Link jest jednorazowy i wygasa po ${expiresInHours} ${godzin}.`,
           // Kluczowe zdanie przy resecie: prośbę mógł wysłać ktoś inny,
           // a odbiorca musi wiedzieć, że nic się nie stało bez kliknięcia.
-          'Jeśli nie prosiłeś o zmianę hasła, zignoruj tę wiadomość. Twoje obecne hasło nadal działa i nikt go nie zmienił.',
+          'Jeśli prośba o zmianę hasła nie pochodzi od Ciebie, zignoruj tę wiadomość. Twoje obecne hasło nadal działa i nikt go nie zmienił.',
         ]
       : [
           `Link jest jednorazowy i wygasa po ${expiresInHours} ${godzin}. Jeśli straci ważność, napisz do nas, wyślemy nowy.`,
-          'Jeśli nie spodziewałeś się tej wiadomości, zignoruj ją. Bez kliknięcia w link nic się nie stanie.',
+          'Jeśli ta wiadomość Cię zaskoczyła, zignoruj ją. Bez kliknięcia w link nic się nie stanie.',
         ],
   })
 }

@@ -77,7 +77,7 @@ export function reporterLabel(reporter: Pick<Reporter, 'name' | 'email'>): strin
  */
 export function reporterFooter(reporter: Reporter): string {
   const who = isAdminActor({ email: reporter.email })
-    ? 'Important.is (tryb administratora, w imieniu klienta)'
+    ? 'important.is (tryb administratora, w imieniu klienta)'
     : reporterLabel(reporter)
 
   return [

@@ -1,11 +1,17 @@
 import { redirect } from 'next/navigation'
-import { getAllTasksForFolder } from '@/lib/clickup'
+import { getCachedTasksForFolder } from '@/lib/clickupCache'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
 import { firstEnabledTabPath, isTabEnabled } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
 
-export const revalidate = 60 // Revalidate every 60s, webhooks invalidate sooner
+// Nie ma tu `export const revalidate`. Stało tam `60` i było MARTWE: strona
+// czyta ciasteczko sesji, więc renderuje się dynamicznie, a buforowanie
+// segmentu nie ma wtedy zastosowania. Wyglądało jak działający cache i
+// dlatego nikt nie szukał przyczyny 1,3 sekundy na wejściu.
+//
+// Buforowane są teraz DANE, w lib/clickupCache.ts, z unieważnianiem po każdej
+// zmianie widocznej dla klienta.
 
 interface PortalPageProps {
   params: Promise<{ slug: string }>
@@ -37,7 +43,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     )
   }
 
-  const rawTasks = await getAllTasksForFolder(portal.clickupFolderId)
+  const rawTasks = await getCachedTasksForFolder(portal.clickupFolderId)
   const snapshots = await getSnapshotMap(portal.id)
   const tasks = mergeTrackedTime(rawTasks, snapshots)
 

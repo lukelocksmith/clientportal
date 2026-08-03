@@ -6,6 +6,7 @@ import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { updateTask, verifyTaskBelongsToFolder, getTask } from '@/lib/clickup'
 import { getTaskReporter } from '@/lib/portalEvents'
+import { invalidateFolderTasks } from '@/lib/clickupCache'
 
 /**
  * GET /api/clickup/tasks/{taskId}?slug=onyx
@@ -89,5 +90,11 @@ export async function PATCH(
   if (!belongs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const task = await updateTask(taskId, parsed.data)
+
+  // Przeciagniecie karty zmienia status w ClickUpie. Bez unieważnienia
+  // kolejne wejscie na tablice pokazaloby karte w starej kolumnie, czyli
+  // wygladaloby na nieudane przeciagniecie.
+  await invalidateFolderTasks(portal[0].clickupFolderId)
+
   return NextResponse.json({ task })
 }

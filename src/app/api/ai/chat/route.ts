@@ -13,6 +13,7 @@ import { createTask } from '@/lib/clickup'
 import { computeCost } from '@/lib/aiPricing'
 import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
+import { invalidateFolderTasks } from '@/lib/clickupCache'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -173,6 +174,10 @@ Odpowiadaj TYLKO po polsku. Pisz krótko — jak SMS, nie jak mail.`
         // so the team sees incoming requests instead of them being buried.
         status: 'do zrobienia',
       })
+
+      // Bez tego klient zglosilby zadanie przez asystenta, odswiezyl strone
+      // i nie zobaczyl go na tablicy przez kilkadziesiat sekund.
+      await invalidateFolderTasks(portal[0].clickupFolderId)
 
       await logEvent({
         portalId: portal[0].id,

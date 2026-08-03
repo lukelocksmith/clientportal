@@ -14,13 +14,8 @@ import type { NextConfig } from "next";
  * wystarczy starsza przegladarka albo zmiana domyslnej polityki. Ustawiamy
  * jawnie.
  *
- * Czego tu NIE MA i dlaczego:
- * - CSP: Next wstrzykuje skrypty inline, wiec sensowna polityka wymaga nonce'ow
- *   i osobnego przejscia. Dodana na slepo albo zepsulaby strone, albo bylaby
- *   pozorna przez 'unsafe-inline'.
- * - HSTS: prawdopodobnie ustawia go juz Traefik przed aplikacja. Wpisanie go
- *   tutaj bez sprawdzenia produkcji zdublowaloby konfiguracje. Do potwierdzenia
- *   na serwerze.
+ * CSP jest w src/proxy.ts, nie tutaj, bo wymaga nowego nonce'a przy KAZDYM
+ * zadaniu, a naglowki z tego pliku sa statyczne.
  */
 const securityHeaders = [
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
@@ -30,6 +25,20 @@ const securityHeaders = [
   // Portal nie ma powodu dzialac w ramce, a bez tego da sie go nalozyc pod
   // cudza strone i zbierac klikniecia klienta.
   { key: 'X-Frame-Options', value: 'DENY' },
+  /**
+   * HSTS. Sprawdzone na produkcji 2026-08-03: Traefik tego naglowka NIE dodaje,
+   * odpowiedz go nie zawierala, wiec nie jest to dublowanie konfiguracji.
+   *
+   * Rok, BEZ includeSubDomains i BEZ preload. To jest celowe: important.is ma
+   * inne poddomeny (mailcow, n8n, demo, gb) i objecie ich wszystkich polityka
+   * ustawiona z portalu klienta byloby decyzja o czyms, czego ten portal nie
+   * obsluguje. Polityke pamieta przegladarka, wiec pomylka tutaj jest trudna do
+   * odkrecenia.
+   */
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000' },
+  // Portal nie uzywa kamery, mikrofonu ani lokalizacji. Jawne wylaczenie
+  // znaczy, ze wstrzykniety kod nie moze o nie poprosic w naszym imieniu.
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
 ]
 
 const nextConfig: NextConfig = {

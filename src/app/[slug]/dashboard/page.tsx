@@ -9,7 +9,7 @@ import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { getTimeEntries } from '@/lib/clickup'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { filterTimeEntriesToScope } from '@/lib/portalScope'
-import { buildReport, currentWeekToDate } from '@/lib/timeReports'
+import { buildReport, currentWeekToDate, listPeriods } from '@/lib/timeReports'
 import { formatDuration } from '@/lib/utils'
 import { PortalHeader } from '@/components/PortalHeader'
 import { PanicButton } from '@/components/PanicButton'
@@ -67,14 +67,37 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
    * danych, to nieprawda.
    */
   let weekMs: number | null = null
+  let prevWeekMs: number | null = null
+  let prevWeekLabel: string | null = null
   if (isTabEnabled(flags, 'raporty')) {
     try {
-      const week = currentWeekToDate()
       const scope = await getPortalScope(portal.id)
-      const entries = await getTimeEntries(portal.clickupFolderId, week.startMs, week.endMs)
+      const week = currentWeekToDate()
+      // Poprzedni tydzień bierzemy z `listPeriods`, a nie liczymy sami: ta
+      // funkcja zaczyna od ostatniego ZAMKNIĘTEGO okresu, czyli zwraca dokładnie
+      // ten sam obiekt, którego używa zakładka Raporty. Dzięki temu obie liczby
+      // pochodzą z jednego źródła i nie ma jak się rozjechać.
+      const prev = listPeriods('tydzien', 1)[0]
+      prevWeekLabel = prev?.label ?? null
+
+      const [entries, prevEntries] = await Promise.all([
+        getTimeEntries(portal.clickupFolderId, week.startMs, week.endMs),
+        prev
+          ? getTimeEntries(portal.clickupFolderId, prev.startMs, prev.endMs)
+          : Promise.resolve([]),
+      ])
+
       weekMs = buildReport(week, filterTimeEntriesToScope(entries, scope)).totalMs
+      if (prev) {
+        prevWeekMs = buildReport(prev, filterTimeEntriesToScope(prevEntries, scope)).totalMs
+      }
     } catch (error) {
-      console.error('[dashboard] nie udalo sie policzyc godzin tygodnia:', error)
+      // Jeden catch na oba okresy: przy awarii ClickUpa nie chcemy pokazać
+      // jednej liczby i zgubić drugiej, bo klient nie wiedziałby, czy druga to
+      // zero, czy brak danych.
+      console.error('[dashboard] nie udalo sie policzyc godzin:', error)
+      weekMs = null
+      prevWeekMs = null
     }
   }
 
@@ -103,20 +126,41 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
             Blok znika, gdy ClickUp nie odpowie: zero godzin przy przepracowanym
             tygodniu byłoby nieprawdą, nie brakiem danych. */}
         {weekMs !== null && (
-          <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-xl border border-border bg-card px-5 py-4">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              W tym tygodniu
-            </span>
-            <span className="text-2xl font-semibold text-foreground">
-              {formatDuration(weekMs) || '0m'}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              czasu pracy, od poniedziałku. Rozliczenie tygodniami jest w{' '}
+          <div className="mt-5 rounded-xl border border-border bg-card px-5 py-4">
+            <div className="flex flex-wrap gap-x-10 gap-y-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  W tym tygodniu
+                </p>
+                <p className="mt-0.5 text-2xl font-semibold text-foreground">
+                  {formatDuration(weekMs) || '0m'}
+                </p>
+                <p className="text-[10px] text-muted-foreground">od poniedziałku, na bieżąco</p>
+              </div>
+
+              {prevWeekMs !== null && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Poprzedni tydzień
+                  </p>
+                  <p className="mt-0.5 text-2xl font-semibold text-foreground">
+                    {formatDuration(prevWeekMs) || '0m'}
+                  </p>
+                  {/* Etykieta okresu, nie samo słowo „poprzedni": bez daty
+                      klient nie wie, czy chodzi o tydzień kalendarzowy, czy
+                      o ostatnie siedem dni. */}
+                  <p className="text-[10px] text-muted-foreground">{prevWeekLabel ?? 'zamknięty'}</p>
+                </div>
+              )}
+            </div>
+
+            <p className="mt-3 text-xs text-muted-foreground">
+              Czas pracy razem z narzutem za organizację pracy. Rozbicie na zadania jest w{' '}
               <Link href={`/${slug}/raporty`} className="underline hover:text-foreground">
                 Raportach
               </Link>
               .
-            </span>
+            </p>
           </div>
         )}
 

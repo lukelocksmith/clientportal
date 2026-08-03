@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3 } from 'lucide-react'
+import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3, Send, Loader2 } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -55,6 +55,10 @@ export default function AdminPanel() {
   const [formError, setFormError] = useState('')
   const [inviteLink, setInviteLink] = useState<{ email: string; url: string; reason: string } | null>(null)
   const [resetUserId, setResetUserId] = useState<string | null>(null)
+  /** Id uzytkownika, do ktorego wlasnie leci link. Blokuje przycisk, zeby
+      dwuklik nie uniewaznil swiezo wyslanego zaproszenia drugim. */
+  const [sendingInvite, setSendingInvite] = useState<string | null>(null)
+  const [inviteResult, setInviteResult] = useState<{ userId: string; ok: boolean; text: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [portalForm, setPortalForm] = useState({
     name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256',
@@ -267,6 +271,44 @@ export default function AdminPanel() {
     })
     setResetUserId(null)
     setNewPassword('')
+  }
+
+  /**
+   * Wysyla uzytkownikowi link do ustawienia hasla.
+   *
+   * Poprzednie zaproszenia tracą moc, wiec potwierdzenie mowi to wprost:
+   * admin musi wiedziec, ze stary link przestal dzialac, zanim klient zadzwoni,
+   * ze "ten z wczoraj nie dziala".
+   */
+  async function handleSendInvite(userId: string, email: string) {
+    setSendingInvite(userId)
+    setInviteResult(null)
+    try {
+      const res = await fetch('/api/admin/users/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        setInviteResult({ userId, ok: false, text: data?.error ?? 'Nie udalo sie wyslac.' })
+        return
+      }
+      if (data?.sent) {
+        setInviteResult({ userId, ok: true, text: `Wyslane na ${email}. Poprzednie linki tego uzytkownika przestaly dzialac.` })
+      } else {
+        // Mail nie poszedl: pokazujemy link, zeby bylo co przekazac inna droga.
+        setInviteResult({
+          userId,
+          ok: false,
+          text: `Mail NIE wyszedl (${data?.reason ?? 'blad'}). Link do przekazania: ${data?.url ?? 'brak'}`,
+        })
+      }
+    } catch {
+      setInviteResult({ userId, ok: false, text: 'Brak polaczenia.' })
+    } finally {
+      setSendingInvite(null)
+    }
   }
 
   async function handleDelete(userId: string) {
@@ -590,7 +632,17 @@ export default function AdminPanel() {
                                   variant="ghost" size="iconSm" className="text-muted-foreground">
                                   {user.isActive ? <ToggleRight className="h-4 w-4 text-primary" /> : <ToggleLeft className="h-4 w-4" />}
                                 </Button>
-                                <Button onClick={() => { setResetUserId(user.id); setNewPassword('') }} title="Resetuj hasło"
+                                <Button
+                                  onClick={() => handleSendInvite(user.id, user.email)}
+                                  disabled={sendingInvite === user.id}
+                                  title="Wyślij mailem link do ustawienia hasła"
+                                  variant="ghost" size="iconSm" className="text-muted-foreground"
+                                >
+                                  {sendingInvite === user.id
+                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                    : <Send className="h-4 w-4" />}
+                                </Button>
+                                <Button onClick={() => { setResetUserId(user.id); setNewPassword('') }} title="Ustaw hasło z ręki (bez maila)"
                                   variant="ghost" size="iconSm" className="text-muted-foreground">
                                   <KeyRound className="h-4 w-4" />
                                 </Button>
@@ -599,6 +651,11 @@ export default function AdminPanel() {
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
+                              {inviteResult?.userId === user.id && (
+                                <p className={`mt-2 text-xs ${inviteResult.ok ? 'text-muted-foreground' : 'text-destructive'}`}>
+                                  {inviteResult.text}
+                                </p>
+                              )}
                               {resetUserId === user.id && (
                                 <div className="flex items-center gap-2 mt-2">
                                   <Input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)}

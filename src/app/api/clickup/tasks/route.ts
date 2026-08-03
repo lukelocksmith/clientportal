@@ -3,7 +3,8 @@ import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
-import { getAllTasksForFolder, createTask } from '@/lib/clickup'
+import { getAllTasksForFolder, getAllTasksForLists, createTask } from '@/lib/clickup'
+import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { withReporterFooter } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
@@ -30,7 +31,10 @@ export async function GET(request: NextRequest) {
   // CELOWO bez cache'u, w przeciwieństwie do renderowania strony. Tę trasę
   // woła przycisk „Odśwież", więc podanie z bufora zamieniłoby go w atrapę:
   // klient klika, widzi kręcące się kółko i te same dane.
-  const rawTasks = await getAllTasksForFolder(portal[0].clickupFolderId)
+  const scope = await getPortalScope(portal[0].id)
+  const rawTasks = scope.length > 0
+    ? await getAllTasksForLists(scope)
+    : await getAllTasksForFolder(portal[0].clickupFolderId)
   const snapshots = await getSnapshotMap(portal[0].id)
   const tasks = mergeTrackedTime(rawTasks, snapshots)
 

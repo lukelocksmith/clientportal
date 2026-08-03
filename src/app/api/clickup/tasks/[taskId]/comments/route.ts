@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import { getTaskComments, addComment, verifyTaskBelongsToFolder } from '@/lib/clickup'
 import { filterPublicComments, PUBLIC_PREFIX } from '@/lib/publicComments'
 import { logEvent, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
+import { getPortalScope } from '@/lib/portalScopeStore'
 
 export async function GET(
   request: NextRequest,
@@ -20,7 +21,10 @@ export async function GET(
   const portal = await db.select().from(portals).where(eq(portals.id, session.portalId)).limit(1)
   if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
+  // Zakres list portalu, nie tylko folder: bez tego klient odczytalby komentarze
+  // zadania z listy, ktorej mu nie udostepnilismy, znajac jego identyfikator.
+  const scope = await getPortalScope(portal[0].id)
+  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId, scope)
   if (!belongs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const comments = await getTaskComments(taskId)
@@ -45,7 +49,10 @@ export async function POST(
   const portal = await db.select().from(portals).where(eq(portals.id, session.portalId)).limit(1)
   if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
+  // Zakres list portalu, nie tylko folder: bez tego klient odczytalby komentarze
+  // zadania z listy, ktorej mu nie udostepnilismy, znajac jego identyfikator.
+  const scope = await getPortalScope(portal[0].id)
+  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId, scope)
   if (!belongs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   // All client comments are public by definition — prefix so they pass the filter on GET.

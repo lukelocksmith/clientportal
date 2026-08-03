@@ -1,5 +1,6 @@
 import { unstable_cache, revalidateTag } from 'next/cache'
-import { getAllTasksForFolder } from './clickup'
+import { getAllTasksForFolder, getAllTasksForLists } from './clickup'
+import { scopeLimits, scopeCacheKey, type PortalScope } from './portalScope'
 import type { ClickUpTask } from './types'
 
 /**
@@ -40,12 +41,19 @@ export function folderTasksTag(folderId: string): string {
  * Zadania folderu z cache'u. Do renderowania strony, gdzie liczy się czas
  * wejścia, a kilkudziesięciosekundowe opóźnienie jest niewidoczne.
  */
-export function getCachedTasksForFolder(folderId: string): Promise<ClickUpTask[]> {
+export function getCachedTasksForScope(
+  folderId: string,
+  scope: PortalScope
+): Promise<ClickUpTask[]> {
   return unstable_cache(
-    () => getAllTasksForFolder(folderId),
+    // Zakres pusty znaczy „cały folder", i tylko tutaj ta decyzja się zapada.
+    () => (scopeLimits(scope) ? getAllTasksForLists(scope) : getAllTasksForFolder(folderId)),
     // Identyfikator folderu MUSI być częścią klucza, inaczej pierwszy klient,
     // który wejdzie na tablicę, obsadziłby cache dla wszystkich pozostałych.
-    ['clickup-folder-tasks', folderId],
+    //
+    // Zakres też, bo inaczej zmiana list w panelu nie zmieniłaby klucza i portal
+    // podawałby z bufora zestaw sprzed zmiany konfiguracji.
+    ['clickup-folder-tasks', folderId, scopeCacheKey(scope)],
     { revalidate: FOLDER_TASKS_TTL_SECONDS, tags: [folderTasksTag(folderId)] }
   )()
 }

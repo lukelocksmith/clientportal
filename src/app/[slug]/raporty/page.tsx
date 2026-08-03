@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getTimeEntries } from '@/lib/clickup'
+import { getPortalScope } from '@/lib/portalScopeStore'
+import { filterTimeEntriesToScope } from '@/lib/portalScope'
 import {
   buildReport,
   listPeriods,
@@ -52,7 +54,13 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
   try {
     // folderId pochodzi z bazy, nie z URL-a. To granica między klientami.
     const entries = await getTimeEntries(portal.clickupFolderId, period.startMs, period.endMs)
-    report = buildReport(period, entries)
+    // ClickUp filtruje wpisy czasu tylko po FOLDERZE, wiec zawezenie do list
+    // portalu robimy u siebie. Bez tego raport zawieral godziny z list, ktorych
+    // do portalu nie wybralismy, a to jest liczba, ktora klient porownuje
+    // z faktura. `task_location.list_id` przychodzi razem z wpisem, wiec nie
+    // potrzebujemy dodatkowych wywolan.
+    const scope = await getPortalScope(portal.id)
+    report = buildReport(period, filterTimeEntriesToScope(entries, scope))
   } catch (error) {
     console.error('[raporty] ClickUp nie odpowiedział:', error)
   }

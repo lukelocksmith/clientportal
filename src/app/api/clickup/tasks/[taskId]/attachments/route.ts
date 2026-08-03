@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { getPortalScope } from '@/lib/portalScopeStore'
 import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { addTaskAttachment, verifyTaskBelongsToFolder } from '@/lib/clickup'
@@ -28,7 +29,8 @@ export async function POST(
   if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // IDOR: the task must live in this portal's folder before we touch it.
-  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
+  const scope = await getPortalScope(portal[0].id)
+  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId, scope)
   if (!belongs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const form = await request.formData()

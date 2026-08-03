@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
-import { getCachedTasksForFolder } from '@/lib/clickupCache'
+import { getCachedTasksForScope } from '@/lib/clickupCache'
+import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
 import { firstEnabledTabPath, isTabEnabled } from '@/lib/portalTabs'
@@ -43,7 +44,10 @@ export default async function PortalPage({ params }: PortalPageProps) {
     )
   }
 
-  const rawTasks = await getCachedTasksForFolder(portal.clickupFolderId)
+  // Zakres portalu, czyli listy wybrane w panelu. Bez tego tablica pokazywala
+  // CALY folder klienta, takze listy, ktorych do portalu nie wybralismy.
+  const scope = await getPortalScope(portal.id)
+  const rawTasks = await getCachedTasksForScope(portal.clickupFolderId, scope)
   const snapshots = await getSnapshotMap(portal.id)
   const tasks = mergeTrackedTime(rawTasks, snapshots)
 

@@ -2,6 +2,8 @@ import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from './db'
 import { taskIndex } from './db/schema'
 import { getFolderTaskHistory, getTask, getTaskComments } from './clickup'
+import { getPortalScope } from './portalScopeStore'
+import { filterTasksToScope } from './portalScope'
 import { publicCommentTexts } from './publicComments'
 import { buildSearchText, escapeLikePattern, normalizeQuery } from './textSearch'
 
@@ -64,7 +66,17 @@ export async function syncPortalIndex(
   options: { budget?: number; forceContent?: boolean } = {}
 ): Promise<SyncResult> {
   const budget = options.budget ?? 40
-  const { tasks, truncated } = await getFolderTaskHistory(portal.clickupFolderId)
+  const { tasks: wszystkie, truncated } = await getFolderTaskHistory(portal.clickupFolderId)
+
+  // ClickUp zwraca caly folder, wiec do indeksu wpuszczamy tylko listy nalezace
+  // do portalu. Inaczej wyszukiwarka i Historia pokazywalyby klientowi zadania
+  // z list, ktorych mu nie udostepnilismy.
+  //
+  // Filtrujemy PO pobraniu, bo `truncated` dotyczy pobrania z ClickUpa i musi
+  // zostac policzone na pelnym zbiorze: rekoncyliacja usuwa wiersze nieobecne
+  // w odpowiedzi, wiec ucieta odpowiedz nie moze uchodzic za kompletna.
+  const scope = await getPortalScope(portal.id)
+  const tasks = filterTasksToScope(wszystkie, scope)
 
   // Liczba podzadań per rodzic. Podzadania trzymamy w indeksie (żeby
   // wyszukiwarka je znajdowała), ale w tabeli Historii pokazujemy tylko

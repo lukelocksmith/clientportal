@@ -73,6 +73,40 @@ export async function getTasksForList(
 /** Sufit stron na listę. Zabezpieczenie przed pętlą, nie normalny tryb pracy. */
 const MAX_PAGES_PER_LIST = 11
 
+/**
+ * Zadania z PODANYCH list, nie z całego folderu.
+ *
+ * Powstało, bo folder klienta może zawierać listy, których do jego portalu nie
+ * wybraliśmy. Wcześniej istniała tylko wersja folderowa i to ona zasilała
+ * tablicę, więc wybór listy w panelu nie miał żadnego znaczenia przy odczycie.
+ *
+ * Pusta lista identyfikatorów zwraca pustą tablicę, NIE cały folder. Decyzja
+ * „brak konfiguracji znaczy cały folder" należy do wołającego (lib/portalScope.ts),
+ * bo tylko on wie, czy pustka to brak konfiguracji, czy wynik filtrowania.
+ */
+export async function getAllTasksForLists(listIds: readonly string[]): Promise<ClickUpTask[]> {
+  const allTasks: ClickUpTask[] = []
+  for (const listId of listIds) {
+    let page = 0
+    let lastPage = false
+    while (!lastPage) {
+      const { tasks, lastPage: isLast } = await getTasksForList(listId, { page })
+      allTasks.push(...tasks)
+      lastPage = isLast
+      page++
+      if (page >= MAX_PAGES_PER_LIST) {
+        if (!lastPage) {
+          console.warn(
+            `[clickup] pobór listy ${listId} UCIĘTY na ${MAX_PAGES_PER_LIST} stronach — część zadań pominięta`
+          )
+        }
+        break
+      }
+    }
+  }
+  return buildTaskTree(allTasks)
+}
+
 export async function getAllTasksForFolder(folderId: string): Promise<ClickUpTask[]> {
   const lists = await getListsForFolder(folderId)
   const allTasks: ClickUpTask[] = []
@@ -277,13 +311,25 @@ export async function getFolderLists(
 }
 
 // Security: verify taskId belongs to this folder before any mutation
+/**
+ * Czy zadanie nalezy do portalu. Granica miedzy klientami, a od teraz takze
+ * miedzy listami W OBREBIE folderu jednego klienta.
+ *
+ * `scope` pusty znaczy caly folder, zgodnie z reszta systemu. Gdy zakres jest
+ * zawezony, samo dopasowanie folderu NIE WYSTARCZA: bez sprawdzenia listy klient
+ * mogl odczytac zadanie z listy, ktorej mu nie udostepnilismy, znajac jego
+ * identyfikator, mimo ze na tablicy go nie widzial.
+ */
 export async function verifyTaskBelongsToFolder(
   taskId: string,
-  folderId: string
+  folderId: string,
+  scope: readonly string[] = []
 ): Promise<boolean> {
   try {
     const task = await getTask(taskId)
-    return task.folder.id === folderId
+    if (task.folder.id !== folderId) return false
+    if (scope.length === 0) return true
+    return typeof task.list?.id === 'string' && scope.includes(task.list.id)
   } catch {
     return false
   }

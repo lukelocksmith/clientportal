@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { getAllTasksForFolder } from '@/lib/clickup'
+import { getAllTasksForFolder, getAllTasksForLists } from '@/lib/clickup'
+import { getPortalScope } from '@/lib/portalScopeStore'
 import { writeSnapshots } from '@/lib/timeSnapshots'
 import { verifyToken } from '@/lib/apiAuth'
 import { recordCronRun } from '@/lib/cronRuns'
@@ -38,7 +39,12 @@ async function handle(request: NextRequest) {
     // kieruje ją do /dev/null, więc awaria była niewidoczna.
     const startedAt = new Date()
     try {
-      const tasks = await getAllTasksForFolder(portal.folderId)
+      // Ten sam zakres, co tablica. Inaczej zamrozilibysmy godziny zadan,
+      // ktorych klient w portalu nie widzi.
+      const scope = await getPortalScope(portal.id)
+      const tasks = scope.length > 0
+        ? await getAllTasksForLists(scope)
+        : await getAllTasksForFolder(portal.folderId)
       const count = await writeSnapshots(portal.id, tasks)
       results.push({ slug: portal.slug, tasks: count, ok: true })
       await recordCronRun({

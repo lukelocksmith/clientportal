@@ -7,6 +7,8 @@ import { eq } from 'drizzle-orm'
 import { updateTask, verifyTaskBelongsToFolder, getTask } from '@/lib/clickup'
 import { getTaskReporter } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
+import { getPortalScope } from '@/lib/portalScopeStore'
+import { isListInScope } from '@/lib/portalScope'
 
 /**
  * GET /api/clickup/tasks/{taskId}?slug=onyx
@@ -42,7 +44,10 @@ export async function GET(
   if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const task = await getTask(taskId)
-  if (task.folder?.id !== portal[0].clickupFolderId) {
+  const scope = await getPortalScope(portal[0].id)
+  // Folder ORAZ lista. Folder klienta moze zawierac listy, ktorych do portalu
+  // nie wybralismy, a szuflada szczegolow pokazuje opis, komentarze i zalaczniki.
+  if (task.folder?.id !== portal[0].clickupFolderId || !isListInScope(task.list?.id, scope)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -86,7 +91,8 @@ export async function PATCH(
 
   if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId)
+  const scope = await getPortalScope(portal[0].id)
+  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId, scope)
   if (!belongs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const task = await updateTask(taskId, parsed.data)

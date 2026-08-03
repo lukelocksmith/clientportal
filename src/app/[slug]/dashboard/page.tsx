@@ -6,6 +6,11 @@ import { getRecentlyClosed } from '@/lib/taskIndex'
 import { getProjectLinks } from '@/lib/projectLinksStore'
 import { getPortalForSession } from '@/lib/portalSession'
 import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
+import { getTimeEntries } from '@/lib/clickup'
+import { getPortalScope } from '@/lib/portalScopeStore'
+import { filterTimeEntriesToScope } from '@/lib/portalScope'
+import { buildReport, currentWeekToDate } from '@/lib/timeReports'
+import { formatDuration } from '@/lib/utils'
 import { PortalHeader } from '@/components/PortalHeader'
 import { PanicButton } from '@/components/PanicButton'
 import { BrandMark } from '@/components/BrandMark'
@@ -46,6 +51,33 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
     getProjectLinks(portal.id),
   ])
 
+  /**
+   * Godziny w tym tygodniu, od poniedziałku.
+   *
+   * Liczone DOKŁADNIE tak samo jak w Raportach, przez `buildReport`, więc z tym
+   * samym 10-procentowym narzutem za organizację pracy. Własne sumowanie dałoby
+   * drugą, mniejszą liczbę w tym samym portalu, a klient porównuje ją z fakturą.
+   *
+   * Blok jest za flagą RAPORTÓW, nie Dashboardu. Czas pracy jest informacją
+   * rozliczeniową i jest celowo za flagą; pokazanie go na Dashboardzie projektu
+   * z wyłączonymi Raportami obeszłoby tę decyzję bokiem.
+   *
+   * `null` oznacza „nie wiemy", nie „zero". Gdy ClickUp nie odpowie, blok się
+   * nie pokazuje, bo zero godzin przy przepracowanym tygodniu to nie brak
+   * danych, to nieprawda.
+   */
+  let weekMs: number | null = null
+  if (isTabEnabled(flags, 'raporty')) {
+    try {
+      const week = currentWeekToDate()
+      const scope = await getPortalScope(portal.id)
+      const entries = await getTimeEntries(portal.clickupFolderId, week.startMs, week.endMs)
+      weekMs = buildReport(week, filterTimeEntriesToScope(entries, scope)).totalMs
+    } catch (error) {
+      console.error('[dashboard] nie udalo sie policzyc godzin tygodnia:', error)
+    }
+  }
+
   // Skróty do wszystkiego poza samym dashboardem. Lista jedzie z tego samego
   // źródła co zakładki w headerze, więc nie może się z nimi rozjechać.
   const shortcuts = visibleTabs(flags).filter(tab => tab.key !== 'dashboard')
@@ -65,6 +97,28 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
         <p className="mt-1 text-sm text-muted-foreground">
           Tu znajdziesz kontakt do nas i skróty do swojego projektu.
         </p>
+
+        {/* Godziny tego tygodnia. Jedna liczba, ta sama metoda co w Raportach,
+            razem z narzutem, żeby nie było dwóch różnych sum w jednym portalu.
+            Blok znika, gdy ClickUp nie odpowie: zero godzin przy przepracowanym
+            tygodniu byłoby nieprawdą, nie brakiem danych. */}
+        {weekMs !== null && (
+          <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-xl border border-border bg-card px-5 py-4">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              W tym tygodniu
+            </span>
+            <span className="text-2xl font-semibold text-foreground">
+              {formatDuration(weekMs) || '0m'}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              czasu pracy, od poniedziałku. Rozliczenie tygodniami jest w{' '}
+              <Link href={`/${slug}/raporty`} className="underline hover:text-foreground">
+                Raportach
+              </Link>
+              .
+            </span>
+          </div>
+        )}
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <section className="rounded-xl border border-border bg-card p-5">

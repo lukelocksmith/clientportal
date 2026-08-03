@@ -102,6 +102,33 @@ export function listPeriods(kind: PeriodKind, count = 12, now: Date = new Date()
  * Zamienia klucz z URL na okres. Zwraca null dla klucza niepoprawnego,
  * nieistniejącego (np. 2027-W53) oraz dla okresu bieżącego i przyszłego.
  */
+/**
+ * Bieżący tydzień, od poniedziałku do TERAZ.
+ *
+ * Osobna funkcja, bo `listPeriods` celowo zaczyna od ostatniego ZAMKNIĘTEGO
+ * okresu, a `parsePeriodKey` wprost odrzuca okres bieżący: zakładka Raporty ma
+ * pokazywać tylko tygodnie domknięte, żeby liczba w niej nie rosła w trakcie
+ * tygodnia.
+ *
+ * Dashboard potrzebuje czegoś innego, czyli podglądu na bieżąco. `endMs` to
+ * moment wywołania, nie koniec tygodnia, żeby nazwa okresu nie obiecywała
+ * danych z przyszłości.
+ *
+ * Liczone w strefie Europe/Warsaw, tak samo jak reszta okresów. Bez tego
+ * poniedziałkowy poranek w Polsce należałby jeszcze do niedzieli według UTC.
+ */
+export function currentWeekToDate(now: Date = new Date()): Period {
+  const start = startOfISOWeek(inWarsaw(now))
+  const weekNumber = getISOWeek(start)
+  return {
+    kind: 'tydzien',
+    key: `${getISOWeekYear(start)}-W${String(weekNumber).padStart(2, '0')}`,
+    label: `tydzień ${weekNumber}, od poniedziałku`,
+    startMs: start.getTime(),
+    endMs: now.getTime(),
+  }
+}
+
 export function parsePeriodKey(kind: PeriodKind, key: string, now: Date = new Date()): Period | null {
   const base = inWarsaw(now)
 

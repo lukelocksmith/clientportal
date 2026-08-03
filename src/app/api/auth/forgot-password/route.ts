@@ -81,6 +81,8 @@ export async function POST(request: NextRequest) {
     subject: `Zmiana hasła do portalu ${portal.name}`,
     html: await render(email$),
     text: await render(email$, { plainText: true }),
+    kind: 'reset',
+    portalId: portal.id,
   })
 
   if (!result.sent) {

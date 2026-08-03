@@ -69,6 +69,8 @@ export async function sendPasswordChangedNotice(input: {
 
     await sendMail({
       to: input.to,
+      kind: 'password-changed',
+      portalId: input.portalId,
       subject: `Hasło do portalu ${portal.name} zostało zmienione`,
       html: await render(email$),
       text: await render(email$, { plainText: true }),

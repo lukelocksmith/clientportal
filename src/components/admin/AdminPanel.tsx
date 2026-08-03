@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
 import { ProjectEvents } from '@/components/admin/ProjectEvents'
 import { ProjectSyncLog } from '@/components/admin/ProjectSyncLog'
+import { ProjectMailLog } from '@/components/admin/ProjectMailLog'
 import { plural, USERS } from '@/lib/plural'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -510,6 +511,7 @@ export default function AdminPanel() {
                 <TabsTrigger value="ai">Zużycie AI</TabsTrigger>
                 <TabsTrigger value="zgloszenia">Zgłoszenia</TabsTrigger>
                 <TabsTrigger value="synchronizacja">Synchronizacja</TabsTrigger>
+                <TabsTrigger value="poczta">Poczta</TabsTrigger>
               </TabsList>
 
               <TabsContent value="konfiguracja">
@@ -647,6 +649,10 @@ export default function AdminPanel() {
 
               <TabsContent value="synchronizacja">
                 <ProjectSyncLog slug={portal.slug} />
+              </TabsContent>
+
+              <TabsContent value="poczta">
+                <ProjectMailLog slug={portal.slug} />
               </TabsContent>
             </Tabs>
           </TabsContent>

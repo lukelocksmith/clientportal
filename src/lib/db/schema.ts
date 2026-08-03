@@ -277,6 +277,36 @@ export const userInvites = pgTable('user_invites', {
  * osoby z firmy klienta zostają zdarzenia bez autora, czyli tabela przestaje
  * odpowiadać na jedyne pytanie, po które się do niej sięga.
  */
+/**
+ * Rejestr wysłanych maili.
+ *
+ * Powstał po konkretnym zdarzeniu: dodano konto klientowi, osoba powiedziała,
+ * że nie dostała zaproszenia, a ustalenie prawdy wymagało wejścia po SSH do
+ * logów postfixa i odpytania API przekaźnika. Panel nie wiedział o tym mailu
+ * NIC, bo wynik wysyłki wracał w odpowiedzi HTTP i tam ginął.
+ *
+ * `detail` trzyma odpowiedź serwera SMTP, nie tylko sukces. To ona odróżnia
+ * „przyjęte do wysyłki" od „dostarczone" i bez niej nie da się powiedzieć,
+ * czyj jest problem: nasz, przekaźnika czy odbiorcy.
+ */
+export const mailLog = pgTable('mail_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').references(() => portals.id, { onDelete: 'set null' }),
+  /** Adres odbiorcy. Zostaje po usunięciu konta, bo pytanie „czy dostał" nie znika. */
+  recipient: text('recipient').notNull(),
+  /** 'invite' | 'reset' | 'password-changed' | 'panic' */
+  kind: text('kind').notNull(),
+  subject: text('subject').notNull(),
+  ok: boolean('ok').notNull(),
+  detail: text('detail'),
+  /** Identyfikator wiadomości. Po nim szuka się jej w logach przekaźnika. */
+  messageId: text('message_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  portalCreatedIdx: index('mail_log_portal_created_idx').on(t.portalId, t.createdAt),
+  recipientIdx: index('mail_log_recipient_idx').on(t.recipient, t.createdAt),
+}))
+
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   /** NULL dla sesji admina (nie jest wierszem w portal_users) i po usunięciu konta. */

@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import crypto from 'crypto'
 import { normalizeActorId, reporterLabel } from '@/lib/reporter'
 import { logEvent, EVENT_PANIC_ALERT } from '@/lib/portalEvents'
+import { sendMail } from '@/lib/mailer'
 
 function esc(s: string) {
   return String(s)
@@ -29,32 +30,22 @@ async function sendDiscord(content: string) {
   }).catch(() => {})
 }
 
-async function sendEmails(subject: string, body: string) {
-  const smtpHost = process.env.SMTP_HOST
-  const smtpUser = process.env.SMTP_USER
-  const smtpPass = process.env.SMTP_PASS
-
-  if (!smtpHost || !smtpUser || !smtpPass) return
-
+/**
+ * Powiadomienia o alarmie. Idą przez WSPÓLNY lib/mailer.ts, nie przez własny
+ * transport.
+ *
+ * Wcześniej ta trasa konfigurowała nodemailera u siebie, więc alarm był jedynym
+ * mailem portalu, który NIE trafiał do rejestru wysyłek. Akurat przy alarmie
+ * pytanie „czy powiadomienie do nas dotarło" jest najważniejsze, bo od niego
+ * zależy, czy ktokolwiek zareagował.
+ *
+ * Osobne wywołanie na odbiorcę, nie jedno z listą: chcemy wiedzieć, do kogo
+ * dotarło, a nie tylko że „coś wyszło".
+ */
+async function sendEmails(subject: string, body: string, portalId: string) {
   const recipients = PANIC_EMAIL_TO.split(',').map(e => e.trim()).filter(Boolean)
-
-  const { createTransport } = await import('nodemailer')
-  const transport = createTransport({
-    host: smtpHost,
-    port: Number(process.env.SMTP_PORT ?? 465),
-    secure: true,
-    auth: { user: smtpUser, pass: smtpPass },
-  })
-
   await Promise.allSettled(
-    recipients.map(to =>
-      transport.sendMail({
-        from: smtpUser,
-        to,
-        subject,
-        html: body,
-      })
-    )
+    recipients.map(to => sendMail({ to, subject, html: body, kind: 'panic', portalId }))
   )
 }
 
@@ -127,7 +118,7 @@ export async function POST(request: NextRequest) {
     </div>
   `
 
-  await sendEmails(emailSubject, emailBody)
+  await sendEmails(emailSubject, emailBody, portal[0].id)
 
   return NextResponse.json({ ok: true, alertId: alert.id })
 }

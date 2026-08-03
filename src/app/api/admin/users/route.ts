@@ -108,6 +108,8 @@ export async function POST(request: NextRequest) {
     subject: `Twój dostęp do portalu ${portal[0].name}`,
     html,
     text,
+    kind: 'invite',
+    portalId: portal[0].id,
   })
 
   return NextResponse.json(

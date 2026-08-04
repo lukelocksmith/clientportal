@@ -7,6 +7,7 @@ import assert from 'node:assert'
 import {
   resolveContacts,
   isPlausibleEmail,
+  memberPhoneEnvKey,
   normalizePhone,
   phoneHref,
 } from '@/lib/portalContact'
@@ -86,9 +87,25 @@ describe('portalContact', () => {
     assert.strictEqual(withExtra[1].roleLabel, null)
     assert.strictEqual(withExtra[1].phone, '+48 600 111 222')
 
-    // Niepoprawny e-mail kontaktu dodatkowego => kontakt nie wchodzi.
+    // Niepoprawny e-mail i brak telefonu => kontakt dodatkowy nie wchodzi.
     const badExtra = resolveContacts({ contactMemberIds: 'filip', contactEmail: 'bezmalpy' })
-    assert.strictEqual(badExtra.length, 1, 'kontakt bez poprawnego e-maila jest pomijany')
+    assert.strictEqual(badExtra.length, 1, 'kontakt bez adresu i bez numeru jest pomijany')
+
+    // Sam telefon wystarczy. Wcześniej taki wpis zapisywał się w panelu i nie
+    // pokazywał się nigdzie, czyli znikał bez śladu.
+    const phoneOnly = resolveContacts({
+      contactMemberIds: '',
+      contactName: 'Dyżurny Onyxu',
+      contactPhone: '+48 600 111 222',
+    })
+    assert.strictEqual(phoneOnly.length, 1)
+    assert.strictEqual(phoneOnly[0].email, null, 'brak adresu to null, nie puste mailto')
+    assert.strictEqual(phoneOnly[0].phone, '+48 600 111 222')
+
+    // Śmieciowy numer nie tworzy kontaktu-widma bez żadnej danej kontaktowej.
+    const junkPhone = resolveContacts({ contactMemberIds: '', contactPhone: 'zadzwoń' })
+    assert.strictEqual(junkPhone.length, 1, 'zostaje sam zapas agencji')
+    assert.strictEqual(junkPhone[0].email, 'hi@important.is')
 
     // Pusty ciag to swiadome odznaczenie wszystkich. Musi zostac zapas, bo
     // sekcja kontaktu bez ani jednego adresu byla by dla klienta bezuzyteczna.
@@ -104,6 +121,35 @@ describe('portalContact', () => {
     // Adresy sa unikalne, zeby React nie dostal dwoch tych samych kluczy.
     const all = resolveContacts({})
     assert.strictEqual(new Set(all.map(c => c.email)).size, all.length, 'zduplikowany e-mail w liscie')
+  })
+
+  it('numery zespolu ze srodowiska', () => {
+    // Nazwa zmiennej musi byc przewidywalna, bo wpisuje ja czlowiek w Coolify.
+    assert.strictEqual(memberPhoneEnvKey('filip'), 'TEAM_PHONE_FILIP')
+    assert.strictEqual(memberPhoneEnvKey('anna-k'), 'TEAM_PHONE_ANNA_K')
+
+    // Numer z konfiguracji dociera do konkretnej osoby i tylko do niej.
+    const [filip, paulina] = resolveContacts(
+      { contactMemberIds: 'filip,paulina' },
+      { memberPhones: { filip: '+48 600 123 456' } }
+    )
+    assert.strictEqual(filip.phone, '+48 600 123 456')
+    assert.strictEqual(paulina.phone, null, 'brak zmiennej to brak numeru, nie numer kolegi')
+
+    // Bledny wpis w Coolify nie moze wjechac do atrybutu href.
+    const [zly] = resolveContacts(
+      { contactMemberIds: 'filip' },
+      { memberPhones: { filip: 'javascript:alert(1)' } }
+    )
+    assert.strictEqual(zly.phone, null)
+
+    // Nieznany id w mapie jest ignorowany, a nie dopisuje kontaktu.
+    const jeden = resolveContacts(
+      { contactMemberIds: 'filip' },
+      { memberPhones: { ktos: '+48 600 000 000' } }
+    )
+    assert.strictEqual(jeden.length, 1)
+    assert.strictEqual(jeden[0].phone, null)
   })
 
 

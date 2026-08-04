@@ -175,20 +175,24 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
                 project managera, a klient powinien wiedzieć, do kogo z czym. */}
             <ul className="mt-4 space-y-4">
               {contacts.map(contact => (
-                <li key={contact.email}>
+                // Klucz z adresu, a gdy go nie ma (kontakt podany samym
+                // telefonem) z numeru. Nazwa jako ostatnia deska ratunku.
+                <li key={contact.email ?? contact.phone ?? contact.name}>
                   {contact.roleLabel && (
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                       {contact.roleLabel}
                     </p>
                   )}
                   <p className="text-sm font-medium text-foreground">{contact.name}</p>
-                  <a
-                    href={`mailto:${contact.email}`}
-                    className="mt-0.5 inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
-                  >
-                    <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    {contact.email}
-                  </a>
+                  {contact.email && (
+                    <a
+                      href={`mailto:${contact.email}`}
+                      className="mt-0.5 inline-flex items-center gap-2 text-sm text-foreground transition-colors hover:text-primary"
+                    >
+                      <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {contact.email}
+                    </a>
+                  )}
 
                   {/* Telefon rysujemy tylko wtedy, gdy ktoś go faktycznie podał.
                       Puste pole „Telefon:" wygląda na niedokończony portal. */}

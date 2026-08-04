@@ -14,11 +14,39 @@ const FALLBACK_EMAIL = 'hi@important.is'
 
 export type PortalContact = {
   name: string
-  email: string
+  /**
+   * Null tylko dla kontaktu dodatkowego podanego wyłącznie telefonem. Członek
+   * zespołu i zapas agencji mają adres zawsze.
+   */
+  email: string | null
   /** Null, gdy nikt nie podał telefonu. Dashboard wtedy nie rysuje tego wiersza. */
   phone: string | null
   /** Podpis roli, np. "Opiekun techniczny". Null dla kontaktu spoza zespołu. */
   roleLabel: string | null
+}
+
+/**
+ * Zmienne z numerami zespołu, po jednej na osobę: `TEAM_PHONE_FILIP` itd.
+ *
+ * Numery są w środowisku, a nie w `team.ts`, z dwóch powodów. Pierwszy: to
+ * prywatne komórki, a nie centralka, więc nie mają czego szukać w historii
+ * repozytorium. Drugi: numer zmienia się częściej niż skład zespołu i wpisanie
+ * go w Coolify jest krótszą drogą niż commit.
+ */
+export function memberPhoneEnvKey(memberId: string): string {
+  return `TEAM_PHONE_${memberId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+}
+
+/**
+ * Wartości ze środowiska agencji. `memberPhones` jest mapą id osoby na numer,
+ * bo inaczej trzeba by przekazywać `process.env` do funkcji, które mają zostać
+ * czyste i testowalne bez ustawiania zmiennych.
+ */
+export type ContactEnv = {
+  name?: string
+  email?: string
+  phone?: string
+  memberPhones?: Record<string, string | undefined>
 }
 
 /**
@@ -68,7 +96,7 @@ export function resolveContacts(
     contactEmail?: string | null
     contactPhone?: string | null
   },
-  env: { name?: string; email?: string; phone?: string } = {}
+  env: ContactEnv = {}
 ): PortalContact[] {
   const members =
     portal.contactMemberIds === null || portal.contactMemberIds === undefined
@@ -78,17 +106,27 @@ export function resolveContacts(
   const list: PortalContact[] = members.map(m => ({
     name: m.name,
     email: m.email,
-    phone: normalizePhone(m.phone),
+    // Numer ze środowiska ma pierwszeństwo nad wpisanym w `team.ts`, żeby dało
+    // się go podmienić bez commita. Oba przechodzą przez tę samą walidację:
+    // literówka w zmiennej Coolify nie może wjechać do atrybutu href.
+    phone: normalizePhone(env.memberPhones?.[m.id]) ?? normalizePhone(m.phone),
     roleLabel: m.roleLabel,
   }))
 
-  // Kontakt dodatkowy wchodzi tylko wtedy, gdy ma sensowny e-mail.
+  /**
+   * Kontakt dodatkowy wchodzi, gdy ma sensowny e-mail ALBO sensowny telefon.
+   *
+   * Wcześniej wymagany był e-mail, więc wpisanie w panelu samego telefonu
+   * kończyło się tym, że zapis się udawał i nic się nie pokazywało. Cicha utrata
+   * danych wygląda dokładnie jak awaria, o którą trzeba pytać.
+   */
   const extraEmail = isPlausibleEmail(portal.contactEmail) ? portal.contactEmail!.trim() : null
-  if (extraEmail) {
+  const extraPhone = normalizePhone(portal.contactPhone)
+  if (extraEmail || extraPhone) {
     list.push({
       name: portal.contactName?.trim() || 'Kontakt do projektu',
       email: extraEmail,
-      phone: normalizePhone(portal.contactPhone),
+      phone: extraPhone,
       roleLabel: null,
     })
   }
@@ -109,7 +147,7 @@ function resolveContact(
     contactEmail?: string | null
     contactPhone?: string | null
   },
-  env: { name?: string; email?: string; phone?: string } = {}
+  env: ContactEnv = {}
 ): PortalContact {
   const portalName = portal.contactName?.trim() || null
   const portalEmail = isPlausibleEmail(portal.contactEmail) ? portal.contactEmail!.trim() : null
@@ -127,10 +165,16 @@ function resolveContact(
 }
 
 /** Odczyt zmiennych agencji. Trzymane osobno, żeby resolveContact był czysty. */
-export function contactEnv(): { name?: string; email?: string; phone?: string } {
+export function contactEnv(): ContactEnv {
+  const memberPhones: Record<string, string | undefined> = {}
+  for (const m of TEAM_MEMBERS) {
+    memberPhones[m.id] = process.env[memberPhoneEnvKey(m.id)]
+  }
+
   return {
     name: process.env.PORTAL_CONTACT_NAME,
     email: process.env.PORTAL_CONTACT_EMAIL,
     phone: process.env.PORTAL_CONTACT_PHONE,
+    memberPhones,
   }
 }

@@ -29,12 +29,36 @@ export function formatDate(dateString: string | null | undefined, now: Date = ne
   })
 }
 
+/**
+ * Nazwy poziomów zgłoszenia, słownictwem z planu opieki.
+ *
+ * Wcześniej stały tu nazwy z ClickUpa („Pilne", „Wysokie"), więc klient zgłaszał
+ * w czacie „P1 istotna usterka", a na tablicy widział „Wysokie" i musiał sam się
+ * domyślić, że to to samo. Czasy reakcji w umowie są przypisane do P1, P2 i P3,
+ * nie do słowa „wysokie", więc na ekranie ma stać to, co w tabeli.
+ *
+ * `urgent` to awaria: nie ma jej w skali czatu, bo idzie przyciskiem Alarm.
+ */
 export function getPriorityLabel(priority: string | null | undefined): string {
   const map: Record<string, string> = {
-    urgent: 'Pilne',
-    high: 'Wysokie',
-    normal: 'Normalne',
-    low: 'Niskie',
+    urgent: 'Awaria',
+    high: 'P1 istotna usterka',
+    normal: 'P2 usterka drobna',
+    low: 'P3 zmiana planowana',
+  }
+  return priority ? (map[priority] ?? priority) : ''
+}
+
+/**
+ * Krótka forma na kartę zadania, gdzie pełna nazwa nie ma się jak zmieścić.
+ * Kolor niesie resztę znaczenia, a pełna nazwa jest w szufladzie i w Historii.
+ */
+export function getPriorityCode(priority: string | null | undefined): string {
+  const map: Record<string, string> = {
+    urgent: 'Awaria',
+    high: 'P1',
+    normal: 'P2',
+    low: 'P3',
   }
   return priority ? (map[priority] ?? priority) : ''
 }
@@ -43,7 +67,10 @@ export function getPriorityColor(priority: string | null | undefined): string {
   const map: Record<string, string> = {
     urgent: '#f50000',
     high: '#f8ae00',
-    normal: '#6fddff',
+    // Ciemniejszy błękit niż w ClickUpie (#6fddff). Odkąd P2 dostaje plakietkę
+    // na każdej karcie, ten kolor jest też kolorem TEKSTU, a jasny cyjan na
+    // białym tle był nieczytelny. Ten ton działa w obu motywach.
+    normal: '#0891b2',
     low: '#d8d8d8',
   }
   return priority ? (map[priority] ?? '#d8d8d8') : '#d8d8d8'

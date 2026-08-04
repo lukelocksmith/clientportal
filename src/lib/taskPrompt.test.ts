@@ -9,6 +9,8 @@
 import { describe, it } from 'vitest'
 import assert from 'node:assert'
 import {
+  ALARM_LEVEL,
+  CHAT_LEVELS,
   PRIORITY_LEVELS,
   buildNewTaskPrompt,
   levelByClickupPriority,
@@ -31,21 +33,37 @@ describe('taskPrompt', () => {
     assert.strictEqual(levelByClickupPriority(9), undefined, 'nieznana wartosc nie udaje poziomu')
   })
 
-  it('prompt pokazuje cala skale i odwzorowanie', () => {
+  it('czat oferuje trzy poziomy, awaria idzie przyciskiem', () => {
+    assert.deepStrictEqual(CHAT_LEVELS.map(l => l.code), ['P1', 'P2', 'P3'])
+    assert.strictEqual(ALARM_LEVEL.code, 'P0')
+    assert.strictEqual(ALARM_LEVEL.clickup, 1)
+  })
+
+  it('prompt pokazuje skale czatu i odwzorowanie', () => {
     const p = buildNewTaskPrompt({ portalName: 'Onyx', today: 'poniedziałek, 4 sierpnia 2026' })
 
-    for (const l of PRIORITY_LEVELS) {
+    for (const l of CHAT_LEVELS) {
       assert.ok(p.includes(`**${l.code}, ${l.label}**`), `brak poziomu ${l.code} w promptcie`)
       assert.ok(p.includes(`${l.code} = ${l.clickup}`), `brak odwzorowania ${l.code}`)
     }
+
+    // P0 NIE moze byc na liscie do wyboru: alarm ma osobny przycisk, ktory
+    // wysyla powiadomienia. Poziom z listy nie wysyla nic.
+    assert.ok(
+      !p.includes(`**${ALARM_LEVEL.code}, ${ALARM_LEVEL.label}**`),
+      'P0 wrocil na liste poziomow do wyboru'
+    )
+    assert.ok(/przycisk Alarm/.test(p), 'brak odeslania do przycisku Alarm')
 
     // Nazwa portalu i data wchodza do tekstu, inaczej model nie wie, z kim
     // rozmawia i jak liczyc "pojutrze".
     assert.ok(p.includes('Portal klienta: Onyx'))
     assert.ok(p.includes('poniedziałek, 4 sierpnia 2026'))
 
-    // Regula, ktora wprowadzil klient: pytanie o priorytet jest obowiazkowe.
-    assert.ok(/PYTASZ ZAWSZE/.test(p), 'zniknal nakaz pytania o priorytet')
+    // Poziom musi byc potwierdzony przez klienta, nie ustawiony po cichu.
+    assert.ok(/POTWIERDZA KLIENT/.test(p), 'zniknal nakaz potwierdzenia poziomu')
+    // Rozbieznosc miedzy wyborem klienta i definicja musi trafic do opisu.
+    assert.ok(/definicja wskazuje/.test(p), 'brak zapisu rozbieznosci w opisie')
 
     // Czasow reakcji model podawac NIE moze: sa w umowie, nie w promptcie,
     // a pomylka w tej liczbie jest obietnica, ktorej zespol nie dotrzyma.

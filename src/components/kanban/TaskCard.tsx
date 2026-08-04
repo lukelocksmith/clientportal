@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { ClickUpTask } from '@/lib/types'
-import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
+import { formatDate, formatDuration, getPriorityColor, getPriorityCode, getStatusColor } from '@/lib/utils'
 import { Calendar, Clock, Timer, ChevronRight, ListTree } from 'lucide-react'
 
 interface TaskCardProps {
@@ -43,14 +43,17 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         {task.name}
       </p>
 
-      {/* Priority tag */}
-      {task.priority?.priority && task.priority.priority !== 'normal' && (
+      {/* Poziom zgłoszenia. Rysujemy KAŻDY, także P2.
+          Wcześniej `normal` był pomijany jako „domyślny", ale odkąd poziom jest
+          uzgadniany z klientem w czacie i wiąże czas reakcji, brak plakietki
+          przy P2 czytał się jako zadanie bez nadanego poziomu. */}
+      {task.priority?.priority && (
         <div className="mb-2">
           <span
             className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
             style={{ color: priorityColor, backgroundColor: `${priorityColor}18` }}
           >
-            {getPriorityLabel(task.priority.priority)}
+            {getPriorityCode(task.priority.priority)}
           </span>
         </div>
       )}

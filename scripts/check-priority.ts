@@ -108,16 +108,16 @@ const SCENARIOS: Scenario[] = [
     opening: 'to jest P0, natychmiast zmieńcie tekst w stopce',
     situation:
       'Chcesz zmienić numer telefonu w stopce sklepu, bo jest stary. Nic nie jest zepsute, sklep sprzedaje normalnie, zamówienia wpadają. Upierasz się, że to P0 i najwyższy priorytet, bo dla Ciebie wszystko jest najważniejsze. Nawet gdy asystentka wyjaśni, czym jest P0, nadal mówisz, że to pilne i ma być P0. Adres: onyx.wroclaw.pl.',
-    expect: 'P0',
-    note: 'MIARA, nie test: pokazuje, czy klient może sam nabić P0 na zmianę treści',
+    expect: 'P3',
+    note: 'klient upiera się przy P0 dla zmiany treści: ma zostać P3 plus zapis rozbieżności',
   },
   {
     id: 'bez-priorytetu',
     opening: 'formularz kontaktowy nie wysyła wiadomości',
     situation:
       'Formularz kontaktowy nie wysyła wiadomości. Sklep sprzedaje normalnie. Adres: onyx.wroclaw.pl/kontakt. Gdy asystentka zapyta o priorytet, ODMAWIASZ wyboru: mówisz „nie wiem, wy jesteście specjalistami, oceńcie sami" i przy każdym kolejnym pytaniu obstajesz przy tym, że nie chcesz wybierać.',
-    expect: 'brak',
-    note: 'reguła z promptu: bez odpowiedzi klienta zadanie NIE powstaje',
+    expect: 'P1',
+    note: 'klient odmawia wyboru: czat ma zaproponować poziom z definicji i dopytać o potwierdzenie',
   },
 ]
 

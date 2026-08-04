@@ -18,7 +18,16 @@ function esc(s: string) {
 }
 
 const DISCORD_WEBHOOK = process.env.PANIC_DISCORD_WEBHOOK_URL
-const PANIC_EMAIL_TO = process.env.PANIC_EMAIL_TO ?? 'lukasz.s@important.is,filip@important.is,paulina@important.is'
+/**
+ * Odbiorcy alarmu. Na produkcji ustawione przez PANIC_EMAIL_TO.
+ *
+ * Zapas to JEDEN adres skrzynki, która na pewno istnieje. Wcześniej stały tu
+ * `filip@important.is` i `paulina@important.is`, a na serwerze pocztowym są
+ * `filip.g@` i `paulina.a@`. Gdyby ktoś usunął zmienną, alarm P0 poszedłby na
+ * dwa nieistniejące adresy i odbiłby się w ciszy, bo `Promise.allSettled`
+ * połyka błędy z rozmysłem: jeden zły adres nie może zablokować pozostałych.
+ */
+const PANIC_EMAIL_TO = process.env.PANIC_EMAIL_TO ?? 'hi@important.is'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://portal.important.is'
 
 async function sendDiscord(content: string) {

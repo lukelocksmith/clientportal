@@ -5,9 +5,10 @@ import { eq, and } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { ensureAdminUser } from '@/lib/adminUser'
-
-const MAX_ATTEMPTS = 5
-const LOCKOUT_MINUTES = 15
+// Blokada po nieudanych probach jest WSPOLNA z logowaniem ze strony glownej
+// (lib/loginAttempts.ts). Dwie kopie znaczylyby, ze jedno wejscie zostaje
+// kiedys bez limitu, a napastnik wybiera to slabsze.
+import { verifyUserPassword } from '@/lib/loginAttempts'
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@important.is'
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH
@@ -67,35 +68,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    // Check lockout
-    if (user[0].lockedUntil && user[0].lockedUntil > new Date()) {
+    const wynik = await verifyUserPassword(user[0], password)
+    if (wynik === 'locked') {
       return NextResponse.json(
         { error: 'Konto zablokowane. Spróbuj za kilkanaście minut.' },
         { status: 429 }
       )
     }
-
-    // Verify password
-    const valid = await bcrypt.compare(password, user[0].passwordHash)
-    if (!valid) {
-      const newAttempts = (user[0].failedAttempts ?? 0) + 1
-      const lockedUntil = newAttempts >= MAX_ATTEMPTS
-        ? new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000)
-        : null
-
-      await db
-        .update(portalUsers)
-        .set({ failedAttempts: newAttempts, lockedUntil })
-        .where(eq(portalUsers.id, user[0].id))
-
+    if (wynik === 'bad') {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
-
-    // Reset failed attempts
-    await db
-      .update(portalUsers)
-      .set({ failedAttempts: 0, lockedUntil: null })
-      .where(eq(portalUsers.id, user[0].id))
 
     // Create session
     const ip = request.headers.get('x-forwarded-for') ?? undefined

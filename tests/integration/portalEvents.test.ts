@@ -25,6 +25,9 @@ import {
   EVENT_TASK_CREATED,
   EVENT_PANIC_ALERT,
   EVENT_COMMENT_ADDED,
+  EVENT_LOGIN,
+  EVENT_LOGIN_FAILED,
+  EVENT_LABELS,
   requestOrigin,
 } from '@/lib/portalEvents'
 import { createTestPortal, dropTestPortal, createTestUser, isDbReachable } from './helpers'
@@ -51,6 +54,117 @@ async function freshPortal(prefix: string) {
  * wiec import wciaga sterownik bazy. Stad ten przypadek jest tutaj, a nie w
  * tescie jednostkowym: inaczej trzeba by dzielic plik tylko dla jednej funkcji.
  */
+describe.skipIf(!reachable)('historia jednej osoby', () => {
+  it('zdarzenia jednej osoby nie mieszaja sie z druga w tym samym projekcie', async () => {
+    const portal = await freshPortal('hist-dwie')
+    const anna = await createTestUser(portal.id, 'anna@klient.test')
+    const bartek = await createTestUser(portal.id, 'bartek@klient.test')
+
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId: anna, email: 'anna@klient.test', name: 'Anna' },
+      action: EVENT_LOGIN,
+      meta: { ip: '203.0.113.9', wejscie: 'projekt' },
+    })
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId: anna, email: 'anna@klient.test', name: 'Anna' },
+      action: EVENT_TASK_CREATED,
+      meta: { taskName: 'Zadanie Anny' },
+    })
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId: bartek, email: 'bartek@klient.test', name: 'Bartek' },
+      action: EVENT_LOGIN_FAILED,
+      meta: { powod: 'zle haslo' },
+    })
+
+    const historiaAnny = await listPortalEvents({
+      portalId: portal.id,
+      userEmail: 'anna@klient.test',
+    })
+    assert.strictEqual(historiaAnny.length, 2)
+    assert.ok(
+      historiaAnny.every(e => e.userEmail === 'anna@klient.test'),
+      'w historii Anny jest zdarzenie kogos innego'
+    )
+    // Kolejnosc od najnowszych: okno pokazuje ostatnie wejscie na gorze.
+    assert.strictEqual(historiaAnny[0].action, EVENT_TASK_CREATED)
+  })
+
+  it('ten sam adres w dwoch projektach ma dwie osobne historie', async () => {
+    // Realny przypadek: jedna osoba u klienta prowadzi dwa nasze projekty.
+    // Bez warunku na projekt zobaczylaby w obu oknach te sama liste.
+    const a = await freshPortal('hist-proj-a')
+    const b = await freshPortal('hist-proj-b')
+    const email = 'wspolny@klient.test'
+    const wA = await createTestUser(a.id, email)
+    const wB = await createTestUser(b.id, email)
+
+    await logEvent({
+      portalId: a.id,
+      actor: { userId: wA, email, name: null },
+      action: EVENT_LOGIN,
+      meta: { wejscie: 'projekt' },
+    })
+    await logEvent({
+      portalId: b.id,
+      actor: { userId: wB, email, name: null },
+      action: EVENT_PANIC_ALERT,
+      meta: null,
+    })
+
+    const wProjekcieA = await listPortalEvents({ portalId: a.id, userEmail: email })
+    const wProjekcieB = await listPortalEvents({ portalId: b.id, userEmail: email })
+
+    assert.deepStrictEqual(wProjekcieA.map(e => e.action), [EVENT_LOGIN])
+    assert.deepStrictEqual(wProjekcieB.map(e => e.action), [EVENT_PANIC_ALERT])
+  })
+
+  it('historia zostaje po usunieciu konta, bo idzie po adresie', async () => {
+    // To jest cala przyczyna, dla ktorej filtrujemy po adresie, a nie po
+    // user_id. Konto mozna usunac, a pytanie "kto to zamawial" nie znika.
+    const portal = await freshPortal('hist-usun')
+    const userId = await createTestUser(portal.id, 'odchodzi@klient.test')
+
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId, email: 'odchodzi@klient.test', name: 'Odchodzi' },
+      action: EVENT_TASK_CREATED,
+      meta: { taskName: 'Zadanie sprzed odejscia' },
+    })
+
+    await db.delete(portalUsers).where(eq(portalUsers.id, userId))
+
+    const po = await listPortalEvents({ portalId: portal.id, userEmail: 'odchodzi@klient.test' })
+    assert.strictEqual(po.length, 1, 'historia zniknela razem z kontem')
+    assert.strictEqual(po[0].userName, 'Odchodzi', 'zgubione imie zglaszajacego')
+  })
+
+  it('kazde zdarzenie ma nazwe do pokazania, zadne nie wyswietli slugu', async () => {
+    // Bez tego dodanie nowego rodzaju zdarzenia bez wpisu w EVENT_LABELS
+    // pokazuje adminowi "login_failed" zamiast "Nieudane logowanie".
+    const portal = await freshPortal('hist-nazwy')
+    const userId = await createTestUser(portal.id, 'nazwy@klient.test')
+
+    for (const action of Object.keys(EVENT_LABELS)) {
+      await logEvent({
+        portalId: portal.id,
+        actor: { userId, email: 'nazwy@klient.test', name: null },
+        action: action as Parameters<typeof logEvent>[0]['action'],
+        meta: null,
+      })
+    }
+
+    const wszystkie = await listPortalEvents({ portalId: portal.id, userEmail: 'nazwy@klient.test' })
+    assert.strictEqual(wszystkie.length, Object.keys(EVENT_LABELS).length)
+    for (const e of wszystkie) {
+      assert.notStrictEqual(e.actionLabel, e.action, `brak nazwy dla zdarzenia ${e.action}`)
+      assert.ok(/^[A-ZĄĆĘŁŃÓŚŹŻ]/.test(e.actionLabel), `nazwa nie jest po polsku: ${e.actionLabel}`)
+    }
+  })
+})
+
 describe('requestOrigin', () => {
   it('bierze PIERWSZY adres z x-forwarded-for', () => {
     // Ostatni adres to nasze wlasne proxy: mialby te sama wartosc dla kazdego

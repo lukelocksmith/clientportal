@@ -14,6 +14,7 @@ import {
   Plus,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { deviceLabel } from '@/lib/deviceLabel'
 
 /**
  * Historia jednej osoby: stan konta, co zgłosiła, kiedy wchodziła, jakie maile
@@ -95,15 +96,6 @@ function stamp(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-/** Skrót przeglądarki z pełnego User-Agenta. Do rozpoznania urządzenia, nie do statystyk. */
-function device(ua: string | null): string {
-  if (!ua) return 'nieznane urządzenie'
-  const m = /(Chrome|Safari|Firefox|Edg)\/[\d.]+/.exec(ua)
-  const os = /(iPhone|iPad|Android|Macintosh|Windows)/.exec(ua)
-  const browser = m ? m[1].replace('Edg', 'Edge') : 'przeglądarka'
-  return os ? `${browser}, ${os[1]}` : browser
 }
 
 const MAIL_LABELS: Record<string, string> = {
@@ -216,7 +208,7 @@ export function UserActivityDialog({
                   {data.sessions.map(s => (
                     <li key={s.id} className="flex items-start gap-2 text-xs">
                       <Monitor className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="text-foreground">{device(s.userAgent)}</span>
+                      <span className="text-foreground">{deviceLabel(s.userAgent)}</span>
                       <span className="text-muted-foreground">
                         {s.ip ?? 'bez adresu'} · od {stamp(s.createdAt)} · wygasa {stamp(s.expiresAt)}
                       </span>

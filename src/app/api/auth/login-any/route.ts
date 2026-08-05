@@ -6,6 +6,12 @@ import { portalUsers, portals } from '@/lib/db/schema'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { setAdminSession } from '@/lib/admin-auth'
 import { verifyUserPassword } from '@/lib/loginAttempts'
+import {
+  logEvent,
+  requestOrigin,
+  EVENT_LOGIN,
+  EVENT_LOGIN_FAILED,
+} from '@/lib/portalEvents'
 
 /**
  * Logowanie ze strony głównej, BEZ podawania projektu.
@@ -70,6 +76,7 @@ export async function POST(request: NextRequest) {
         passwordHash: portalUsers.passwordHash,
         failedAttempts: portalUsers.failedAttempts,
         lockedUntil: portalUsers.lockedUntil,
+        portalId: portals.id,
         slug: portals.slug,
         portalName: portals.name,
       })
@@ -85,12 +92,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(ODMOWA, { status: 401 })
     }
 
+    const skad = requestOrigin(request.headers)
+
     const dopasowane: typeof kandydaci = []
     let zablokowane = false
     for (const k of kandydaci) {
       const wynik = await verifyUserPassword(k, password)
       if (wynik === 'ok') dopasowane.push(k)
       if (wynik === 'locked') zablokowane = true
+      // Nieudana proba jest zapisywana per konto, bo ten sam adres moze istniec
+      // w kilku projektach i tylko w jednym z nich haslo jest zle.
+      if (wynik !== 'ok') {
+        await logEvent({
+          portalId: k.portalId,
+          actor: { userId: k.id, email: normalized, name: null },
+          action: EVENT_LOGIN_FAILED,
+          meta: { ...skad, wejscie: 'strona glowna', powod: wynik === 'locked' ? 'konto zablokowane' : 'zle haslo' },
+        })
+      }
     }
 
     if (dopasowane.length === 0) {
@@ -119,9 +138,16 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const ip = request.headers.get('x-forwarded-for') ?? undefined
-    const ua = request.headers.get('user-agent') ?? undefined
-    await setSessionCookie(await createSession(cel.id, ip, ua))
+    await setSessionCookie(
+      await createSession(cel.id, skad.ip ?? undefined, skad.userAgent ?? undefined)
+    )
+
+    await logEvent({
+      portalId: cel.portalId,
+      actor: { userId: cel.id, email: normalized, name: null },
+      action: EVENT_LOGIN,
+      meta: { ...skad, wejscie: 'strona glowna' },
+    })
 
     return NextResponse.json({ kind: 'portal', slug: cel.slug, redirect: `/${cel.slug}` })
   } catch (error) {

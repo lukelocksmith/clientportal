@@ -25,18 +25,40 @@ export const EVENT_PANIC_ALERT = 'panic_alert'
 export const EVENT_COMMENT_ADDED = 'comment_added'
 /** Zostaje bez zmian: takie wiersze są już w bazie (lib/portalIdeas.ts). */
 export const EVENT_PORTAL_IDEA = 'portal_idea'
+/**
+ * Wejścia do portalu. Do tej pory zostawał po nich jeden znacznik
+ * `portal_users.last_login_at`, czyli data OSTATNIEGO wejścia, nadpisywana przy
+ * każdym kolejnym. Nie dawało się odpowiedzieć ani „czy on w ogóle tu wchodzi",
+ * ani „kiedy był przed tym", a przy pytaniu klienta „nie dostałem dostępu"
+ * właśnie to jest potrzebne.
+ */
+export const EVENT_LOGIN = 'login'
+/**
+ * Nieudane wejście. Zapisujemy TYLKO wtedy, gdy konto istnieje, bo przy nieznanym
+ * adresie nie wiemy, do którego projektu przypisać wiersz. Hasła ani jego części
+ * nie zapisujemy nigdzie i nigdy.
+ */
+export const EVENT_LOGIN_FAILED = 'login_failed'
+/** Ustawienie hasła z linku: zaproszenie albo odzyskiwanie. */
+export const EVENT_PASSWORD_SET = 'password_set'
 
 export type EventAction =
   | typeof EVENT_TASK_CREATED
   | typeof EVENT_PANIC_ALERT
   | typeof EVENT_COMMENT_ADDED
   | typeof EVENT_PORTAL_IDEA
+  | typeof EVENT_LOGIN
+  | typeof EVENT_LOGIN_FAILED
+  | typeof EVENT_PASSWORD_SET
 
 export const EVENT_LABELS: Record<EventAction, string> = {
   [EVENT_TASK_CREATED]: 'Zgłoszenie zadania',
   [EVENT_PANIC_ALERT]: 'Alarm',
   [EVENT_COMMENT_ADDED]: 'Komentarz',
   [EVENT_PORTAL_IDEA]: 'Pomysł na portal',
+  [EVENT_LOGIN]: 'Logowanie',
+  [EVENT_LOGIN_FAILED]: 'Nieudane logowanie',
+  [EVENT_PASSWORD_SET]: 'Ustawienie hasła',
 }
 
 export type EventActor = {
@@ -90,6 +112,24 @@ export async function logEvent(input: {
   } catch (e) {
     console.error('[portalEvents] nie udało się zapisać zdarzenia:', e)
     return null
+  }
+}
+
+/**
+ * Skąd przyszło żądanie, do metadanych zdarzenia.
+ *
+ * Bierze `Headers`, a nie `NextRequest`, żeby ten plik nie wciągał Next.js:
+ * jest importowany także przez skrypty i testy uruchamiane zwykłym node.
+ *
+ * `x-forwarded-for` bywa listą adresów dokładaną przez kolejne warstwy proxy.
+ * Bierzemy PIERWSZY, bo to adres klienta; ostatni jest adresem naszego własnego
+ * proxy i miałby tę samą wartość dla wszystkich, czyli żadnej.
+ */
+export function requestOrigin(headers: Headers): { ip: string | null; userAgent: string | null } {
+  const fwd = headers.get('x-forwarded-for')
+  return {
+    ip: fwd ? (fwd.split(',')[0]?.trim() || null) : null,
+    userAgent: headers.get('user-agent'),
   }
 }
 

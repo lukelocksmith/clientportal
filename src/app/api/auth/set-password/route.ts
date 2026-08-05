@@ -6,6 +6,7 @@ import { portalUsers } from '@/lib/db/schema'
 import { checkInvite, consumeInvite } from '@/lib/invites'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { sendPasswordChangedNotice } from '@/lib/passwordNotice'
+import { logEvent, requestOrigin, EVENT_LOGIN, EVENT_PASSWORD_SET } from '@/lib/portalEvents'
 
 /**
  * Ustawienie hasła z zaproszenia. Trasa PUBLICZNA: użytkownik jeszcze nie ma
@@ -53,11 +54,30 @@ export async function POST(request: NextRequest) {
     .where(eq(portalUsers.id, check.userId))
     .limit(1)
 
+  const skad = requestOrigin(request.headers)
+
   if (user) {
-    const ip = request.headers.get('x-forwarded-for') ?? undefined
-    const ua = request.headers.get('user-agent') ?? undefined
-    const sessionToken = await createSession(user.id, ip, ua)
+    const sessionToken = await createSession(user.id, skad.ip ?? undefined, skad.userAgent ?? undefined)
     await setSessionCookie(sessionToken)
+  }
+
+  // Dwa zdarzenia, nie jedno: ustawienie hasła i wejście do portalu to osobne
+  // fakty. Bez pierwszego nie da się odpowiedzieć „czy on kiedykolwiek odebrał
+  // zaproszenie", bo `createSession` nadpisuje tylko datę ostatniego wejścia.
+  await logEvent({
+    portalId: check.portalId,
+    actor: { userId: check.userId, email: check.email, name: check.name },
+    action: EVENT_PASSWORD_SET,
+    meta: { ...skad, zrodlo: 'link z maila' },
+  })
+
+  if (user) {
+    await logEvent({
+      portalId: check.portalId,
+      actor: { userId: check.userId, email: check.email, name: check.name },
+      action: EVENT_LOGIN,
+      meta: { ...skad, wejscie: 'po ustawieniu hasla' },
+    })
   }
 
   // Powiadomienie PO fakcie, na adres konta. Zabezpieczenie, nie uprzejmość:

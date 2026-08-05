@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3, Send, Loader2 } from 'lucide-react'
+import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3, Send, Loader2, History } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { UserActivityDialog } from '@/components/admin/UserActivityDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
 import { ProjectEvents } from '@/components/admin/ProjectEvents'
@@ -55,6 +56,8 @@ export default function AdminPanel() {
   const [formError, setFormError] = useState('')
   const [inviteLink, setInviteLink] = useState<{ email: string; url: string; reason: string } | null>(null)
   const [resetUserId, setResetUserId] = useState<string | null>(null)
+  // Historia jednej osoby. Wczytuje sie po otwarciu okna, nie razem z lista.
+  const [activityUserId, setActivityUserId] = useState<string | null>(null)
   /** Id uzytkownika, do ktorego wlasnie leci link. Blokuje przycisk, zeby
       dwuklik nie uniewaznil swiezo wyslanego zaproszenia drugim. */
   const [sendingInvite, setSendingInvite] = useState<string | null>(null)
@@ -628,6 +631,10 @@ export default function AdminPanel() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
+                                <Button onClick={() => setActivityUserId(user.id)} title="Historia: zgloszenia, wejscia, maile"
+                                  variant="ghost" size="iconSm" className="text-muted-foreground">
+                                  <History className="h-4 w-4" />
+                                </Button>
                                 <Button onClick={() => toggleActive(user)} title={user.isActive ? 'Dezaktywuj' : 'Aktywuj'}
                                   variant="ghost" size="iconSm" className="text-muted-foreground">
                                   {user.isActive ? <ToggleRight className="h-4 w-4 text-primary" /> : <ToggleLeft className="h-4 w-4" />}
@@ -716,6 +723,9 @@ export default function AdminPanel() {
           ))}
         </Tabs>
       </main>
+
+      {/* Historia jednej osoby: zgloszenia, wejscia, maile. */}
+      <UserActivityDialog userId={activityUserId} onClose={() => setActivityUserId(null)} />
 
       {/* Nowy uzytkownik. Dialog z Radiksa daje Escape, pulapke fokusa i
           aria-modal, ktorych reczny modal nie mial. */}

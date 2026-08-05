@@ -25,6 +25,7 @@ import {
   EVENT_TASK_CREATED,
   EVENT_PANIC_ALERT,
   EVENT_COMMENT_ADDED,
+  requestOrigin,
 } from '@/lib/portalEvents'
 import { createTestPortal, dropTestPortal, createTestUser, isDbReachable } from './helpers'
 
@@ -44,6 +45,27 @@ async function freshPortal(prefix: string) {
   portalsToDrop.push(portal.id)
   return portal
 }
+
+/**
+ * `requestOrigin` jest czyste, ale mieszka w tym samym module co zapytania,
+ * wiec import wciaga sterownik bazy. Stad ten przypadek jest tutaj, a nie w
+ * tescie jednostkowym: inaczej trzeba by dzielic plik tylko dla jednej funkcji.
+ */
+describe('requestOrigin', () => {
+  it('bierze PIERWSZY adres z x-forwarded-for', () => {
+    // Ostatni adres to nasze wlasne proxy: mialby te sama wartosc dla kazdego
+    // uzytkownika, czyli zadnej wartosci diagnostycznej.
+    const h = new Headers({ 'x-forwarded-for': '203.0.113.9, 10.0.0.1, 172.16.0.5', 'user-agent': 'Chrome' })
+    assert.deepStrictEqual(requestOrigin(h), { ip: '203.0.113.9', userAgent: 'Chrome' })
+  })
+
+  it('brak naglowkow to null, nie pusty ciag', () => {
+    // Pusty ciag wyswietlilby sie w panelu jako " \u00b7 " bez tresci, a null
+    // pozwala pominac ten fragment wiersza.
+    assert.deepStrictEqual(requestOrigin(new Headers()), { ip: null, userAgent: null })
+    assert.deepStrictEqual(requestOrigin(new Headers({ 'x-forwarded-for': '   ' })), { ip: null, userAgent: null })
+  })
+})
 
 describe.skipIf(!reachable)('portalEvents', () => {
   it("sesja admina zapisuje sie z userId = null, nie wybucha na uuid", async () => {

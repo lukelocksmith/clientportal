@@ -76,16 +76,60 @@ export function getPriorityColor(priority: string | null | undefined): string {
   return priority ? (map[priority] ?? '#d8d8d8') : '#d8d8d8'
 }
 
+/**
+ * Statusy przestrzeni ClickUp "WAŻNI Klienci important.is" w kolejności
+ * z ClickUpa (orderindex 0-6). To jest jednocześnie kolejność kolumn kanbana.
+ *
+ * Leży w JEDNYM pliku z getStatusColor celowo. Wcześniej lista kolumn była
+ * w KanbanBoard.tsx, a kolory tutaj, i 2026-08-05 rozjechały się ze sobą
+ * i z ClickUpem: "zrobione" przemianowano na "weryfikacja", doszedł
+ * "przegląd", przez co 53 zadania po robocie pokazywały się klientowi
+ * w kolumnie "backlog", a kolumna "zrobione" stała pusta.
+ *
+ * Przy każdej zmianie statusów w przestrzeni ClickUp aktualizuj obie rzeczy
+ * poniżej naraz. Test w utils.test.ts pilnuje, żeby nie rozjechały się między
+ * sobą, ale nie widzi ClickUpa — zgodność z przestrzenią sprawdzasz ręcznie.
+ */
+export const STATUS_COLUMNS = [
+  'backlog',
+  'do zrobienia',
+  'w trakcie',
+  'zablokowane',
+  'przegląd',
+  'weryfikacja',
+  'zamknięte',
+] as const
+
+/**
+ * Kolory odwzorowują 1:1 statusy przestrzeni ClickUp, żeby klient widział na
+ * kanbanie to samo, co zespół widzi w ClickUpie.
+ */
+export const STATUS_COLORS: Record<string, string> = {
+  backlog: '#87909e',
+  'do zrobienia': '#e16b16',
+  'w trakcie': '#F4BF44',
+  zablokowane: '#d33d44',
+  przegląd: '#ab4aba',
+  weryfikacja: '#1090e0',
+  zamknięte: '#008844',
+  // Status wycofany z ClickUpa (przemianowany na "weryfikacja"), ale wciąż
+  // zapisany przy starszych zadaniach w task_index. Historia i Dashboard
+  // czytają z lustra, więc bez tego wpisu stare pozycje zrobiłyby się szare.
+  zrobione: '#1090e0',
+}
+
+/**
+ * Szary dla statusu, którego nie znamy. Celowo taki sam jak kolor backlogu:
+ * nieznany status i tak ląduje w kanbanie w kolumnie "backlog", więc pigułka
+ * w innym kolorze niż kolumna wyglądałaby na błąd renderowania.
+ *
+ * Skutek uboczny: po samym zwróconym kolorze NIE poznasz, czy status ma wpis
+ * w STATUS_COLORS, czy przepadł na fallback. Sprawdzaj obecność klucza.
+ */
+const FALLBACK_STATUS_COLOR = '#87909e'
+
 export function getStatusColor(status: string): string {
-  const map: Record<string, string> = {
-    backlog: '#87909e',
-    'do zrobienia': '#e16b16',
-    'w trakcie': '#F4BF44',
-    zablokowane: '#d33d44',
-    zrobione: '#1090e0',
-    zamknięte: '#008844',
-  }
-  return map[status] ?? '#87909e'
+  return STATUS_COLORS[status] ?? FALLBACK_STATUS_COLOR
 }
 
 export function generateId(): string {

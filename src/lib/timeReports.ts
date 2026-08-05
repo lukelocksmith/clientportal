@@ -220,10 +220,15 @@ const OVERHEAD_LABEL =
 /**
  * Status pokazywany przy pozycji narzutu. Musi być jednym ze statusów
  * przestrzeni ClickUp, żeby wiersz wyglądał jak każdy inny i dostał kolor
- * z getStatusColor. Praca organizacyjna za zamknięty okres jest wykonana,
- * więc "zrobione".
+ * z getStatusColor.
+ *
+ * Było "zrobione", którego ClickUp już nie ma (przemianowane na
+ * "weryfikacja"). Następcą NIE jest tu "weryfikacja": raport dotyczy
+ * zamkniętego okresu rozliczeniowego i idzie obok faktury, a pozycja
+ * oznaczona "weryfikacja" czytałaby się jak coś, co jeszcze czeka na
+ * sprawdzenie. Praca organizacyjna za taki okres jest wykonana i domknięta.
  */
-const OVERHEAD_STATUS = 'zrobione'
+const OVERHEAD_STATUS = 'zamknięte'
 
 /**
  * Narzut obcinany W DÓŁ do pełnych minut, nie zaokrąglany.

@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert'
-import { formatDate } from '@/lib/utils'
+import { formatDate, getStatusColor, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
 
 /** ClickUp podaje daty jako milisekundy w łańcuchu znaków. */
 const ms = (iso: string) => String(new Date(iso).getTime())
@@ -41,5 +41,53 @@ describe('formatDate', () => {
     assert.strictEqual(formatDate(undefined), '')
     assert.strictEqual(formatDate(''), '')
     assert.strictEqual(formatDate('nie liczba', TERAZ), '')
+  })
+})
+
+/**
+ * Statusy kanbana kontra kolory statusow.
+ *
+ * 2026-08-05 te dwie listy rozjechaly sie ze soba i z ClickUpem: status
+ * "zrobione" przemianowano na "weryfikacja" i doszedl "przeglad", a portal
+ * dalej znal stare nazwy. Zadania spoza znanej listy wpadaja w kanbanie do
+ * kolumny "backlog", wiec awaria byla cicha: klient widzial 53 zrobione
+ * zadania jako niezaczete, a kolumna "zrobione" stala pusta.
+ *
+ * Ten test nie widzi ClickUpa i nie sprawdzi, czy nazwy zgadzaja sie
+ * z przestrzenia. Pilnuje tanszej rzeczy: zeby kolumna nigdy nie istniala
+ * bez wlasnego koloru, czyli zeby dodanie statusu w jednym miejscu i
+ * zapomnienie o drugim przestalo byc mozliwe po cichu.
+ */
+describe('STATUS_COLUMNS kontra STATUS_COLORS', () => {
+  it('kazda kolumna kanbana ma wpis w STATUS_COLORS', () => {
+    // Sprawdzamy OBECNOSC KLUCZA, nie zwrocony kolor. Kolor awaryjny jest
+    // rowny kolorowi backlogu, wiec porownanie wartosci przepuscilo by
+    // backlog bez wpisu i test nie lapalby tego, po co istnieje.
+    for (const status of STATUS_COLUMNS) {
+      assert.ok(
+        Object.hasOwn(STATUS_COLORS, status),
+        `status "${status}" jest kolumna kanbana, ale nie ma koloru w STATUS_COLORS`
+      )
+    }
+  })
+
+  it('nieznany status dostaje kolor awaryjny, nie undefined', () => {
+    // Statusy przychodza z ClickUpa i z lustra w bazie, wiec nieznana wartosc
+    // jest kwestia czasu. Musi dac kolor, ktory da sie wstawic w style.
+    assert.match(getStatusColor('status ktorego nie ma'), /^#[0-9a-f]{6}$/i)
+  })
+
+  it('kolejnosc kolumn idzie od backlogu do zamknietych', () => {
+    // Kolejnosc odwzorowuje orderindex przestrzeni ClickUp. Klient czyta
+    // tablice od lewej, wiec przestawienie tych dwoch skrajnych kolumn
+    // zmienia znaczenie calego widoku.
+    assert.strictEqual(STATUS_COLUMNS[0], 'backlog')
+    assert.strictEqual(STATUS_COLUMNS[STATUS_COLUMNS.length - 1], 'zamknięte')
+  })
+
+  it('nie ma duplikatow', () => {
+    // Duplikat rozbilby zadania jednego statusu na dwie kolumny, z ktorych
+    // druga zawsze byla by pusta.
+    assert.strictEqual(new Set(STATUS_COLUMNS).size, STATUS_COLUMNS.length)
   })
 })

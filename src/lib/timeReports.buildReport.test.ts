@@ -56,7 +56,7 @@ describe('buildReport', () => {
     assert.equal(last.isOverhead, true)
     // Status musi być prawdziwym statusem przestrzeni ClickUp, żeby wiersz
     // wyglądał jak każdy inny i dostał kolor z getStatusColor.
-    assert.equal(last.status, 'zrobione')
+    assert.equal(last.status, 'zamknięte')
     assert.ok(last.taskName.startsWith('Organizacja pracy i komunikacja'))
     assert.ok(!report.rows.slice(0, -1).some(r => r.isOverhead))
     assert.equal(report.rows[0].taskName, '[onyx] Warianty z baselinker - Wielowariantowość')

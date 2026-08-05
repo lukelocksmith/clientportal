@@ -12,7 +12,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import type { ClickUpTask, KanbanColumn } from '@/lib/types'
-import { getStatusColor } from '@/lib/utils'
+import { getStatusColor, STATUS_COLUMNS } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
@@ -24,8 +24,10 @@ import { PortalHeader } from '@/components/PortalHeader'
 import type { PortalFlags } from '@/lib/portalTabs'
 import type { PortalBranding } from '@/lib/branding'
 
-// Space-level statuses — consistent across all client lists
-const COLUMN_ORDER = ['backlog', 'do zrobienia', 'w trakcie', 'zablokowane', 'zrobione', 'zamknięte']
+// Space-level statuses — consistent across all client lists.
+// Definicja siedzi w lib/utils.ts, razem z kolorami statusów, żeby te dwie
+// rzeczy nie mogły się rozjechać. Nie duplikuj tej listy tutaj.
+const COLUMN_ORDER: readonly string[] = STATUS_COLUMNS
 
 interface KanbanBoardProps {
   initialTasks: ClickUpTask[]

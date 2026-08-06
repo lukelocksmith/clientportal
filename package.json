@@ -39,6 +39,7 @@
     "@radix-ui/react-tooltip": "^1.2.10",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.0",
+    "@siteping/adapter-prisma": "^0.6.4",
     "@types/nodemailer": "^8.0.1",
     "ai": "^7.0.2",
     "bcryptjs": "^3.0.3",
@@ -60,6 +61,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@siteping/widget": "^0.10.7",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",

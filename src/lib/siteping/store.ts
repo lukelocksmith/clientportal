@@ -1,13 +1,20 @@
-import type {
-  SitepingStore,
-  FeedbackCreateInput,
-  FeedbackRecord,
-  FeedbackUpdateInput,
-  FeedbackQuery,
-  FeedbackPage,
-  AnnotationRecord,
-} from '@siteping/adapter-prisma'
+import type { SitepingStore } from '@siteping/adapter-prisma'
 import { StoreNotFoundError } from '@siteping/adapter-prisma'
+
+// `@siteping/adapter-prisma`'s public entry point re-exports `SitepingStore`
+// but NOT the input/output types used by its methods (verified against the
+// installed 0.6.4 package: `dist/index.d.ts` only re-exports a hand-picked
+// name list from `siteping-core.js`, and `FeedbackCreateInput` etc. aren't in
+// it, even though they exist in the underlying `types.d.ts`). Deriving them
+// from `SitepingStore`'s own method signatures avoids importing names that
+// don't exist at the package's public surface, without reaching into
+// internal/unexported module paths.
+type FeedbackCreateInput = Parameters<SitepingStore['createFeedback']>[0]
+type FeedbackRecord = Awaited<ReturnType<SitepingStore['createFeedback']>>
+type FeedbackUpdateInput = Parameters<SitepingStore['updateFeedback']>[1]
+type FeedbackQuery = Parameters<SitepingStore['getFeedbacks']>[0]
+type FeedbackPage = Awaited<ReturnType<SitepingStore['getFeedbacks']>>
+type AnnotationRecord = FeedbackRecord['annotations'][number]
 import { randomUUID } from 'node:crypto'
 import {
   createTask,

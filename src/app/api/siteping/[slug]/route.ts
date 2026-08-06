@@ -82,9 +82,24 @@ function publicGuard(
   return null
 }
 
+/**
+ * Origin zadania, ale WYLACZNIE gdy przeszedl juz kontrole domeny.
+ *
+ * Trafia do opisu zadania jako podstawa klikalnego linku, wiec nie moze
+ * pochodzic z niesprawdzonego naglowka — inaczej obcy nadawca wstawialby
+ * zespolowi dowolny adres do klikniecia w ClickUpie.
+ */
+function verifiedSiteOrigin(request: NextRequest, portal: ResolvedPortal): string | null {
+  const [origin] = corsOrigins(request, portal.siteDomains)
+  return origin ?? null
+}
+
 function buildHandler(portal: ResolvedPortal, request: NextRequest): SitepingHandler {
   return createSitepingHandler({
-    store: createClickUpSitepingStore(portal),
+    store: createClickUpSitepingStore({
+      ...portal,
+      siteOrigin: verifiedSiteOrigin(request, portal),
+    }),
     allowedOrigins: corsOrigins(request, portal.siteDomains),
     apiKey: process.env.SITEPING_API_KEY,
     // POST: widget submits from an unauthenticated browser. GET: the

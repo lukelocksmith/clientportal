@@ -53,35 +53,94 @@ export function extractUrlFromDescription(description: string | null): string | 
   return match ? decodeURIComponent(match[1]) : null
 }
 
+/** Nazwa parametru, po ktorym widget SitePinga rozpoznaje glebokie linkowanie. */
+const DEEP_LINK_PARAM = 'siteping'
+
+/**
+ * Adres, ktory otwiera strone klienta I podświetla zaznaczone miejsce.
+ *
+ * Widget umie to sam: przy `deepLink: true` w konfiguracji czyta parametr
+ * `?siteping=<id zgloszenia>` przy starcie, przewija do anotacji, przypina
+ * podswietlenie i pulsuje znacznikiem. Bez tej flagi po stronie osadzenia link
+ * otworzy zwykla strone i nic nie podświetli — to jest wymog konfiguracji, nie
+ * opcja (patrz `scripts/siteping-manual-test.html`).
+ *
+ * `pageUrl` z widgetu to sciezka (`/oferta`), a nie pelny adres, wiec sklejamy
+ * ja z origin, ktory portal ma zapisany. Gdy origin jest nieznany, zwracamy
+ * null zamiast zgadywac schemat czy domene — polamany link jest gorszy niz
+ * jego brak, bo zespol traci czas na sprawdzanie, czemu nie dziala.
+ */
+export function buildAnnotationLink(
+  siteOrigin: string | null | undefined,
+  pageUrl: string,
+  feedbackId: string
+): string | null {
+  if (!siteOrigin) return null
+
+  try {
+    const url = new URL(pageUrl, siteOrigin)
+    url.searchParams.set(DEEP_LINK_PARAM, feedbackId)
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Opis zadania w ClickUpie.
+ *
+ * KOLEJNOSC JEST CELOWA. Na gorze tresc zgloszenia, bo to ona trafia do
+ * podgladu zadania, do powiadomien i na karte — zespol ma najpierw widziec, o
+ * co klient prosi, a nie sciezke CSS. Nizej „gdzie", czyli klikalny link i
+ * element. Na samym dole markery, ktore sa dla maszyny, nie dla czlowieka.
+ *
+ * `feedbackId` jest opcjonalne, bo identyfikator zadania powstaje dopiero po
+ * jego utworzeniu: opis budujemy dwa razy, drugi raz z linkiem (patrz
+ * `createFeedback` w store.ts).
+ */
 export function buildFeedbackDescription(input: {
   clientId: string
   url: string
   message: string
   annotation: AnnotationLike | null
+  siteOrigin?: string | null
+  feedbackId?: string | null
 }): string {
-  const lines = [
-    embedClientIdMarker(input.clientId),
-    embedUrlMarker(input.url),
-    '',
-    `**Strona:** ${input.url}`,
-  ]
+  const lines = [input.message.trim(), '']
+
+  const link = input.feedbackId
+    ? buildAnnotationLink(input.siteOrigin, input.url, input.feedbackId)
+    : null
+
+  if (link) {
+    lines.push('**🔗 Zobacz na stronie:**', link, '_(otwiera stronę i podświetla zaznaczone miejsce)_', '')
+  } else {
+    lines.push(`**Strona:** ${input.url}`)
+  }
 
   if (input.annotation) {
     const a = input.annotation
     const tag = a.elementTag.toLowerCase()
+    const label = a.textSnippet ? ` — „${a.textSnippet.trim().slice(0, 80)}”` : ''
     lines.push(
-      `**Element:** \`${tag}${a.elementId ? '#' + a.elementId : ''}\``,
-      `**Selektor CSS:** \`${a.cssSelector}\``,
-      `**XPath:** \`${a.xpath}\``,
-      `**Pozycja na elemencie:** ${Math.round(a.xPct * 100)}%, ${Math.round(a.yPct * 100)}% ` +
-        `(zaznaczenie ${Math.round(a.wPct * 100)}%×${Math.round(a.hPct * 100)}%)`
+      `**Element:** \`${tag}${a.elementId ? '#' + a.elementId : ''}\`${label}`,
+      `**Selektor:** \`${a.cssSelector}\``
     )
-    if (a.textSnippet) lines.push(`**Tekst elementu:** "${a.textSnippet}"`)
   }
 
-  lines.push('', input.message.trim())
+  return lines.join('\n').trimEnd()
+}
 
-  return lines.join('\n')
+/**
+ * Dokleja markery na SAMYM koncu, juz po stopce zglaszajacego.
+ *
+ * Osobno od `buildFeedbackDescription`, bo miedzy tresc a markery wchodzi
+ * jeszcze stopka z `withReporterFooter` — gdyby markery byly czescia opisu,
+ * ladowalyby w srodku, nad stopka. ClickUp pokazuje komentarze HTML jako
+ * zwykly tekst, wiec ich miejsce jest na dole, gdzie nikomu nie przeszkadzaja.
+ */
+export function withSitepingMarkers(text: string, clientId: string, url: string): string {
+  return `${text}\n\n${embedClientIdMarker(clientId)}\n${embedUrlMarker(url)}`
 }
 
 export function buildFeedbackTitle(message: string): string {

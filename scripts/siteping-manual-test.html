@@ -16,6 +16,10 @@
       projectName: 'siteping-test',
       enableScreenshot: true,
       identity: { name: 'Test Klient', email: 'test@example.com' },
+      // WYMAGANE, nie opcjonalne: bez tego link „Zobacz na stronie" z opisu
+      // zadania w ClickUpie otworzy zwykla strone i NICZEGO nie podświetli.
+      // Widget czyta wtedy `?siteping=<id>` i sam przewija do zaznaczenia.
+      deepLink: true,
     })
   </script>
 </body>

@@ -31,6 +31,7 @@ import {
   extractUrlFromDescription,
   buildFeedbackDescription,
   buildFeedbackTitle,
+  withSitepingMarkers,
 } from '@/lib/siteping/annotationMarker'
 import { withReporterFooter, ADMIN_ACTOR_EMAIL } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
@@ -88,6 +89,13 @@ interface PortalContext {
   name: string
   clickupFolderId: string
   defaultListId: string
+  /**
+   * Origin strony klienta (`https://wodadlafirmy.pl`), z ktorego przyszlo
+   * zgloszenie. Potrzebny, bo widget przysyla sama sciezke, a link w zadaniu
+   * ma byc klikalny. Null, gdy zadanie nie mialo naglowka Origin — wtedy opis
+   * pokazuje sama sciezke zamiast polamanego adresu.
+   */
+  siteOrigin?: string | null
 }
 
 function isSitepingTask(task: ClickUpTask): boolean {
@@ -308,28 +316,51 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
       }
 
       const annotation = data.annotations[0] ?? null
-      const body = buildFeedbackDescription({
-        clientId: data.clientId,
-        url: data.url,
-        message: data.message,
-        annotation,
-      })
-      const description = withReporterFooter(body, {
-        name: data.authorName || null,
-        email: data.authorEmail,
-        portalName: portal.name,
-        portalSlug: portal.slug,
-        source: 'siteping',
-      })
+      // Kolejnosc: tresc + „gdzie" → stopka zglaszajacego → markery techniczne.
+      // Markery MUSZA byc doklejone po stopce, inaczej ladowaly by w srodku.
+      const describe = (feedbackId: string | null) =>
+        withSitepingMarkers(
+          withReporterFooter(
+            buildFeedbackDescription({
+              clientId: data.clientId,
+              url: data.url,
+              message: data.message,
+              annotation,
+              siteOrigin: portal.siteOrigin,
+              feedbackId,
+            }),
+            {
+              name: data.authorName || null,
+              email: data.authorEmail,
+              portalName: portal.name,
+              portalSlug: portal.slug,
+              source: 'siteping',
+            }
+          ),
+          data.clientId,
+          data.url
+        )
 
       const task = await createTask(portal.defaultListId, {
         name: buildFeedbackTitle(data.message),
-        description,
+        description: describe(null),
         tags: [SITEPING_TAG],
         status: STATUS_TO_CLICKUP.open,
       })
 
       warnIfTagMissing(task, portal.slug)
+
+      // Link do zaznaczonego miejsca zawiera identyfikator zadania, ktory
+      // powstaje dopiero teraz — stad drugi zapis opisu. Nie przewracamy
+      // zgloszenia, gdy ta poprawka sie nie uda: zadanie juz istnieje i ma
+      // komplet danych, brak samego linku jest niedogodnoscia, a nie utrata.
+      if (portal.siteOrigin) {
+        try {
+          await updateTask(task.id, { description: describe(task.id) })
+        } catch (error) {
+          console.warn(`[siteping] nie udało się dopisać linku do zadania ${task.id}:`, error)
+        }
+      }
 
       await uploadFeedbackData(task.id, data)
 

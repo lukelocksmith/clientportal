@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert'
-import { formatDate, getStatusColor, isAwaria, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
+import { formatDate, getStatusColor, isAwaria, sortOldestFirst, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
 
 /** ClickUp podaje daty jako milisekundy w łańcuchu znaków. */
 const ms = (iso: string) => String(new Date(iso).getTime())
@@ -125,5 +125,45 @@ describe('isAwaria', () => {
     // co innego. Dopasowanie musi byc dokladne, nie "zawiera".
     assert.strictEqual(isAwaria([{ name: 'błąd krytyczny' }]), false)
     assert.strictEqual(isAwaria([{ name: 'awaria-krytyczna' }]), false)
+  })
+})
+
+/**
+ * Kolejnosc komentarzy w watku.
+ *
+ * ClickUp oddaje komentarze od NAJNOWSZEGO. Portal przepuszczal te kolejnosc
+ * bez zmian, a swiezo wyslany komentarz dopinal na koniec listy, wiec wlasna
+ * wypowiedz klienta ladowala pod najstarsza. Zglosil Lukasz 2026-08-06.
+ */
+describe('sortOldestFirst', () => {
+  const c = (id: string, date: string) => ({ id, date })
+
+  it('odwraca kolejnosc z ClickUpa na chronologiczna', () => {
+    const zClickUpa = [c('nowy', '3000'), c('sredni', '2000'), c('stary', '1000')]
+    assert.deepStrictEqual(
+      sortOldestFirst(zClickUpa).map(x => x.id),
+      ['stary', 'sredni', 'nowy']
+    )
+  })
+
+  it('nie modyfikuje tablicy wejsciowej', () => {
+    // Ta sama tablica idzie dalej do filtrowania i do indeksu Historii.
+    const wejscie = [c('b', '2000'), c('a', '1000')]
+    sortOldestFirst(wejscie)
+    assert.deepStrictEqual(wejscie.map(x => x.id), ['b', 'a'])
+  })
+
+  it('rowne znaczniki czasu zachowuja kolejnosc zrodla', () => {
+    // Komentarze dodane w tej samej sekundzie zdarzaja sie przy wklejaniu
+    // kilku naraz. Sort ma byc stabilny, a nie tasowac je losowo.
+    const rowne = [c('pierwszy', '1000'), c('drugi', '1000'), c('trzeci', '1000')]
+    assert.deepStrictEqual(
+      sortOldestFirst(rowne).map(x => x.id),
+      ['pierwszy', 'drugi', 'trzeci']
+    )
+  })
+
+  it('pusta lista nie wywala widoku', () => {
+    assert.deepStrictEqual(sortOldestFirst([]), [])
   })
 })

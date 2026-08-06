@@ -31,6 +31,23 @@ export function isAwaria(tags: ClickUpTag[] | undefined | null): boolean {
 }
 
 /**
+ * Komentarze od najstarszego do najnowszego, czyli tak, jak czyta się rozmowę.
+ *
+ * ClickUp oddaje je ODWROTNIE, od najnowszego. Portal długo przepuszczał tę
+ * kolejność bez zmian, a jednocześnie świeżo wysłany komentarz dopinał na
+ * koniec listy, więc własna wypowiedź klienta lądowała pod najstarszą, w wątku
+ * czytanym od końca. Dwa błędy, które częściowo się maskowały.
+ *
+ * Sortujemy po dacie, nie odwracamy tablicy: `reverse()` zakłada, że ClickUp
+ * zawsze odda idealnie posortowaną listę, a to założenie o cudzym API, którego
+ * nie kontrolujemy. Sortowanie stabilne, więc komentarze z identycznym
+ * znacznikiem czasu zachowują kolejność ze źródła.
+ */
+export function sortOldestFirst<T extends { date: string }>(comments: T[]): T[] {
+  return [...comments].sort((a, b) => Number(a.date) - Number(b.date))
+}
+
+/**
  * Data dla klienta. Rok POKAZUJEMY, gdy jest inny niż bieżący.
  *
  * Wcześniej rok nie pojawiał się nigdy, więc zadanie zgłoszone 6 listopada 2025

@@ -7,6 +7,7 @@ import { getTaskComments, addComment, verifyTaskBelongsToFolder } from '@/lib/cl
 import { filterPublicComments, PUBLIC_PREFIX } from '@/lib/publicComments'
 import { logEvent, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
 import { getPortalScope } from '@/lib/portalScopeStore'
+import { sortOldestFirst } from '@/lib/utils'
 
 export async function GET(
   request: NextRequest,
@@ -30,7 +31,7 @@ export async function GET(
   const comments = await getTaskComments(taskId)
   // Reguła [PUBLIC] żyje w lib/publicComments.ts, bo ma dwóch konsumentów:
   // tę trasę i indekser Historii. Patrz komentarz w tamtym pliku.
-  return NextResponse.json({ comments: filterPublicComments(comments) })
+  return NextResponse.json({ comments: sortOldestFirst(filterPublicComments(comments)) })
 }
 
 export async function POST(

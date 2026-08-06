@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
 import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria } from '@/lib/utils'
 import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User, AlertTriangle } from 'lucide-react'
@@ -85,6 +85,8 @@ interface TaskDrawerProps {
 export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNavigate }: TaskDrawerProps) {
   const [tab] = useState<'details'>('details')
   const [comments, setComments] = useState<ClickUpComment[]>([])
+  /** Kotwica na końcu listy komentarzy, do przewinięcia po wysłaniu. */
+  const commentsEndRef = useRef<HTMLDivElement>(null)
   const [newComment, setNewComment] = useState('')
   const [loadingComments, setLoadingComments] = useState(true)
   const [sendingComment, setSendingComment] = useState(false)
@@ -135,8 +137,17 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
 
     if (res.ok) {
       const data = await res.json()
+      // Dopisujemy na KONIEC, bo lista idzie od najstarszego (sortOldestFirst
+      // po stronie trasy). Wcześniej trasa oddawała kolejność ClickUpa, czyli
+      // od najnowszego, i ten sam `[...prev, x]` wrzucał świeży komentarz pod
+      // najstarszy. Te dwie rzeczy muszą się zgadzać, inaczej wątek kłamie.
       if (data.comment) setComments(prev => [...prev, data.comment])
       setNewComment('')
+      // Nowy komentarz jest teraz na dole, więc przy dłuższym wątku powstaje
+      // poza ekranem. Bez tego wysłanie wygląda, jakby nic się nie stało.
+      requestAnimationFrame(() => {
+        commentsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      })
     } else {
       toast.error('Nie udało się wysłać komentarza')
     }
@@ -430,6 +441,9 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
                     </div>
                   )
                 })}
+                {/* Kotwica dla przewinięcia po wysłaniu. Wewnątrz listy, żeby
+                    istniała tylko wtedy, gdy jest do czego przewijać. */}
+                <div ref={commentsEndRef} />
               </div>
             )}
           </div>

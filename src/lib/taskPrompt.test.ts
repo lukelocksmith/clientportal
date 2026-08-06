@@ -21,22 +21,33 @@ describe('taskPrompt', () => {
   it('skala odpowiada polu priority w ClickUpie', () => {
     // 1=urgent, 2=high, 3=normal, 4=low. Sprawdzone na 48 zadaniach Onyxu
     // przez API, wiec to nie jest domysl z dokumentacji.
+    //
+    // Awaria ma `null`, bo wchodzi osobnym kanalem (przycisk Alarm) i nie ma
+    // wartosci w polu priority. Dzieki temu urgent jest wolny dla P1, ktore
+    // jest najwyzszym poziomem, jaki klient moze zglosic przez czat.
     assert.deepStrictEqual(
       PRIORITY_LEVELS.map(l => [l.code, l.clickup]),
-      [['P0', 1], ['P1', 2], ['P2', 3], ['P3', 4]]
+      [['P0', null], ['P1', 1], ['P2', 2], ['P3', 3]]
     )
 
     // Odwrotne odwzorowanie musi sie zgadzac, bo opisuje juz zapisane zadania.
-    for (const l of PRIORITY_LEVELS) {
-      assert.strictEqual(levelByClickupPriority(l.clickup)?.code, l.code)
+    for (const l of CHAT_LEVELS) {
+      assert.strictEqual(levelByClickupPriority(l.clickup!)?.code, l.code)
     }
     assert.strictEqual(levelByClickupPriority(9), undefined, 'nieznana wartosc nie udaje poziomu')
+    // 4 to Low w ClickUpie: istnieje, ale nie ma poziomu umownego ani czasu
+    // reakcji. Gdyby tu cokolwiek wpadlo, zadanie Low dostaloby obietnice
+    // z umowy, ktorej nikt nie skladal.
+    assert.strictEqual(levelByClickupPriority(4), undefined, 'Low nie jest poziomem z umowy')
   })
 
   it('czat oferuje trzy poziomy, awaria idzie przyciskiem', () => {
     assert.deepStrictEqual(CHAT_LEVELS.map(l => l.code), ['P1', 'P2', 'P3'])
     assert.strictEqual(ALARM_LEVEL.code, 'P0')
-    assert.strictEqual(ALARM_LEVEL.clickup, 1)
+    // Awaria NIE MOZE miec wartosci priority. Gdyby miala, zadanie awaryjne
+    // bylo by nieodroznialne od zwyklego P1 i plakietka Alarm nie mialaby
+    // sie z czego wziac.
+    assert.strictEqual(ALARM_LEVEL.clickup, null)
   })
 
   it('prompt pokazuje skale czatu i odwzorowanie', () => {

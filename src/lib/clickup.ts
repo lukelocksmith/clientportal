@@ -239,6 +239,12 @@ export async function createTask(
     due_date?: number | null
     start_date?: number | null
     status?: string
+    /**
+     * ClickUp przyjmuje tagi przy tworzeniu jako tablicę nazw, ale TYLKO takie,
+     * które już istnieją w przestrzeni. Nazwa spoza słownika jest po cichu
+     * pomijana, zadanie powstaje bez niej i bez błędu.
+     */
+    tags?: string[]
   }
 ): Promise<ClickUpTask> {
   return clickupFetch<ClickUpTask>(`/list/${listId}/task`, {

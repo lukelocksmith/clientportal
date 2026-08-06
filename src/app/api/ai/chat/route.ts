@@ -13,6 +13,7 @@ import { computeCost } from '@/lib/aiPricing'
 import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
+import { AWARIA_TAG, isAwaria } from '@/lib/utils'
 import {
   buildNewTaskPrompt,
   taskInputSchema,
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
   const createTaskTool = tool({
     description: CREATE_TASK_TOOL_DESCRIPTION,
     inputSchema: taskInputSchema,
-    execute: async ({ name, description, priority, listId, due_date_days }) => {
+    execute: async ({ name, description, priority, listId, due_date_days, tags }) => {
       const targetListId = listId && lists.some(l => l.clickupListId === listId)
         ? listId
         : (defaultList?.clickupListId ?? '')
@@ -92,6 +93,8 @@ export async function POST(request: NextRequest) {
       const due_date = due_date_days
         ? Date.now() + due_date_days * 24 * 60 * 60 * 1000
         : undefined
+
+      const awaria = isAwaria((tags ?? []).map(name => ({ name })))
 
       const task = await createTask(targetListId, {
         name,
@@ -108,6 +111,12 @@ export async function POST(request: NextRequest) {
         }),
         priority: priority ?? null,
         due_date: due_date ?? null,
+        // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii.
+        // Model dostaje tu swobodne pole tekstowe, a tagi w ClickUpie są
+        // wspólne dla całej przestrzeni klientów: bez tego filtra halucynacja
+        // albo podpowiedź z rozmowy klienta zakładałaby zespołowi śmieci
+        // w słowniku tagów.
+        tags: awaria ? [AWARIA_TAG] : undefined,
         // Client-submitted tasks land in "do zrobienia" (to-do), not the default backlog,
         // so the team sees incoming requests instead of them being buried.
         status: 'do zrobienia',
@@ -122,7 +131,7 @@ export async function POST(request: NextRequest) {
         actor: { userId: session.userId, email: session.email, name: session.name },
         action: EVENT_TASK_CREATED,
         resourceId: task.id,
-        meta: { source: 'ai', taskName: task.name, url: task.url ?? null, priority: priority ?? null },
+        meta: { source: 'ai', taskName: task.name, url: task.url ?? null, priority: priority ?? null, awaria },
       })
 
       return {

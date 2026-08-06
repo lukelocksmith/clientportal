@@ -81,7 +81,20 @@ export type ClickUpTask = {
   // Weekly-frozen tracked time injected server-side from task_time_snapshots (ms)
   trackedTimeMs?: number | null
   attachments?: ClickUpAttachment[]
+  /**
+   * Tagi zadania. ClickUp zwraca je w każdej odpowiedzi listowej, portal po
+   * prostu ich wcześniej nie modelował. Portal czyta stąd jedną rzecz: tag
+   * awarii, który zapala plakietkę Alarm na karcie (patrz `isAwaria`).
+   */
+  tags?: ClickUpTag[]
   url: string
+}
+
+/** Tag ClickUpa. Kolory przychodzą, ale portal ich nie używa. */
+export type ClickUpTag = {
+  name: string
+  tag_fg?: string
+  tag_bg?: string
 }
 
 // Portal types (our DB models)

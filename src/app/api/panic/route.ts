@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { portals, panicAlerts } from '@/lib/db/schema'
+import { portals, panicAlerts, portalLists } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import crypto from 'crypto'
-import { normalizeActorId, reporterLabel } from '@/lib/reporter'
-import { logEvent, EVENT_PANIC_ALERT } from '@/lib/portalEvents'
+import { normalizeActorId, reporterLabel, withReporterFooter } from '@/lib/reporter'
+import { logEvent, EVENT_PANIC_ALERT, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { sendMail } from '@/lib/mailer'
+import { createTask } from '@/lib/clickup'
+import { invalidateFolderTasks } from '@/lib/clickupCache'
+import { AWARIA_TAG } from '@/lib/utils'
 
 function esc(s: string) {
   return String(s)
@@ -23,7 +26,7 @@ const DISCORD_WEBHOOK = process.env.PANIC_DISCORD_WEBHOOK_URL
  *
  * Zapas to JEDEN adres skrzynki, która na pewno istnieje. Wcześniej stały tu
  * `filip@important.is` i `paulina@important.is`, a na serwerze pocztowym są
- * `filip.g@` i `paulina.a@`. Gdyby ktoś usunął zmienną, alarm P0 poszedłby na
+ * `filip.g@` i `paulina.a@`. Gdyby ktoś usunął zmienną, alarm poszedłby na
  * dwa nieistniejące adresy i odbiłby się w ciszy, bo `Promise.allSettled`
  * połyka błędy z rozmysłem: jeden zły adres nie może zablokować pozostałych.
  */
@@ -56,6 +59,77 @@ async function sendEmails(subject: string, body: string, portalId: string) {
   await Promise.allSettled(
     recipients.map(to => sendMail({ to, subject, html: body, kind: 'panic', portalId }))
   )
+}
+
+/**
+ * Zadanie w ClickUpie za wciśniętym alarmem.
+ *
+ * Alarm dotąd zostawiał ślad tylko w mailu i w tabeli `panic_alerts`, więc na
+ * tablicy nie było po nim nic: zespół widział zgłoszenie w skrzynce, a klient
+ * patrzył na kanban, na którym jego najpilniejsza sprawa nie istniała.
+ *
+ * Zadanie dostaje priorytet `urgent` ORAZ tag awarii. Sam priorytet by nie
+ * wystarczył, bo `urgent` to teraz zwykłe P1 i alarm nie odróżniłby się od
+ * istotnej usterki; sam tag też nie, bo zadanie wylądowałoby nisko w sortowaniu.
+ *
+ * Cała funkcja jest BEST-EFFORT i świadomie NIE przerywa trasy. Powiadomienie
+ * jest ważniejsze od zadania: gdyby ClickUp nie odpowiedział, klient nie może
+ * dostać błędu przy alarmie, skoro mail i Discord już poszły. Dlatego wołamy ją
+ * PO wysyłce i łykamy wyjątek do logu.
+ */
+async function createAlarmTask(input: {
+  portalId: string
+  portalName: string
+  portalSlug: string
+  folderId: string
+  message: string
+  // `name` bywa nullem: zaproszenie mogło pójść bez imienia (patrz Reporter).
+  session: { userId: string; email: string; name: string | null }
+}) {
+  try {
+    const lists = await db
+      .select()
+      .from(portalLists)
+      .where(eq(portalLists.portalId, input.portalId))
+      .orderBy(portalLists.sortOrder)
+    const targetListId = (lists.find(l => l.isDefault) ?? lists[0])?.clickupListId
+    if (!targetListId) return
+
+    // Pierwsza linia zgłoszenia jako nazwa. Klient w panice pisze ciągiem, więc
+    // bez ucięcia nazwa zadania byłaby akapitem. Pełna treść jest w opisie.
+    const firstLine = input.message.split('\n')[0].trim()
+    const name = `🚨 ALARM: ${firstLine.slice(0, 70)}${firstLine.length > 70 ? '…' : ''}`
+
+    const task = await createTask(targetListId, {
+      name,
+      description: withReporterFooter(
+        `## Zgłoszenie alarmowe\n\n${input.message}\n\n` +
+          `Zgłoszone czerwonym przyciskiem Alarm w portalu. Powiadomienie poszło mailem i na Discorda w chwili wciśnięcia.`,
+        {
+          name: input.session.name,
+          email: input.session.email,
+          portalName: input.portalName,
+          portalSlug: input.portalSlug,
+          source: 'panic',
+        }
+      ),
+      priority: 1,
+      tags: [AWARIA_TAG],
+      status: 'do zrobienia',
+    })
+
+    await invalidateFolderTasks(input.folderId)
+
+    await logEvent({
+      portalId: input.portalId,
+      actor: input.session,
+      action: EVENT_TASK_CREATED,
+      resourceId: task.id,
+      meta: { source: 'panic', taskName: task.name, url: task.url ?? null, priority: 1, awaria: true },
+    })
+  } catch (e) {
+    console.error('[panic] nie udało się założyć zadania w ClickUpie:', e)
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -128,6 +202,15 @@ export async function POST(request: NextRequest) {
   `
 
   await sendEmails(emailSubject, emailBody, portal[0].id)
+
+  await createAlarmTask({
+    portalId: portal[0].id,
+    portalName: portal[0].name,
+    portalSlug: portal[0].slug,
+    folderId: portal[0].clickupFolderId,
+    message: message.trim(),
+    session: { userId: session.userId, email: session.email, name: session.name },
+  })
 
   return NextResponse.json({ ok: true, alertId: alert.id })
 }

@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { ClickUpTask } from '@/lib/types'
-import { formatDate, formatDuration, getPriorityColor, getPriorityCode, getStatusColor } from '@/lib/utils'
-import { Calendar, Clock, Timer, ChevronRight, ListTree } from 'lucide-react'
+import { formatDate, formatDuration, getPriorityColor, getPriorityCode, getStatusColor, isAwaria } from '@/lib/utils'
+import { Calendar, Clock, Timer, ChevronRight, ListTree, AlertTriangle } from 'lucide-react'
 
 interface TaskCardProps {
   task: ClickUpTask
@@ -25,6 +25,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   }
 
   const priorityColor = getPriorityColor(task.priority?.priority)
+  const awaria = isAwaria(task.tags)
   const children = task.children ?? []
   const estimate = formatDuration(task.time_estimate)
   const tracked = formatDuration(task.trackedTimeMs)
@@ -43,18 +44,30 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         {task.name}
       </p>
 
-      {/* Poziom zgłoszenia. Rysujemy KAŻDY, także P2.
+      {/* Priorytet rysujemy ZAWSZE, także „Normalny".
           Wcześniej `normal` był pomijany jako „domyślny", ale odkąd poziom jest
           uzgadniany z klientem w czacie i wiąże czas reakcji, brak plakietki
-          przy P2 czytał się jako zadanie bez nadanego poziomu. */}
-      {task.priority?.priority && (
-        <div className="mb-2">
-          <span
-            className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-            style={{ color: priorityColor, backgroundColor: `${priorityColor}18` }}
-          >
-            {getPriorityCode(task.priority.priority)}
-          </span>
+          czytał się jako zadanie bez nadanego poziomu.
+
+          Awaria stoi OBOK priorytetu, nie zamiast niego: nie jest wartością
+          pola priority, tylko tagiem, więc zgłoszenie awaryjne ma jedno i
+          drugie. */}
+      {(task.priority?.priority || awaria) && (
+        <div className="mb-2 flex flex-wrap items-center gap-1">
+          {awaria && (
+            <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+              <AlertTriangle className="h-3 w-3" aria-hidden />
+              Alarm
+            </span>
+          )}
+          {task.priority?.priority && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+              style={{ color: priorityColor, backgroundColor: `${priorityColor}18` }}
+            >
+              {getPriorityCode(task.priority.priority)}
+            </span>
+          )}
         </div>
       )}
 

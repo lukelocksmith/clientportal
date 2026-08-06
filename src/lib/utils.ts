@@ -1,8 +1,33 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { ClickUpTag } from '@/lib/types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Tag, którym w ClickUpie oznaczamy zgłoszenie awaryjne.
+ *
+ * Awaria nie ma własnej wartości w polu priority (patrz `PriorityLevel.clickup`
+ * w taskPrompt.ts), bo idzie osobnym kanałem: czerwonym przyciskiem Alarm,
+ * który powiadamia zespół i uruchamia zegar. Bez tagu tablica nie odróżniłaby
+ * zgłoszenia awaryjnego od zwykłego pilnego zadania, więc to tag, nie
+ * priorytet, zapala plakietkę Alarm.
+ *
+ * Stała siedzi tutaj, a nie przy prompcie, żeby komponenty klienckie mogły jej
+ * użyć bez wciągania całego tekstu promptu do paczki przeglądarki.
+ */
+export const AWARIA_TAG = 'awaria'
+
+/**
+ * Czy zadanie jest zgłoszeniem awaryjnym.
+ *
+ * Porównanie bez względu na wielkość liter i białe znaki, bo tag nadaje też
+ * człowiek ręcznie w ClickUpie, a „Awaria" i „awaria " to ta sama intencja.
+ */
+export function isAwaria(tags: ClickUpTag[] | undefined | null): boolean {
+  return (tags ?? []).some(t => t.name?.trim().toLowerCase() === AWARIA_TAG)
 }
 
 /**
@@ -30,37 +55,36 @@ export function formatDate(dateString: string | null | undefined, now: Date = ne
 }
 
 /**
- * Nazwy poziomów zgłoszenia, słownictwem z planu opieki.
+ * Nazwy priorytetów, po polsku, ale to nazwy Z CLICKUPA, nie z umowy.
  *
- * Wcześniej stały tu nazwy z ClickUpa („Pilne", „Wysokie"), więc klient zgłaszał
- * w czacie „P1 istotna usterka", a na tablicy widział „Wysokie" i musiał sam się
- * domyślić, że to to samo. Czasy reakcji w umowie są przypisane do P1, P2 i P3,
- * nie do słowa „wysokie", więc na ekranie ma stać to, co w tabeli.
+ * Portal odwzorowuje ClickUp i nie wprowadza własnego słownictwa dla cudzych
+ * danych. Kody P0-P3 należą do umowy i do klasyfikacji, którą robi asystentka
+ * w czacie; na tablicy, w szufladzie i w Historii stoi to, co widzi zespół
+ * w ClickUpie. Odwzorowanie skali umownej: P1 = urgent, P2 = high,
+ * P3 = normal. `low` nie ma poziomu umownego, a awaria nie ma tu nic, bo
+ * rozpoznaje się ją po tagu (patrz `isAwaria`), nie po priorytecie.
  *
- * `urgent` to awaria: nie ma jej w skali czatu, bo idzie przyciskiem Alarm.
+ * Świadomy koszt: czat mówi „P1 istotna usterka", tablica pokazuje „Pilny",
+ * więc klient musi sam skojarzyć jedno z drugim. Łukasz wybrał to 2026-08-06,
+ * mając ten koszt na ekranie, bo mirror jest ważniejszy.
  */
 export function getPriorityLabel(priority: string | null | undefined): string {
   const map: Record<string, string> = {
-    urgent: 'Awaria',
-    high: 'P1 istotna usterka',
-    normal: 'P2 usterka drobna',
-    low: 'P3 zmiana planowana',
+    urgent: 'Pilny',
+    high: 'Wysoki',
+    normal: 'Normalny',
+    low: 'Niski',
   }
   return priority ? (map[priority] ?? priority) : ''
 }
 
 /**
- * Krótka forma na kartę zadania, gdzie pełna nazwa nie ma się jak zmieścić.
- * Kolor niesie resztę znaczenia, a pełna nazwa jest w szufladzie i w Historii.
+ * Krótka forma na kartę zadania. Przy nazwach z ClickUpa jest identyczna jak
+ * pełna, bo „Pilny" i tak się mieści. Funkcja zostaje osobno, żeby karta i
+ * szuflada dały się rozjechać wtedy, gdy będzie po co, a nie przez przypadek.
  */
 export function getPriorityCode(priority: string | null | undefined): string {
-  const map: Record<string, string> = {
-    urgent: 'Awaria',
-    high: 'P1',
-    normal: 'P2',
-    low: 'P3',
-  }
-  return priority ? (map[priority] ?? priority) : ''
+  return getPriorityLabel(priority)
 }
 
 export function getPriorityColor(priority: string | null | undefined): string {

@@ -23,7 +23,9 @@ import {
   CREATE_TASK_TOOL_DESCRIPTION,
   levelByClickupPriority,
   PRIORITY_LEVELS,
+  CHAT_LEVELS,
 } from '../src/lib/taskPrompt'
+import { isAwaria } from '../src/lib/utils'
 
 const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY })
 const model = google('gemini-2.5-flash')
@@ -136,6 +138,8 @@ Zasady:
 type Result = {
   scenario: Scenario
   priority: number | null
+  /** Czy model oznaczyl zgloszenie tagiem awarii. */
+  awaria: boolean
   taskName: string | null
   askedBeforeCreating: boolean
   mentionedAlarm: boolean
@@ -145,15 +149,15 @@ type Result = {
 }
 
 async function run(s: Scenario): Promise<Result> {
-  let captured: { name: string; priority: number } | null = null
+  let captured: { name: string; priority: number; tags?: string[] } | null = null
 
   const createTaskTool = tool({
     description: CREATE_TASK_TOOL_DESCRIPTION,
     inputSchema: taskInputSchema,
     // Podstawka. Zwraca to samo, co trasa produkcyjna, żeby model zachował się
     // tak samo po utworzeniu zadania, ale nie dotyka ClickUpa.
-    execute: async ({ name, priority }) => {
-      captured = { name, priority }
+    execute: async ({ name, priority, tags }) => {
+      captured = { name, priority, tags }
       return { success: true, taskId: 'TEST', taskName: name, message: 'Zadanie dodane.' }
     },
   })
@@ -211,6 +215,7 @@ async function run(s: Scenario): Promise<Result> {
     return {
       scenario: s,
       priority: null,
+      awaria: false,
       taskName: null,
       askedBeforeCreating,
       mentionedAlarm,
@@ -220,10 +225,11 @@ async function run(s: Scenario): Promise<Result> {
     }
   }
 
-  const c = captured as { name: string; priority: number } | null
+  const c = captured as { name: string; priority: number; tags?: string[] } | null
   return {
     scenario: s,
     priority: c?.priority ?? null,
+    awaria: isAwaria((c?.tags ?? []).map(name => ({ name }))),
     taskName: c?.name ?? null,
     askedBeforeCreating,
     mentionedAlarm,
@@ -232,9 +238,22 @@ async function run(s: Scenario): Promise<Result> {
   }
 }
 
-/** `null` znaczy „zadanie nie powinno powstać". */
-const expectedClickup = (code: string): number | null =>
-  code === 'brak' ? null : PRIORITY_LEVELS.find(l => l.code === code)!.clickup
+/**
+ * Priorytet, jakiego oczekujemy w polu ClickUpa. `null` znaczy „zadanie nie
+ * powinno powstać".
+ *
+ * P0 jest tu wyjątkiem: awaria nie ma własnej wartości priority, ale zadanie
+ * MA powstać, z priorytetem P1 (najwyższym, jaki istnieje) i tagiem awarii.
+ * Sam tag sprawdzamy osobno, przez `expectedAwaria`.
+ */
+const expectedClickup = (code: string): number | null => {
+  if (code === 'brak') return null
+  if (code === 'P0') return CHAT_LEVELS[0].clickup
+  return PRIORITY_LEVELS.find(l => l.code === code)!.clickup
+}
+
+/** Tag awarii ma dostać wyłącznie scenariusz awaryjny. */
+const expectedAwaria = (code: string): boolean => code === 'P0'
 
 async function main() {
   const only = process.argv[2]
@@ -247,18 +266,18 @@ async function main() {
   }
 
   console.log('\n=== WYNIK ===')
-  console.log('scenariusz'.padEnd(20), 'oczek.', 'dostał', 'pytał?', 'tur', 'ocena')
+  console.log('scenariusz'.padEnd(20), 'oczek.'.padEnd(11), 'dostał'.padEnd(11), 'pytał?', 'tur', 'ocena')
   let ok = 0
   for (const r of results) {
     const want = expectedClickup(r.scenario.expect)
     const got = r.priority
     const gotCode = got ? levelByClickupPriority(got)?.code ?? '?' : 'brak zadania'
-    const pass = got === want
+    const pass = got === want && r.awaria === expectedAwaria(r.scenario.expect)
     if (pass) ok++
     console.log(
       r.scenario.id.padEnd(20),
-      `${r.scenario.expect}(${want ?? '-'})`.padEnd(7),
-      `${gotCode}(${got ?? '-'})`.padEnd(7),
+      `${r.scenario.expect}(${want ?? '-'})${expectedAwaria(r.scenario.expect) ? '+tag' : ''}`.padEnd(11),
+      `${gotCode}(${got ?? '-'})${r.awaria ? '+tag' : ''}`.padEnd(11),
       (r.askedBeforeCreating ? 'tak' : 'NIE').padEnd(7),
       String(r.turns).padEnd(4),
       pass ? 'OK' : 'ROZJAZD',
@@ -272,7 +291,7 @@ async function main() {
 
   for (const r of results) {
     const want = expectedClickup(r.scenario.expect)
-    if (r.priority !== want || !r.askedBeforeCreating) {
+    if (r.priority !== want || r.awaria !== expectedAwaria(r.scenario.expect) || !r.askedBeforeCreating) {
       console.log(`\n--- ZAPIS ROZMOWY: ${r.scenario.id} (${r.scenario.note ?? ''})`)
       for (const line of r.transcript) console.log(line)
     }

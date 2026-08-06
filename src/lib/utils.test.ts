@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert'
-import { formatDate, getStatusColor, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
+import { formatDate, getStatusColor, isAwaria, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
 
 /** ClickUp podaje daty jako milisekundy w łańcuchu znaków. */
 const ms = (iso: string) => String(new Date(iso).getTime())
@@ -89,5 +89,41 @@ describe('STATUS_COLUMNS kontra STATUS_COLORS', () => {
     // Duplikat rozbilby zadania jednego statusu na dwie kolumny, z ktorych
     // druga zawsze byla by pusta.
     assert.strictEqual(new Set(STATUS_COLUMNS).size, STATUS_COLUMNS.length)
+  })
+})
+
+/**
+ * Rozpoznanie zgloszenia awaryjnego.
+ *
+ * Awaria nie ma wartosci w polu priority ClickUpa (2026-08-06: P1=urgent,
+ * P2=high, P3=normal), wiec jedynym nosnikiem jest tag. Jesli to rozpoznanie
+ * zawiedzie, alarm wyglada na tablicy jak zwykle pilne zadanie.
+ */
+describe('isAwaria', () => {
+  it('lapie tag niezaleznie od wielkosci liter i spacji', () => {
+    // Tag nadaje tez czlowiek recznie w ClickUpie, a tam nikt nie pilnuje
+    // ani wielkosci liter, ani spacji na koncu.
+    assert.strictEqual(isAwaria([{ name: 'awaria' }]), true)
+    assert.strictEqual(isAwaria([{ name: 'Awaria' }]), true)
+    assert.strictEqual(isAwaria([{ name: ' AWARIA ' }]), true)
+  })
+
+  it('znajduje tag obok innych tagow', () => {
+    assert.strictEqual(isAwaria([{ name: 'bug' }, { name: 'awaria' }]), true)
+  })
+
+  it('brak tagow to brak awarii, nie blad', () => {
+    // ClickUp pomija pole tags przy zadaniach bez tagow, wiec undefined jest
+    // normalnym stanem, nie awaria danych.
+    assert.strictEqual(isAwaria(undefined), false)
+    assert.strictEqual(isAwaria(null), false)
+    assert.strictEqual(isAwaria([]), false)
+  })
+
+  it('podobny tag NIE jest awaria', () => {
+    // "błąd krytyczny" i "najwyższy-priorytet" istnieja w przestrzeni i znacza
+    // co innego. Dopasowanie musi byc dokladne, nie "zawiera".
+    assert.strictEqual(isAwaria([{ name: 'błąd krytyczny' }]), false)
+    assert.strictEqual(isAwaria([{ name: 'awaria-krytyczna' }]), false)
   })
 })

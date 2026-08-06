@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AWARIA_TAG } from '@/lib/utils'
 
 /**
  * Prompt asystentki zgłaszającej zadania oraz skala priorytetów.
@@ -21,8 +22,15 @@ export type PriorityLevel = {
   label: string
   /** Kiedy tak klasyfikujemy. Skrót definicji z oferty. */
   when: string
-  /** 1 = Urgent, 2 = High, 3 = Normal, 4 = Low w ClickUpie. */
-  clickup: 1 | 2 | 3 | 4
+  /**
+   * Pole priority w ClickUpie: 1 = Urgent, 2 = High, 3 = Normal, 4 = Low.
+   *
+   * `null` dla awarii, bo awaria NIE MA odpowiednika w polu priority. Idzie
+   * osobnym kanałem (przycisk Alarm), a zadanie z nią związane rozpoznaje się
+   * po tagu AWARIA_TAG, nie po priorytecie. Wcześniej awaria zajmowała
+   * `urgent` i przez to nie dało się jej odróżnić od zwykłej P1.
+   */
+  clickup: 1 | 2 | 3 | null
   /**
    * Czy czat pokazuje ten poziom klientowi do wyboru.
    *
@@ -40,33 +48,40 @@ export const PRIORITY_LEVELS: readonly PriorityLevel[] = [
     code: 'P0',
     label: 'alarm',
     when: 'sklep nie działa albo nie da się złożyć zamówienia, utrata danych, podejrzenie włamania',
-    clickup: 1,
+    clickup: null,
     offeredInChat: false,
   },
   {
     code: 'P1',
     label: 'istotna usterka',
     when: 'sprzedaż idzie, ale kluczowa funkcja nie działa: metoda płatności, synchronizacja z systemem zewnętrznym, maile transakcyjne',
-    clickup: 2,
+    clickup: 1,
     offeredInChat: true,
   },
   {
     code: 'P2',
     label: 'usterka drobna',
     when: 'coś działa lub wyświetla się niepoprawnie, ale nie blokuje sprzedaży ani obsługi zamówień',
-    clickup: 3,
+    clickup: 2,
     offeredInChat: true,
   },
   {
     code: 'P3',
     label: 'zmiana planowana',
     when: 'zmiany treści, banery, drobne modyfikacje, konsultacja',
-    clickup: 4,
+    clickup: 3,
     offeredInChat: true,
   },
 ]
 
-/** Odwrotne odwzorowanie, do opisów i weryfikacji. */
+/**
+ * Odwrotne odwzorowanie, do opisów i weryfikacji.
+ *
+ * `undefined` dla 4 (Low): ClickUp ma ten poziom, skala z umowy nie. Zadanie
+ * z Low jest w porządku, po prostu nie ma poziomu umownego i czasu reakcji.
+ * Awaria też nie wpadnie tutaj nigdy, bo jej `clickup` jest `null`, a `null`
+ * odpada na porównaniu z liczbą.
+ */
 export function levelByClickupPriority(value: number): PriorityLevel | undefined {
   return PRIORITY_LEVELS.find(l => l.clickup === value)
 }
@@ -93,9 +108,19 @@ export const taskInputSchema = z.object({
   priority: z
     .number()
     .min(1)
-    .max(4)
+    .max(3)
     .describe(
-      `Poziom POTWIERDZONY przez klienta: ${PRIORITY_LEVELS.filter(l => l.offeredInChat).map(l => `${l.clickup}=${l.code} ${l.label}`).join(', ')}. Wartość ${PRIORITY_LEVELS.find(l => !l.offeredInChat)!.clickup} (awaria) ustawiasz TYLKO wtedy, gdy opis odpowiada awarii i odesłałeś klienta do przycisku Alarm.`
+      `Poziom POTWIERDZONY przez klienta: ${CHAT_LEVELS.map(l => `${l.clickup}=${l.code} ${l.label}`).join(', ')}. Innych wartości nie ma: awaria nie jest poziomem w tym polu, oznacza ją tag.`
+    ),
+  /**
+   * Tagi zadania. Jedyny tag, który nadaje asystentka, to AWARIA_TAG, i tylko
+   * przy zgłoszeniu awaryjnym. Reszta tagów należy do zespołu.
+   */
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe(
+      `Zostaw puste. Wyjątek: przy zgłoszeniu awaryjnym wstaw dokładnie ["${AWARIA_TAG}"], żeby zadanie dostało w portalu plakietkę Alarm.`
     ),
   listId: z.string().optional().describe('ID listy — zostaw puste żeby użyć domyślnej'),
   due_date_days: z.number().optional().describe('Za ile dni od dziś jest termin'),
@@ -159,7 +184,7 @@ Gdy klient mówi po swojemu („to pilne", „nie spieszy się"), NIE traktuj te
 
 Zgłoszenie, które utknęło w sporze o poziom i nie powstało wcale, jest dla klienta najgorszym z wyników: opisał sprawę, a na tablicy nie ma nic. Zespół poprawi poziom, jeśli będzie trzeba, ale musi mieć co poprawiać. Zadanie zawsze ma powstać.
 
-**Awaria idzie przyciskiem Alarm, nie przez Ciebie i nie z tej listy.** Jeżeli opis odpowiada awarii (${ALARM_LEVEL.when}), NIE pytaj o poziom. Powiedz wprost: „to brzmi na awarię, wciśnij czerwony przycisk Alarm u góry, trafia od razu do zespołu". Zadanie utwórz dodatkowo, z priorytetem ${ALARM_LEVEL.clickup}, i napisz w rozmowie, że je zapisałeś, ale reakcja idzie z alarmu. Sam czat nikogo nie budzi, alarm tak.
+**Awaria idzie przyciskiem Alarm, nie przez Ciebie i nie z tej listy.** Jeżeli opis odpowiada awarii (${ALARM_LEVEL.when}), NIE pytaj o poziom. Powiedz wprost: „to brzmi na awarię, wciśnij czerwony przycisk Alarm u góry, trafia od razu do zespołu". Zadanie utwórz dodatkowo: priorytet ${CHAT_LEVELS[0].clickup} i tag "${AWARIA_TAG}" w polu tags. Awaria NIE MA własnej wartości priorytetu, rozpoznaje się ją po tagu. Napisz w rozmowie, że zadanie zapisałeś, ale reakcja idzie z alarmu. Sam czat nikogo nie budzi, alarm tak.
 
 Czasów reakcji NIE podajesz. Zależą od umowy konkretnego klienta, a Ty ich tutaj nie znasz i pomyłka w tej liczbie jest obietnicą, której zespół może nie dotrzymać.
 

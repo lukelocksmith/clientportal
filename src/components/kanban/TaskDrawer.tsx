@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
-import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User } from 'lucide-react'
+import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria } from '@/lib/utils'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 
@@ -176,6 +176,15 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
               >
                 {task.status.status}
               </span>
+
+              {/* Awaria: tag, nie priorytet, więc stoi obok plakietki
+                  priorytetu, a nie zamiast niej. */}
+              {isAwaria(task.tags) && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                  Alarm
+                </span>
+              )}
 
               {/* Priority badge */}
               {task.priority && (

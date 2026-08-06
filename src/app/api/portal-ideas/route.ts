@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getPortalForSession } from '@/lib/portalSession'
+import { requirePortalApi } from '@/lib/apiSession'
 import {
   submitIdea,
   ideaSubmittedRecently,
@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
 
   const { slug, text } = parsed.data
 
-  const result = await getPortalForSession(slug)
-  if (!result.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { session, portal } = result
+  const gate = await requirePortalApi(slug)
+  if (!gate.ok) return gate.response
+  const { session, portal } = gate
 
   // Admin przeglądający portal ma userId 'admin', czyli nie uuid. Do audit_log
   // wchodzi wtedy null, bo klucz obcy wskazuje na portal_users.

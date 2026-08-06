@@ -15,6 +15,7 @@ import {
   filterTasksToScope,
   filterTimeEntriesToScope,
   scopeCacheKey,
+  taskBelongsToPortal,
 } from '@/lib/portalScope'
 import type { ClickUpTask, ClickUpTimeEntry } from '@/lib/types'
 
@@ -118,5 +119,39 @@ describe('scopeCacheKey', () => {
     assert.notStrictEqual(scopeCacheKey(['a']), scopeCacheKey(['a', 'b']))
     assert.notStrictEqual(scopeCacheKey([]), scopeCacheKey(['a']))
     assert.strictEqual(scopeCacheKey([]), 'caly-folder')
+  })
+})
+
+describe('taskBelongsToPortal', () => {
+  const zadanie = (folderId: string | undefined, listId?: string) => ({
+    folder: folderId === undefined ? null : { id: folderId },
+    list: listId === undefined ? null : { id: listId },
+  })
+
+  it('inny folder -> nie nalezy, nawet gdy lista jest w zakresie', () => {
+    assert.strictEqual(taskBelongsToPortal(zadanie('obcy', 'a'), 'moj', ['a']), false)
+  })
+
+  it('wlasciwy folder, pusty zakres -> nalezy', () => {
+    assert.strictEqual(taskBelongsToPortal(zadanie('moj', 'dowolna'), 'moj', []), true)
+  })
+
+  it('wlasciwy folder, lista poza zakresem -> NIE nalezy', () => {
+    // To jest ta luka, przez ktora klient EFF widzial zadania z listy "EFF SEO":
+    // sam folder sie zgadza, a lista nigdy nie zostala do portalu wybrana.
+    assert.strictEqual(taskBelongsToPortal(zadanie('moj', 'eff-seo'), 'moj', ['eff-portal']), false)
+  })
+
+  it('wlasciwy folder, lista w zakresie -> nalezy', () => {
+    assert.strictEqual(taskBelongsToPortal(zadanie('moj', 'eff-portal'), 'moj', ['eff-portal']), true)
+  })
+
+  it('brak informacji o folderze -> odmowa, nie przepuszczenie', () => {
+    // Brak potwierdzenia traktujemy jak odmowe, bo to sa dane widoczne dla klienta.
+    assert.strictEqual(taskBelongsToPortal(zadanie(undefined), 'moj', []), false)
+  })
+
+  it('brak informacji o liscie przy zawezonym zakresie -> odmowa', () => {
+    assert.strictEqual(taskBelongsToPortal(zadanie('moj'), 'moj', ['a']), false)
   })
 })

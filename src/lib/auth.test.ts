@@ -48,7 +48,6 @@ import {
   getSession,
   setSessionCookie,
   deleteSessionCookie,
-  requireSession,
 } from './auth'
 import { sessions, portalUsers, portals } from './db/schema'
 import { eq } from 'drizzle-orm'
@@ -331,55 +330,5 @@ describe('createSession', () => {
     const eqSpy = eq as unknown as { mock: { calls: unknown[][] } }
     const updatedUserId = eqSpy.mock.calls.find(call => call[0] === portalUsers.id)?.[1]
     assert.strictEqual(updatedUserId, 'user-42')
-  })
-})
-
-describe('requireSession', () => {
-  it('brak sesji -> Unauthorized', async () => {
-    await assert.rejects(() => requireSession('wdf'), /Unauthorized/)
-  })
-
-  it('sesja innego portalu -> Unauthorized (granica miedzy klientami trzyma)', async () => {
-    cookieStore.get.mockReturnValue({ value: 'raw-token' })
-    dbMock.select.mockReturnValue(selectChain(new Map([[sessions, [sessionRow({ portalSlug: 'wdf' })]]])))
-
-    await assert.rejects(() => requireSession('onyx'), /Unauthorized/)
-  })
-
-  it('sesja wlasciwego portalu -> zwraca sesje', async () => {
-    cookieStore.get.mockReturnValue({ value: 'raw-token' })
-    dbMock.select.mockReturnValue(selectChain(new Map([[sessions, [sessionRow({ portalSlug: 'wdf' })]]])))
-
-    const session = await requireSession('wdf')
-    assert.strictEqual(session.portalSlug, 'wdf')
-  })
-
-  /**
-   * UWAGA — realny defekt znaleziony przy pisaniu tych testow (dokumentujemy
-   * go, nie naprawiamy, bo zadanie tego nie obejmuje):
-   *
-   * `requireSession` wola `getSession()` BEZ argumentu `slug`. Galaz "obejscie
-   * admina" wewnatrz `getSession` jest zabezpieczona przez `if (slug)`, wiec
-   * przy wywolaniu bez sluga NIGDY sie nie wykonuje — nawet gdy admin jest
-   * zalogowany, a portal o zadanym slugu istnieje. Efekt: `requireSession`
-   * nie daje dostepu adminowi, mimo ze `getSession(slug)` z tymi samymi
-   * mockami by go dal.
-   *
-   * To NIE jest podniesienie uprawnien (klient dalej nie widzi cudzego
-   * portalu) — to falszywa odmowa dostepu adminowi. Sprawdzone grepem:
-   * `requireSession` nie jest dzis wywolywane nigdzie indziej w repo, wiec
-   * defekt jest uspiony, a nie aktywnie eksploatowany.
-   */
-  it('BUG: requireSession nie korzysta z obejscia admina, bo woła getSession() bez sluga', async () => {
-    cookieStore.get.mockReturnValue(undefined)
-    adminAuthMock.getAdminSession.mockResolvedValue(true)
-    dbMock.select.mockReturnValue(selectChain(new Map([[portals, [{ id: 'portal-wdf', slug: 'wdf' }]]])))
-
-    await assert.rejects(() => requireSession('wdf'), /Unauthorized/)
-
-    // Dowod, ze to brak przekazania sluga, a nie brak dzialajacego admina:
-    // ten sam stan mockow, wywolany PRZEZ getSession(slug) bezposrednio, dziala.
-    const direct = await getSession('wdf')
-    assert.ok(direct, 'getSession(slug) z tym samym stanem mockow zwraca sesje admina')
   })
 })

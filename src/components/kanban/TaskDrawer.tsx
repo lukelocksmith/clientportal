@@ -101,7 +101,9 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
   useEffect(() => {
     async function loadComments() {
       setLoadingComments(true)
-      const res = await fetch(`/api/clickup/tasks/${task.id}/comments`)
+      const res = await fetch(
+        `/api/clickup/tasks/${task.id}/comments?slug=${encodeURIComponent(slug)}`
+      )
       if (res.ok) {
         const data = await res.json()
         setComments(data.comments ?? [])
@@ -129,7 +131,10 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
     if (!newComment.trim()) return
 
     setSendingComment(true)
-    const res = await fetch(`/api/clickup/tasks/${task.id}/comments`, {
+    // `slug` obowiązkowo, tak samo jak przy odczycie: bez niego trasa nie zna
+    // projektu, a obejście admina w `getSession` działa tylko dla nazwanego
+    // portalu. Brak sluga oznaczał pusty wątek komentarzy w podglądzie admina.
+    const res = await fetch(`/api/clickup/tasks/${task.id}/comments?slug=${encodeURIComponent(slug)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: newComment }),

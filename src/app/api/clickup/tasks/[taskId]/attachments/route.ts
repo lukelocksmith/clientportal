@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { getPortalScope } from '@/lib/portalScopeStore'
-import { portals } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
-import { addTaskAttachment, verifyTaskBelongsToFolder } from '@/lib/clickup'
+import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
+import { addTaskAttachment } from '@/lib/clickup'
 
 export const runtime = 'nodejs'
 
@@ -17,21 +13,14 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
-  const slug = request.nextUrl.searchParams.get('slug') ?? undefined
-  const session = await getSession(slug)
-  if (!session || session.portalSlug !== slug) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const gate = await requirePortalApi(request.nextUrl.searchParams.get('slug'))
+  if (!gate.ok) return gate.response
 
   const { taskId } = await params
 
-  const portal = await db.select().from(portals).where(eq(portals.slug, slug!)).limit(1)
-  if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
   // IDOR: the task must live in this portal's folder before we touch it.
-  const scope = await getPortalScope(portal[0].id)
-  const belongs = await verifyTaskBelongsToFolder(taskId, portal[0].clickupFolderId, scope)
-  if (!belongs) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const scope = await requireTaskInPortal(taskId, gate.portal)
+  if (!scope.ok) return scope.response
 
   const form = await request.formData()
   const files = form.getAll('files').filter((f): f is File => f instanceof File).slice(0, MAX_FILES)

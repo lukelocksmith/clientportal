@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { portals, panicAlerts, portalLists } from '@/lib/db/schema'
+import { panicAlerts, portalLists } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
+import { requirePortalApi } from '@/lib/apiSession'
 import crypto from 'crypto'
 import { normalizeActorId, reporterLabel, withReporterFooter } from '@/lib/reporter'
 import { logEvent, EVENT_PANIC_ALERT, EVENT_TASK_CREATED } from '@/lib/portalEvents'
@@ -134,21 +134,18 @@ async function createAlarmTask(input: {
 
 export async function POST(request: NextRequest) {
   const { slug, message } = await request.json()
-  const session = await getSession(slug)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.portalSlug !== slug) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const gate = await requirePortalApi(slug)
+  if (!gate.ok) return gate.response
+  const { session, portal } = gate
 
   if (!message?.trim()) {
     return NextResponse.json({ error: 'Message required' }, { status: 400 })
   }
 
-  const portal = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
   const ackToken = crypto.randomBytes(32).toString('hex')
 
   const [alert] = await db.insert(panicAlerts).values({
-    portalId: portal[0].id,
+    portalId: portal.id,
     userId: normalizeActorId(session.userId),
     userEmail: session.email,
     userName: session.name,
@@ -157,7 +154,7 @@ export async function POST(request: NextRequest) {
   }).returning()
 
   await logEvent({
-    portalId: portal[0].id,
+    portalId: portal.id,
     actor: { userId: session.userId, email: session.email, name: session.name },
     action: EVENT_PANIC_ALERT,
     resourceId: alert.id,
@@ -172,19 +169,19 @@ export async function POST(request: NextRequest) {
 
   // Discord notification
   await sendDiscord(
-    `🚨 **ALARM od klienta ${portal[0].name}!**\n\n` +
+    `🚨 **ALARM od klienta ${portal.name}!**\n\n` +
     `> ${message.trim()}\n\n` +
     `**Zgłasza:** ${who}\n\n` +
     `**Kliknij żeby potwierdzić że się tym zajmujesz:**\n${ackUrl}`
   )
 
   // Email notification
-  const emailSubject = `🚨 ALARM: ${portal[0].name} — ${message.trim().slice(0, 60)}`
+  const emailSubject = `🚨 ALARM: ${portal.name} — ${message.trim().slice(0, 60)}`
   const emailBody = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
       <div style="background:#ef4444;color:white;padding:20px;border-radius:8px 8px 0 0">
         <h1 style="margin:0;font-size:24px">🚨 ALARM od klienta</h1>
-        <p style="margin:8px 0 0;opacity:0.9">${esc(portal[0].name)}</p>
+        <p style="margin:8px 0 0;opacity:0.9">${esc(portal.name)}</p>
       </div>
       <div style="border:1px solid #e5e7eb;border-top:0;padding:24px;border-radius:0 0 8px 8px">
         <p style="font-size:16px;color:#111827;margin-top:0">${esc(message.trim())}</p>
@@ -201,13 +198,13 @@ export async function POST(request: NextRequest) {
     </div>
   `
 
-  await sendEmails(emailSubject, emailBody, portal[0].id)
+  await sendEmails(emailSubject, emailBody, portal.id)
 
   await createAlarmTask({
-    portalId: portal[0].id,
-    portalName: portal[0].name,
-    portalSlug: portal[0].slug,
-    folderId: portal[0].clickupFolderId,
+    portalId: portal.id,
+    portalName: portal.name,
+    portalSlug: portal.slug,
+    folderId: portal.clickupFolderId,
     message: message.trim(),
     session: { userId: session.userId, email: session.email, name: session.name },
   })

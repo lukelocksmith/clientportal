@@ -40,16 +40,29 @@ export type CronRunResult = {
   startedAt: Date
 }
 
-/** Zapisuje przebieg i alarmuje, gdy się nie udał. */
+/**
+ * Zapisuje przebieg i alarmuje, gdy się nie udał.
+ *
+ * Zapis do rejestru NIE MOŻE wywalić crona, tak samo jak `logEvent` nie może
+ * wywalić trasy. Obie trasy cronowe wołają tę funkcję w pętli po portalach, w
+ * tym z bloku `catch`. Bez tej ochrony padnięty insert przerywał całą pętlę i
+ * pozostałe projekty zostawały niezsynchronizowane, a przy porażce w gałęzi
+ * `try` wchodził jeszcze `catch`, który zapisywał UDANY przebieg jako nieudany.
+ * Historia synchronizacji ma opisywać przebieg, a nie decydować o nim.
+ */
 export async function recordCronRun(result: CronRunResult): Promise<void> {
-  await db.insert(cronRuns).values({
-    job: result.job,
-    portalId: result.portalId ?? null,
-    ok: result.ok,
-    itemsProcessed: result.itemsProcessed ?? 0,
-    detail: result.detail ?? null,
-    startedAt: result.startedAt,
-  })
+  try {
+    await db.insert(cronRuns).values({
+      job: result.job,
+      portalId: result.portalId ?? null,
+      ok: result.ok,
+      itemsProcessed: result.itemsProcessed ?? 0,
+      detail: result.detail ?? null,
+      startedAt: result.startedAt,
+    })
+  } catch (e) {
+    console.error('[cron] nie udało się zapisać przebiegu:', e)
+  }
 
   if (!result.ok) {
     const where = result.portalSlug ? ` (projekt: ${result.portalSlug})` : ''

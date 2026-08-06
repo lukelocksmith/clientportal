@@ -1,4 +1,5 @@
-import type { ClickUpTask, ClickUpComment, ClickUpStatus, PortalList, ClickUpTimeEntry } from './types'
+import type { ClickUpTask, ClickUpComment, ClickUpStatus, ClickUpTimeEntry } from './types'
+import { taskBelongsToPortal } from './portalScope'
 
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 const TOKEN = process.env.CLICKUP_API_TOKEN!
@@ -336,10 +337,9 @@ export async function verifyTaskBelongsToFolder(
   scope: readonly string[] = []
 ): Promise<boolean> {
   try {
-    const task = await getTask(taskId)
-    if (task.folder.id !== folderId) return false
-    if (scope.length === 0) return true
-    return typeof task.list?.id === 'string' && scope.includes(task.list.id)
+    // Reguła jest w portalScope.ts, bo trasa szczegółów zadania stosuje ją do
+    // zadania, które już pobrała. Tutaj dokładamy tylko pobranie.
+    return taskBelongsToPortal(await getTask(taskId), folderId, scope)
   } catch {
     return false
   }

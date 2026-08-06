@@ -36,6 +36,24 @@ export function isListInScope(listId: string | null | undefined, scope: PortalSc
 }
 
 /**
+ * Czy JUŻ POBRANE zadanie należy do portalu: właściwy folder i lista w zakresie.
+ *
+ * Czysta reguła, bo ma dwóch wołających o różnych kosztach. Trasa szczegółów
+ * zadania ma zadanie w ręku i drugie pobranie z ClickUpa byłoby zmarnowanym
+ * wywołaniem; `verifyTaskBelongsToFolder` zna tylko identyfikator i musi pobrać.
+ * Reguła jest jedna, więc obie ścieżki nie mogą się rozjechać, a testować da
+ * się ją bez sieci.
+ */
+export function taskBelongsToPortal(
+  task: { folder?: { id?: string } | null; list?: { id?: string } | null },
+  folderId: string,
+  scope: PortalScope
+): boolean {
+  if (task.folder?.id !== folderId) return false
+  return isListInScope(task.list?.id, scope)
+}
+
+/**
  * Zadania należące do zakresu.
  *
  * Podzadanie dziedziczy listę po rodzicu, więc wystarczy patrzeć na `list.id`

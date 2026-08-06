@@ -191,25 +191,57 @@ describe('recordCronRun — alarm na Discordzie przy porazce', () => {
   })
 })
 
+/**
+ * Padnięty zapis do rejestru NIE MOŻE przewrócić crona.
+ *
+ * Obie trasy cronowe (`task-index`, `time-snapshot`) wołają `recordCronRun` w
+ * pętli po portalach i NIE otaczają go własnym try/catch. Zanim ta ochrona
+ * powstała, jedno odrzucenie przerywało pętlę: pozostałe projekty zostawały
+ * niezsynchronizowane, a przy porażce zapisu w gałęzi `try` trasy wchodził
+ * jeszcze jej `catch` i zapisywał UDANY przebieg jako nieudany.
+ */
 describe('recordCronRun — blad zapisu do rejestru', () => {
-  it('REALNY BLAD: gdy sam insert do rejestru padnie, recordCronRun odrzuca obietnice zamiast ja polykac', async () => {
+  it('padniety insert nie przerywa crona (obietnica sie nie odrzuca)', async () => {
     const { recordCronRun } = await freshCronRuns('https://discord.test/webhook')
     insertValues.mockRejectedValueOnce(new Error('baza niedostepna'))
-    const fetchMock = vi.fn(async (_url: string, _init: { method: string; headers: Record<string, string>; body: string }) => ({ ok: true }))
-    vi.stubGlobal('fetch', fetchMock)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })))
 
-    // W obu wywolujacych trasach (`task-index`, `time-snapshot`) to wywolanie
-    // NIE jest otoczone wlasnym try/catch, wiec odrzucenie leci dalej do
-    // handlera trasy i moze przerwac petle po pozostalych portalach.
-    await assert.rejects(
-      () => recordCronRun({ job: 'task-index', ok: false, detail: 'x', startedAt: new Date() }),
-      /baza niedostepna/
+    await assert.doesNotReject(() =>
+      recordCronRun({ job: 'task-index', ok: false, detail: 'x', startedAt: new Date() })
     )
 
-    // Skoro insert padl przed sprawdzeniem `result.ok`, alarm o awarii NIGDY
-    // nie wychodzi — awaria samego rejestru jest wiec CICHSZA niz awaria,
-    // ktora rejestr mial nagłaśniać.
+    // Cisza jest gorsza od awarii: awaria rejestru ma zostawic slad w logach.
+    assert.strictEqual(errorSpy.mock.calls.length, 1)
+    errorSpy.mockRestore()
+  })
+
+  it('alarm o porazce wychodzi MIMO padnietego zapisu do rejestru', async () => {
+    const { recordCronRun } = await freshCronRuns('https://discord.test/webhook')
+    insertValues.mockRejectedValueOnce(new Error('baza niedostepna'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await recordCronRun({ job: 'task-index', ok: false, detail: 'x', startedAt: new Date() })
+
+    // Wczesniej insert wywalal sie PRZED sprawdzeniem `result.ok`, wiec awaria
+    // samego rejestru byla CICHSZA niz awaria, ktora rejestr mial naglasniac.
+    assert.strictEqual(fetchMock.mock.calls.length, 1)
+    vi.mocked(console.error).mockRestore()
+  })
+
+  it('udany przebieg z padnietym zapisem nie wysyla falszywego alarmu', async () => {
+    const { recordCronRun } = await freshCronRuns('https://discord.test/webhook')
+    insertValues.mockRejectedValueOnce(new Error('baza niedostepna'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchMock = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await recordCronRun({ job: 'task-index', ok: true, startedAt: new Date() })
+
     assert.strictEqual(fetchMock.mock.calls.length, 0)
+    vi.mocked(console.error).mockRestore()
   })
 })
 

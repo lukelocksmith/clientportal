@@ -1,4 +1,3 @@
-import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { db } from './db'
 import { sessions, portalUsers, portals } from './db/schema'
@@ -6,9 +5,10 @@ import { eq, and, gt } from 'drizzle-orm'
 import type { Session } from './types'
 import { createHash, randomBytes } from 'crypto'
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? 'dev-secret-change-in-production'
-)
+// Sesje są trzymane w bazie (`sessions.token_hash`), nie w JWT. Stąd tu nie ma
+// ani sekretu, ani podpisywania: ciasteczko niesie losowy token, a rozstrzyga
+// jego skrót w tabeli. Import `jose` i stała JWT_SECRET zostały po poprzednim
+// podejściu i nie miały już żadnego czytelnika.
 const COOKIE_NAME = 'portal_session'
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000 // 7 days
 
@@ -136,10 +136,17 @@ export async function deleteSessionCookie() {
   }
 }
 
-export async function requireSession(slug: string): Promise<Session> {
-  const session = await getSession()
-  if (!session || session.portalSlug !== slug) {
-    throw new Error('Unauthorized')
-  }
-  return session
-}
+/*
+ * USUNIĘTE: `requireSession(slug)`.
+ *
+ * Wołało `getSession()` BEZ sluga, więc gałąź obejścia admina była nieosiągalna:
+ * admin dostawał wyjątek „Unauthorized" na portalu, który miał prawo oglądać.
+ * Nie było tego widać, bo funkcja nie miała ani jednego wywołania w repo.
+ *
+ * Zastąpiona przez dwa wejścia, które sluga wymagają:
+ *   strony     → `getPortalForSession` (lib/portalSession.ts)
+ *   trasy API  → `requirePortalApi`    (lib/apiSession.ts)
+ *
+ * Trzecia kopia tej samej reguły, w dodatku zepsuta, to była pułapka czekająca
+ * na pierwszego wołającego.
+ */

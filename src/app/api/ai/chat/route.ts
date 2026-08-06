@@ -4,10 +4,10 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { createOpenAI } from '@ai-sdk/openai'
 import { NextRequest } from 'next/server'
-import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { portals, portalLists, aiUsage } from '@/lib/db/schema'
+import { portalLists, aiUsage } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
+import { requirePortalApi } from '@/lib/apiSession'
 import { createTask } from '@/lib/clickup'
 import { computeCost } from '@/lib/aiPricing'
 import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
@@ -58,19 +58,16 @@ export async function POST(request: NextRequest) {
     return new Response('This AI feature is not available', { status: 403 })
   }
 
-  const session = await getSession(slug)
-  if (!session) return new Response('Unauthorized', { status: 401 })
-  if (session.portalSlug !== slug) return new Response('Forbidden', { status: 403 })
+  const gate = await requirePortalApi(slug)
+  if (!gate.ok) return gate.response
+  const { session, portal } = gate
 
   const messages = await convertToModelMessages(uiMessages)
-
-  const portal = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal[0]) return new Response('Not found', { status: 404 })
 
   const lists = await db
     .select()
     .from(portalLists)
-    .where(eq(portalLists.portalId, portal[0].id))
+    .where(eq(portalLists.portalId, portal.id))
     .orderBy(portalLists.sortOrder)
 
   const defaultList = lists.find(l => l.isDefault) ?? lists[0]
@@ -78,7 +75,7 @@ export async function POST(request: NextRequest) {
 
   // ── SYSTEM PROMPTS ────────────────────────────────────────────────────────
 
-  const NEW_TASK_PROMPT = buildNewTaskPrompt({ portalName: portal[0].name, today })
+  const NEW_TASK_PROMPT = buildNewTaskPrompt({ portalName: portal.name, today })
 
   const createTaskTool = tool({
     description: CREATE_TASK_TOOL_DESCRIPTION,
@@ -105,8 +102,8 @@ export async function POST(request: NextRequest) {
         description: withReporterFooter(description, {
           name: session.name,
           email: session.email,
-          portalName: portal[0].name,
-          portalSlug: portal[0].slug,
+          portalName: portal.name,
+          portalSlug: portal.slug,
           source: 'ai',
         }),
         priority: priority ?? null,
@@ -124,10 +121,10 @@ export async function POST(request: NextRequest) {
 
       // Bez tego klient zglosilby zadanie przez asystenta, odswiezyl strone
       // i nie zobaczyl go na tablicy przez kilkadziesiat sekund.
-      await invalidateFolderTasks(portal[0].clickupFolderId)
+      await invalidateFolderTasks(portal.clickupFolderId)
 
       await logEvent({
-        portalId: portal[0].id,
+        portalId: portal.id,
         actor: { userId: session.userId, email: session.email, name: session.name },
         action: EVENT_TASK_CREATED,
         resourceId: task.id,
@@ -158,7 +155,7 @@ export async function POST(request: NextRequest) {
         const output = u?.outputTokens ?? u?.completionTokens ?? 0
         const total = u?.totalTokens ?? input + output
         await db.insert(aiUsage).values({
-          portalId: portal[0].id,
+          portalId: portal.id,
           // `session.userId` bywa łańcuchem 'admin' (obejście admina w
           // lib/auth.ts), a kolumna jest typu uuid. Bez tej normalizacji insert
           // leciał wyjątkiem, ten catch go zjadał i zużycie AI z sesji admina

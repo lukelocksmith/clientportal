@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { portals, portalLists } from '@/lib/db/schema'
+import { portalLists } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
+import { requirePortalApi } from '@/lib/apiSession'
 import { getAllTasksForFolder, getAllTasksForLists, createTask } from '@/lib/clickup'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
@@ -12,36 +12,24 @@ import { invalidateFolderTasks } from '@/lib/clickupCache'
 
 // GET /api/clickup/tasks?slug=wdf
 export async function GET(request: NextRequest) {
-  const slug = request.nextUrl.searchParams.get('slug')
-  if (!slug) return NextResponse.json({ error: 'Missing slug' }, { status: 400 })
-
-  const session = await getSession(slug ?? undefined)
-  if (!session || session.portalSlug !== slug) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const portal = await db
-    .select()
-    .from(portals)
-    .where(eq(portals.slug, slug))
-    .limit(1)
-
-  if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const gate = await requirePortalApi(request.nextUrl.searchParams.get('slug'))
+  if (!gate.ok) return gate.response
+  const { portal } = gate
 
   // CELOWO bez cache'u, w przeciwieństwie do renderowania strony. Tę trasę
   // woła przycisk „Odśwież", więc podanie z bufora zamieniłoby go w atrapę:
   // klient klika, widzi kręcące się kółko i te same dane.
-  const scope = await getPortalScope(portal[0].id)
+  const scope = await getPortalScope(portal.id)
   const rawTasks = scope.length > 0
     ? await getAllTasksForLists(scope)
-    : await getAllTasksForFolder(portal[0].clickupFolderId)
-  const snapshots = await getSnapshotMap(portal[0].id)
+    : await getAllTasksForFolder(portal.clickupFolderId)
+  const snapshots = await getSnapshotMap(portal.id)
   const tasks = mergeTrackedTime(rawTasks, snapshots)
 
   // Świeże dane właśnie zobaczył klient, więc bufor strony jest od tej chwili
   // starszy niż jego ekran. Unieważniamy, żeby kolejne wejście na tablicę nie
   // cofnęło widoku.
-  await invalidateFolderTasks(portal[0].clickupFolderId)
+  await invalidateFolderTasks(portal.clickupFolderId)
 
   return NextResponse.json({ tasks }, {
     headers: { 'Cache-Control': 'private, max-age=30' }
@@ -53,15 +41,12 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const { slug, name, description, priority, due_date } = body
 
-  const session = await getSession(slug ?? undefined)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const gate = await requirePortalApi(slug)
+  if (!gate.ok) return gate.response
+  const { session, portal } = gate
 
-  if (!slug || !name) {
+  if (!name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-  }
-
-  if (session.portalSlug !== slug) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Get default list for this portal
@@ -78,9 +63,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No default list configured' }, { status: 500 })
   }
 
-  const portal = await db.select().from(portals).where(eq(portals.id, session.portalId)).limit(1)
-  if (!portal[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
   const task = await createTask(list[0].clickupListId, {
     name,
     // Stopka z autorem. Zespół pracuje w ClickUpie i tam musi widzieć, kto
@@ -89,15 +71,15 @@ export async function POST(request: NextRequest) {
     description: withReporterFooter(description, {
       name: session.name,
       email: session.email,
-      portalName: portal[0].name,
-      portalSlug: portal[0].slug,
+      portalName: portal.name,
+      portalSlug: portal.slug,
       source: 'form',
     }),
     priority: priority ?? null,
     due_date: due_date ?? null,
   })
 
-  await invalidateFolderTasks(portal[0].clickupFolderId)
+  await invalidateFolderTasks(portal.clickupFolderId)
 
   // Po utworzeniu, nie przed: zapis historii nie może zablokować zgłoszenia,
   // a wiersz bez istniejącego zadania byłby historią czegoś, co nie powstało.

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getPortalForSession } from '@/lib/portalSession'
+import { requirePortalApi } from '@/lib/apiSession'
 import { countUnread, listForUser, markRead } from '@/lib/notificationStore'
 import { normalizeActorId } from '@/lib/reporter'
 
@@ -17,13 +17,10 @@ function ownUserId(sessionUserId: string): string | null {
 }
 
 export async function GET(request: NextRequest) {
-  const slug = request.nextUrl.searchParams.get('slug')
-  if (!slug) return NextResponse.json({ error: 'Missing slug' }, { status: 400 })
+  const gate = await requirePortalApi(request.nextUrl.searchParams.get('slug'))
+  if (!gate.ok) return gate.response
 
-  const result = await getPortalForSession(slug)
-  if (!result.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const userId = ownUserId(result.session.userId)
+  const userId = ownUserId(gate.session.userId)
   if (!userId) return NextResponse.json({ unread: 0, items: [], adminPreview: true })
 
   const [unread, items] = await Promise.all([countUnread(userId), listForUser(userId)])
@@ -52,10 +49,10 @@ export async function POST(request: NextRequest) {
   const parsed = markSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
 
-  const result = await getPortalForSession(parsed.data.slug)
-  if (!result.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const gate = await requirePortalApi(parsed.data.slug)
+  if (!gate.ok) return gate.response
 
-  const userId = ownUserId(result.session.userId)
+  const userId = ownUserId(gate.session.userId)
   if (!userId) return NextResponse.json({ ok: true, adminPreview: true })
 
   // markRead sam wiąże warunek z `userId`, więc identyfikator z przeglądarki

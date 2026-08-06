@@ -1,13 +1,15 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, BarChart3, Send, Loader2, History } from 'lucide-react'
+import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, Send, Loader2, History } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserActivityDialog } from '@/components/admin/UserActivityDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
+import { AiUsageStats } from '@/components/admin/AiUsageStats'
+import { AdminLoginScreen } from '@/components/admin/AdminLoginScreen'
 import { ProjectEvents } from '@/components/admin/ProjectEvents'
 import { ProjectSyncLog } from '@/components/admin/ProjectSyncLog'
 import { ProjectMailLog } from '@/components/admin/ProjectMailLog'
@@ -32,8 +34,6 @@ type Stats = {
   byProjectModel: Array<Stat & { portalId: string; provider: string; model: string }>
 }
 
-const fmtNum = (n: number) => Math.round(n).toLocaleString('pl-PL')
-const fmtUsd = (n: number) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
 type User = {
   id: string; email: string; name: string | null; isActive: boolean
   portalName: string | null; portalSlug: string | null; portalId: string
@@ -43,9 +43,6 @@ type User = {
 export default function AdminPanel() {
   const [authed, setAuthed] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [loginEmail, setLoginEmail] = useState('')
-  const [loginPassword, setLoginPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
   const [users, setUsers] = useState<User[]>([])
   const [portals, setPortals] = useState<Portal[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
@@ -156,25 +153,6 @@ export default function AdminPanel() {
     // Tylko na wejsciu. Kolejne pobrania ida przez handleLogin i Odswiez.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault()
-    const res = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-    })
-    if (res.ok) {
-      setAuthed(true)
-      setLoginError('')
-      // Konieczne, odkad `authed` nie ma juz efektu, ktory na nie reagowal:
-      // bez tego po zalogowaniu panel bylby pusty.
-      await load()
-    } else {
-      const d = await res.json()
-      setLoginError(d.error ?? 'Błąd logowania')
-    }
-  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -344,46 +322,7 @@ export default function AdminPanel() {
   )
 
   if (!authed) return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-primary text-primary-foreground text-xl font-bold mb-4">i</div>
-          <h1 className="text-2xl font-bold text-foreground">Admin Panel</h1>
-          <p className="text-sm text-muted-foreground mt-1">Client Portal — important.is</p>
-        </div>
-        <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>
-              <Input
-                type="email"
-                value={loginEmail}
-                onChange={e => setLoginEmail(e.target.value)}
-                autoFocus
-                required
-               
-                placeholder="admin@important.is"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Hasło</label>
-              <Input
-                type="password"
-                value={loginPassword}
-                onChange={e => setLoginPassword(e.target.value)}
-                required
-               
-                placeholder="••••••••"
-              />
-            </div>
-            {loginError && <p className="text-sm text-destructive">{loginError}</p>}
-            <Button type="submit" className="w-full">
-              Zaloguj
-            </Button>
-          </form>
-        </div>
-      </div>
-    </div>
+    <AdminLoginScreen onLoggedIn={async () => { setAuthed(true); await load() }} />
   )
 
   const byPortal = portals.map(p => ({
@@ -427,86 +366,13 @@ export default function AdminPanel() {
       </header>
 
       <main className="p-6 max-w-4xl mx-auto space-y-8">
-        {/* AI usage & cost */}
         {stats && (
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <BarChart3 className="h-4 w-4 text-primary" />
-              <h2 className="font-semibold text-foreground">Zużycie AI (czat „nowe zadanie”)</h2>
-              <span className="text-xs text-muted-foreground ml-auto">koszty szacunkowe wg cennika</span>
-            </div>
-
-            {/* Totals */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-              {[
-                { label: 'Zapytania', value: fmtNum(stats.totals.calls) },
-                { label: 'Tokeny (razem)', value: fmtNum(stats.totals.totalTokens) },
-                { label: 'Input / Output', value: `${fmtNum(stats.totals.inputTokens)} / ${fmtNum(stats.totals.outputTokens)}` },
-                { label: 'Koszt', value: fmtUsd(stats.totals.costUsd) },
-              ].map(c => (
-                <div key={c.label} className="bg-card rounded-xl border border-border p-3">
-                  <p className="text-xs text-muted-foreground">{c.label}</p>
-                  <p className="text-lg font-semibold text-foreground mt-0.5">{c.value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-4">
-              {/* By project */}
-              <div className="bg-card rounded-xl border border-border overflow-hidden">
-                <p className="text-xs font-medium text-muted-foreground px-3 py-2 bg-muted/40 border-b border-border">Wg projektu</p>
-                {stats.byProject.length === 0 ? <p className="text-xs text-muted-foreground p-3">Brak danych</p> : (
-                  <table className="w-full text-xs">
-                    <tbody className="divide-y divide-border">
-                      {stats.byProject.map(r => (
-                        <tr key={r.portalId}>
-                          <td className="px-3 py-2 text-foreground truncate">{r.name ?? r.slug ?? '—'}</td>
-                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtNum(r.totalTokens)} tok</td>
-                          <td className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* By user */}
-              <div className="bg-card rounded-xl border border-border overflow-hidden">
-                <p className="text-xs font-medium text-muted-foreground px-3 py-2 bg-muted/40 border-b border-border">Wg użytkownika</p>
-                {stats.byUser.length === 0 ? <p className="text-xs text-muted-foreground p-3">Brak danych</p> : (
-                  <table className="w-full text-xs">
-                    <tbody className="divide-y divide-border">
-                      {stats.byUser.map((r, i) => (
-                        <tr key={r.userEmail ?? i}>
-                          <td className="px-3 py-2 text-foreground truncate max-w-[120px]">{r.userEmail ?? '—'}</td>
-                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtNum(r.totalTokens)} tok</td>
-                          <td className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* By model */}
-              <div className="bg-card rounded-xl border border-border overflow-hidden">
-                <p className="text-xs font-medium text-muted-foreground px-3 py-2 bg-muted/40 border-b border-border">Wg modelu</p>
-                {stats.byModel.length === 0 ? <p className="text-xs text-muted-foreground p-3">Brak danych</p> : (
-                  <table className="w-full text-xs">
-                    <tbody className="divide-y divide-border">
-                      {stats.byModel.map((r, i) => (
-                        <tr key={`${r.provider}/${r.model}` + i}>
-                          <td className="px-3 py-2 text-foreground truncate max-w-[120px]" title={`${r.provider}/${r.model}`}>{r.model}</td>
-                          <td className="px-3 py-2 text-right text-muted-foreground whitespace-nowrap">{fmtNum(r.totalTokens)} tok</td>
-                          <td className="px-3 py-2 text-right font-medium text-foreground whitespace-nowrap">{fmtUsd(r.costUsd)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </section>
+          <AiUsageStats
+            totals={stats.totals}
+            byProject={stats.byProject}
+            byUser={stats.byUser}
+            byModel={stats.byModel}
+          />
         )}
 
         {/* Projekty w zakladkach, nie jedna sekcja pod druga: przy szesnastu

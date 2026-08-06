@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { visibleTabs, type PortalFlags } from '@/lib/portalTabs'
 import type { PortalBranding } from '@/lib/branding'
+import { NotificationBell } from '@/components/NotificationBell'
 
 interface PortalHeaderProps {
   slug: string
@@ -104,7 +105,12 @@ export function PortalHeader({
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">{children}</div>
+        {/* Dzwonek przed akcjami strony: jest wspólny dla całego portalu,
+            a `children` bywa zestawem przycisków konkretnej zakładki. */}
+        <div className="ml-auto flex items-center gap-2">
+          <NotificationBell slug={slug} />
+          {children}
+        </div>
       </div>
     </header>
   )

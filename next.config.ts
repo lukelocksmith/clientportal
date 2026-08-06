@@ -41,10 +41,27 @@ const securityHeaders = [
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
 ]
 
+/**
+ * HSTS jest WYLACZONY w developmencie i to nie jest wygodnictwo.
+ *
+ * Serwer deweloperski chodzi po http, a HSTS obowiazuje CALY host `localhost`,
+ * bez rozroznienia portu, i przegladarka pamieta go rok. Wyslany raz z tego
+ * projektu psul logowanie w Safari nie tylko tutaj, ale w kazdej innej
+ * aplikacji uruchamianej lokalnie na dowolnym porcie. Chrome traktuje
+ * localhost ulgowo, Safari nie.
+ *
+ * Zglosil Lukasz 2026-08-06: „nie da sie wejsc, https nie dziala".
+ */
+const isDev = process.env.NODE_ENV !== 'production'
+
+const activeHeaders = isDev
+  ? securityHeaders.filter(h => h.key !== 'Strict-Transport-Security')
+  : securityHeaders
+
 const nextConfig: NextConfig = {
   output: 'standalone',
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }]
+    return [{ source: '/:path*', headers: activeHeaders }]
   },
 };
 

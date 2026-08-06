@@ -38,9 +38,14 @@ export async function requirePortalApi(
 
   const result = await getPortalForSession(slug)
   if (!result.ok) {
-    // Brak portalu to 404, brak sesji to 401. Rozróżnienie jest celowe: 404 na
-    // nieistniejący projekt nie zdradza niczego, a 401 na cudzy projekt tak samo
-    // jak na brak logowania, więc nie da się nim sprawdzać, kto istnieje.
+    // NIEISTNIEJĄCY projekt kończy się kodem 401, nie 404, i tak ma być: nie da
+    // się tą trasą sprawdzać, które projekty istnieją. Wynika to z tego, że
+    // zanim jest sesja, portal jest już potwierdzony — dla klienta przez JOIN
+    // w `getSession`, dla admina przez jego własne wyszukanie portalu po slugu.
+    //
+    // Gałąź 404 zostaje na wąski wyścig: portal skasowany MIĘDZY sprawdzeniem
+    // sesji a odczytem rekordu. Wtedy sesja jest prawidłowa, a zasobu nie ma,
+    // więc 401 byłoby kłamstwem. Zmierzone testem integracyjnym, nie założone.
     return result.reason === 'no-portal'
       ? { ok: false, response: NextResponse.json({ error: 'Not found' }, { status: 404 }) }
       : { ok: false, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }

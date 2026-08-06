@@ -14,10 +14,20 @@ interface AnnotationLike {
   textSnippet: string
   elementTag: string
   elementId?: string | null
+  textPrefix: string
+  textSuffix: string
+  fingerprint: string
+  neighborText: string
+  anchorKey?: string | null
   xPct: number
   yPct: number
   wPct: number
   hPct: number
+  scrollX: number
+  scrollY: number
+  viewportW: number
+  viewportH: number
+  devicePixelRatio: number
 }
 
 const CLIENT_ID_MARKER = /<!--\s*siteping-client-id:([a-zA-Z0-9_-]+)\s*-->/

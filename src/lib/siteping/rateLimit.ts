@@ -21,6 +21,13 @@ export function checkRateLimit(
   key: string,
   options: { max?: number; windowMs?: number } = {}
 ): boolean {
+  // Produkcyjne zabezpieczenie, nie testowa niedogodnosc — wylaczone TYLKO w
+  // `next dev` (`NODE_ENV=development`), zeby reczne klikanie w widget na
+  // localhost nie wpadalo w 429 po garstce prob. Celowo NIE `!== 'production'`:
+  // Vitest ustawia `NODE_ENV=test`, a rateLimit.test.ts sprawdza realne
+  // dzialanie limitu — szersze wylaczenie ubilo by te testy po cichu.
+  if (process.env.NODE_ENV === 'development') return true
+
   const max = options.max ?? 10
   const windowMs = options.windowMs ?? 60_000
   const now = Date.now()

@@ -5,6 +5,8 @@ import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
 import { createClickUpSitepingStore } from '@/lib/siteping/store'
 import { checkRateLimit } from '@/lib/siteping/rateLimit'
+import { clampAnnotationRanges } from '@/lib/siteping/clampPayload'
+import { isFromAllowedDomain, corsOrigins } from '@/lib/siteping/origin'
 
 export const runtime = 'nodejs'
 
@@ -53,46 +55,6 @@ function clientIp(request: NextRequest): string {
 }
 
 /**
- * Nazwa hosta, z ktorej realnie przyszlo zadanie — albo null.
- *
- * `Origin` jest wlasciwym naglowkiem, `Referer` to zapas: przegladarki
- * pomijaja `Origin` przy czesci zapytan GET, a wtedy `Referer` jest jedynym
- * sladem strony wywolujacej. Oba sa pelnymi adresami (`https://host/sciezka`),
- * a `site_domains` trzyma same nazwy hostow, wiec porownujemy hosty, nie
- * surowe ciagi — inaczej zaden realny ruch z przegladarki by nie przeszedl.
- */
-function requestHostname(request: NextRequest): string | null {
-  const raw = request.headers.get('origin') ?? request.headers.get('referer')
-  if (!raw) return null
-  try {
-    return new URL(raw).hostname.toLowerCase()
-  } catch {
-    return null
-  }
-}
-
-/**
- * Czy zadanie przyszlo z domeny tego portalu.
- *
- * TO JEST WLASCIWA BRAMA, nie `allowedOrigins` w `createSitepingHandler`.
- * Sprawdzone w skompilowanym pakiecie (`buildCorsHeaders` w `dist/index.js`):
- * `allowedOrigins` decyduje WYLACZNIE o tym, czy odpowiedz dostanie naglowek
- * `Access-Control-Allow-Origin`. Zadanie nie jest przez to odrzucane — curl
- * albo skrypt bez naglowka `Origin` przechodzi tamtedy nietkniety, bo CORS
- * jest mechanizmem przegladarki, a nie serwera.
- *
- * Brak `Origin` I `Referer` to takze odmowa: nic legalnego nie wola tego
- * endpointu spoza przegladarki. PATCH/DELETE swiadomie NIE przechodza przez
- * te brame — tam brama jest inna (`SITEPING_API_KEY`), a klient z tokenem
- * zadnego `Origin` nie wysyla.
- */
-function isFromAllowedDomain(request: NextRequest, portal: ResolvedPortal): boolean {
-  const hostname = requestHostname(request)
-  if (!hostname) return false
-  return portal.siteDomains.some(d => d.toLowerCase() === hostname)
-}
-
-/**
  * Wspolna brama publicznych metod: najpierw domena, potem czestotliwosc.
  *
  * W tej kolejnosci naumyslnie — ruch spoza dozwolonej domeny nie ma prawa
@@ -108,7 +70,7 @@ function publicGuard(
   portal: ResolvedPortal,
   limit: { bucket: string; max: number }
 ): Response | null {
-  if (!isFromAllowedDomain(request, portal)) {
+  if (!isFromAllowedDomain(request, portal.siteDomains)) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -120,26 +82,10 @@ function publicGuard(
   return null
 }
 
-/**
- * Origin do naglowka CORS, jesli wolno go odeslac.
- *
- * `createSitepingHandler` porownuje `allowedOrigins` z naglowkiem `Origin`
- * ZNAK PO ZNAKU, a `site_domains` trzyma same nazwy hostow — podanie ich tam
- * wprost znaczyloby, ze naglowek CORS nie pojawi sie NIGDY i przegladarka
- * zablokowalaby kazda odpowiedz, lacznie z ta dla prawdziwego klienta.
- * Dlatego odsylamy dokladnie ten `Origin`, ktory przyszedl, i tylko wtedy, gdy
- * jego host przeszedl juz nasza wlasna kontrole (`isFromAllowedDomain`).
- */
-function corsOrigins(request: NextRequest, portal: ResolvedPortal): string[] {
-  const origin = request.headers.get('origin')
-  if (!origin || !isFromAllowedDomain(request, portal)) return []
-  return [origin]
-}
-
 function buildHandler(portal: ResolvedPortal, request: NextRequest): SitepingHandler {
   return createSitepingHandler({
     store: createClickUpSitepingStore(portal),
-    allowedOrigins: corsOrigins(request, portal),
+    allowedOrigins: corsOrigins(request, portal.siteDomains),
     apiKey: process.env.SITEPING_API_KEY,
     // POST: widget submits from an unauthenticated browser. GET: the
     // widget's own panel lists past feedback, also unauthenticated.
@@ -174,13 +120,46 @@ async function withPortal(
 
 type Params = { params: Promise<{ slug: string }> }
 
+/**
+ * Zadanie z anotacjami sprowadzonymi do zakresow adaptera.
+ *
+ * Widget potrafi przyslac ulamki spoza [0,1] przy zwyklym przeciagnieciu poza
+ * krawedz elementu, a adapter odrzuca wtedy CALE zgloszenie — szczegoly i dowod
+ * w `clampPayload.ts`. Przycinamy tutaj, na wejsciu, zeby dalej plynal payload,
+ * ktory walidacja pakietu przyjmuje.
+ *
+ * Cialo zadania da sie odczytac tylko raz, wiec skladamy nowe `Request` z tymi
+ * samymi naglowkami. Payload nie bedacy JSON-em przepuszczamy nietkniety —
+ * odpowiedz na to nalezy do walidacji adaptera, nie do nas.
+ */
+async function withClampedAnnotations(request: NextRequest): Promise<Request> {
+  const raw = await request.text()
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return new Request(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: raw,
+    })
+  }
+
+  return new Request(request.url, {
+    method: 'POST',
+    headers: request.headers,
+    body: JSON.stringify(clampAnnotationRanges(parsed)),
+  })
+}
+
 /** Zapis: tworzy zadanie w ClickUpie, wiec najciasniejszy budzet. */
 export async function POST(request: NextRequest, { params }: Params) {
   const { slug } = await params
   return withPortal(
     request,
     slug,
-    handler => handler.POST(request),
+    async handler => handler.POST(await withClampedAnnotations(request)),
     portal => publicGuard(request, portal, { bucket: 'post', max: 10 })
   )
 }

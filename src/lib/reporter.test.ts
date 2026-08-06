@@ -82,6 +82,11 @@ describe('reporterFooter', () => {
       'adres obejsciowy nie ma sie pojawiac jako zglaszajacy klient'
     )
   })
+
+  it('etykietuje kanal siteping', () => {
+    const out = reporterFooter({ ...KLIENT, source: 'siteping' })
+    assert.match(out, /\*\*Kanał:\*\* zgłoszenie z widgetu na stronie/)
+  })
 })
 
 describe('withReporterFooter', () => {

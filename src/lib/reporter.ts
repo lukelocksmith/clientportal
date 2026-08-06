@@ -14,7 +14,7 @@
  */
 
 /** Skąd przyszło zgłoszenie. Ten sam człowiek zgłasza różnymi drogami. */
-export type ReportSource = 'form' | 'ai' | 'idea' | 'panic' | 'comment'
+export type ReportSource = 'form' | 'ai' | 'idea' | 'panic' | 'comment' | 'siteping'
 
 export type Reporter = {
   /** Imię z konta. Null jest normalny: zaproszenie mogło pójść bez imienia. */
@@ -31,6 +31,7 @@ const SOURCE_LABELS: Record<ReportSource, string> = {
   idea: 'Dashboard, pomysł na ulepszenie portalu',
   panic: 'przycisk alarmowy w portalu',
   comment: 'komentarz w portalu',
+  siteping: 'zgłoszenie z widgetu na stronie',
 }
 
 /**

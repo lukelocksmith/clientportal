@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <title>SitePing manual test</title>
+</head>
+<body>
+  <h1>Strona testowa</h1>
+  <p>To jest testowy przycisk poniżej — kliknij go, potem otwórz widget (prawy dolny róg) i zgłoś anotację.</p>
+  <button style="padding: 12px 24px; font-size: 16px;">Zamów teraz</button>
+
+  <script src="/node_modules/@siteping/widget/dist/index.global.js"></script>
+  <script>
+    window.SitePing.initSiteping({
+      endpoint: 'http://localhost:3000/api/siteping/siteping-test',
+      projectName: 'siteping-test',
+      enableScreenshot: true,
+      identity: { name: 'Test Klient', email: 'test@example.com' },
+    })
+  </script>
+</body>
+</html>

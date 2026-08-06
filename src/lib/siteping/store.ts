@@ -180,8 +180,18 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
         // sie nie wgral — poprzednie wywolanie umarlo miedzy "zadanie
         // powstalo" a "zalacznik JSON wgrany" (timeout, blip sieciowy).
         // Dokoncz upload na TYM SAMYM zadaniu, nie tworz drugiego: retry ma
-        // sie samonaprawic, a nie zduplikowac.
+        // sie samonaprawic, a nie zduplikowac. Ta sciezka zamyka to samo
+        // zgloszenie co createTask nizej, wiec dostaje te same efekty
+        // uboczne (cache, log), zeby obie sciezki byly symetryczne.
         await uploadFeedbackData(match.id, data)
+        await invalidateFolderTasks(portal.clickupFolderId)
+        await logEvent({
+          portalId: portal.id,
+          actor: { userId: null, email: data.authorEmail, name: data.authorName || null },
+          action: EVENT_TASK_CREATED,
+          resourceId: match.id,
+          meta: { source: 'siteping', taskName: full.name, url: data.url },
+        })
         return recordFromCreateInput(data, match.id, new Date(Number(full.date_created)))
       }
 

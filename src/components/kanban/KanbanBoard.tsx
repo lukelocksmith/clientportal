@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useOptimistic } from 'react'
+import { useState, useEffect, useCallback, useOptimistic } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -11,6 +11,7 @@ import {
   useSensors,
   closestCorners,
 } from '@dnd-kit/core'
+import { useSearchParams } from 'next/navigation'
 import type { ClickUpTask, KanbanColumn } from '@/lib/types'
 import { getStatusColor, STATUS_COLUMNS } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
@@ -86,12 +87,56 @@ function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
 }
 
 export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding }: KanbanBoardProps) {
+  /**
+   * Zadanie wskazane adresem: `/[slug]?task=<id>`.
+   *
+   * Tego brakowało, przez co powiadomienie z dzwonka prowadziło na tablicę i
+   * zostawiało klienta z pytaniem „to które to zadanie". Ten sam adres nadaje
+   * się do wysłania komuś linkiem.
+   */
+  const searchParams = useSearchParams()
+  const taskFromUrl = searchParams.get('task')
+
   const [tasks, setTasks] = useState<ClickUpTask[]>(initialTasks)
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
-  const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
+  /**
+   * Szuflada otwarta od razu, gdy adres wskazuje zadanie.
+   *
+   * Wyliczone w inicjalizatorze `useState`, a NIE w efekcie: ustawienie stanu
+   * w efekcie wywołuje dodatkowy render i jest wyłapywane przez lintera jako
+   * kaskada. Tutaj i tak chcemy zareagować dokładnie raz, przy montowaniu,
+   * więc inicjalizator jest właściwym miejscem, nie obejściem.
+   */
+  const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(() =>
+    taskFromUrl ? findTaskInTree(initialTasks, taskFromUrl) : null
+  )
   const [showChat, setShowChat] = useState(false)
   const [chatMode, setChatMode] = useState<'new-task' | 'general'>('general')
   const [refreshing, setRefreshing] = useState(false)
+
+  /**
+   * Sprzątanie po adresie z `?task=`. Bez ustawiania stanu: szuflada została
+   * już otwarta w inicjalizatorze wyżej.
+   *
+   * Parametr zdejmujemy z adresu (`replaceState`, bez wpisu w historii), żeby
+   * zamknięcie szuflady i przycisk wstecz nie otwierały jej w kółko.
+   */
+  useEffect(() => {
+    if (!taskFromUrl) return
+
+    // Zadanie bywa poza tablicą: zamknięte dawno temu, przeniesione na inną
+    // listę albo usunięte. Cisza wyglądałaby jak zepsuty odnośnik, więc
+    // mówimy wprost, gdzie go szukać.
+    if (!findTaskInTree(initialTasks, taskFromUrl)) {
+      toast('Tego zadania nie ma na tablicy. Poszukaj go w Historii.')
+    }
+
+    const clean = new URL(window.location.href)
+    clean.searchParams.delete('task')
+    window.history.replaceState(null, '', clean.toString())
+    // `initialTasks` celowo poza zależnościami: reagujemy RAZ, na adres.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskFromUrl])
 
   const columns = buildColumns(tasks)
 

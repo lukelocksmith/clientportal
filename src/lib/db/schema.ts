@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex, index, doublePrecision } from 'drizzle-orm/pg-core'
+import { pgTable, text, boolean, timestamp, integer, uuid, bigint, uniqueIndex, index, doublePrecision, jsonb } from 'drizzle-orm/pg-core'
 
 export const portals = pgTable('portals', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -100,7 +100,47 @@ export const portalUsers = pgTable('portal_users', {
   lockedUntil: timestamp('locked_until'),
   lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  /**
+   * Zdjęcie profilowe jako data URI (256×256 WebP, skalowane w przeglądarce).
+   * NIE wolno go wstawiać w payloady list: jest do tego trasa /api/avatar,
+   * z cache po stronie przeglądarki. Inaczej lista komentarzy ciągnęłaby
+   * dziesiątki kilobajtów przy każdym otwarciu szuflady.
+   */
+  avatarUrl: text('avatar_url'),
+  /** Komentarze [P] i potwierdzone alarmy. `instant` | `daily` | `never`. */
+  notifyImportant: text('notify_important').notNull().default('instant'),
+  /** Zmiany statusów i zamknięcia. `instant` | `daily` | `never`. */
+  notifyBoard: text('notify_board').notNull().default('daily'),
 })
+
+/**
+ * Powiadomienia dla klienta o tym, co dzieje się w jego zadaniach.
+ *
+ * Jeden wiersz to jedno powiadomienie dla JEDNEJ osoby, nie zdarzenie
+ * współdzielone. Dzięki temu stan przeczytania i stan wysyłki maila są
+ * per człowiek, bez tabeli łączącej.
+ *
+ * Kolejka zbiorczych maili nie jest osobnym bytem: to `email_sent_at IS NULL`.
+ */
+export const notifications = pgTable('notifications', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => portalUsers.id, { onDelete: 'cascade' }),
+  /** `comment` | `status` | `closed` | `panic_ack` */
+  kind: text('kind').notNull(),
+  clickupTaskId: text('clickup_task_id'),
+  /** Zdenormalizowana, żeby powiadomienie przeżyło zniknięcie zadania. */
+  taskName: text('task_name').notNull(),
+  payload: jsonb('payload').notNull().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  /** Null = nieprzeczytane. */
+  readAt: timestamp('read_at'),
+  /** Null = czeka na zbiorczy mail. Stempluje i wysyłka natychmiastowa, i digest. */
+  emailSentAt: timestamp('email_sent_at'),
+}, (t) => ({
+  unreadIdx: index('notifications_user_unread_idx').on(t.userId, t.readAt, t.createdAt),
+  pendingMailIdx: index('notifications_user_pending_mail_idx').on(t.userId, t.emailSentAt),
+}))
 
 /**
  * Linki projektu pokazywane na Dashboardzie: strona produkcyjna, staging,

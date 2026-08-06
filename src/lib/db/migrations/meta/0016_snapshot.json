@@ -1,6 +1,6 @@
 {
-  "id": "6461d6b6-d47e-492b-aac2-28d3fed4946e",
-  "prevId": "3c985747-ce94-4c13-a49c-c68518e789ca",
+  "id": "78145e16-a669-423a-910a-73a894f82d0d",
+  "prevId": "6461d6b6-d47e-492b-aac2-28d3fed4946e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1113,6 +1113,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "siteping_enabled": {
+          "name": "siteping_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "site_domains": {
+          "name": "site_domains",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

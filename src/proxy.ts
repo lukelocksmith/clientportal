@@ -43,8 +43,11 @@ function buildCsp(nonce: string): string {
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    'upgrade-insecure-requests',
-  ].join('; ')
+    // Podnoszenie http na https tylko na produkcji. Lokalnie serwer chodzi po
+    // http, więc ta dyrektywa kazałaby przeglądarce pukać po https na port,
+    // na którym nie ma TLS-a, i strona nie wstawała wcale (Safari 2026-08-06).
+    ...(isDev ? [] : ['upgrade-insecure-requests']),
+  ].filter(Boolean).join('; ')
 }
 
 // Middleware runs on Edge — we only do lightweight cookie check here.

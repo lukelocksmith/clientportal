@@ -62,10 +62,19 @@ export const portals = pgTable('portals', {
    */
   sitepingEnabled: boolean('siteping_enabled').notNull().default(false),
   /**
-   * Domeny, z ktorych /api/siteping/[slug] przyjmuje zadania — po przecinku
-   * (np. "wdf.important.is,wodadlafirmy.pl"). Klient moze miec staging i
-   * produkcje jako dwie realne, rozne domeny (nie www/non-www warianty
-   * jednej). Null = flaga bez sensu wlaczac, endpoint i tak 404uje.
+   * Domeny, z ktorych /api/siteping/[slug] przyjmuje zgloszenia — SAME NAZWY
+   * HOSTOW po przecinku (np. "wdf.important.is,wodadlafirmy.pl"), bez schematu
+   * i bez sciezki. Klient moze miec staging i produkcje jako dwie realne,
+   * rozne domeny (nie www/non-www warianty jednej).
+   *
+   * JAK TO JEST EGZEKWOWANE. Trasa parsuje naglowek `Origin` zadania (albo
+   * `Referer`, gdy `Origin` go nie ma), bierze z niego `hostname` i porownuje
+   * z ta lista. Brak obu naglowkow albo host spoza listy to 403 dla GET i
+   * POST, PRZED dotknieciem ClickUpa. To jest wlasciwa brama; `allowedOrigins`
+   * w `createSitepingHandler` steruje wylacznie naglowkiem
+   * `Access-Control-Allow-Origin` i sam z siebie niczego nie odrzuca.
+   *
+   * Null = flaga bez sensu wlaczac, endpoint i tak 404uje.
    */
   siteDomains: text('site_domains'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

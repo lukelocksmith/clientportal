@@ -942,7 +942,7 @@ If you already have a local portal seeded (`npm run db:seed` or a copy of prod d
 
 ```bash
 docker exec cp-test-pg psql -U postgres -d clientportal -c \
-  "UPDATE portals SET siteping_enabled = true, site_domains = 'http://localhost:5500' WHERE slug = '<your-test-portal-slug>';"
+  "UPDATE portals SET siteping_enabled = true, site_domains = 'localhost' WHERE slug = '<your-test-portal-slug>';"
 ```
 
 Otherwise, insert one pointing at a real folder/list id you control (replace the ClickUp ids):
@@ -950,7 +950,7 @@ Otherwise, insert one pointing at a real folder/list id you control (replace the
 ```bash
 docker exec cp-test-pg psql -U postgres -d clientportal -c "
   INSERT INTO portals (slug, name, clickup_folder_id, siteping_enabled, site_domains)
-  VALUES ('siteping-test', 'SitePing Test', '<real-clickup-folder-id>', true, 'http://localhost:5500')
+  VALUES ('siteping-test', 'SitePing Test', '<real-clickup-folder-id>', true, 'localhost')
   RETURNING id;
 "
 ```
@@ -1026,7 +1026,16 @@ curl -s -X POST http://localhost:3000/api/siteping/siteping-test \
   -d '{"projectName":"siteping-test","type":"bug","message":"test","url":"https://x.com","viewport":"1x1","userAgent":"x","authorName":"x","authorEmail":"x@x.com","annotations":[],"clientId":"abc123"}'
 ```
 
-Expected: the response has no `Access-Control-Allow-Origin` header for `evil.example.com` (inspect with `curl -sD -`), and depending on the package's exact enforcement point, either a rejection status or a response the browser would have blocked client-side — confirm by checking response headers, not just status code, since server-side origin checks in this package are primarily a CORS-header decision, not a hard 403 (re-verify against Step 4's browser test being the real gate).
+Expected: **HTTP 403** with `{"error":"Forbidden"}`, and no `Access-Control-Allow-Origin` header (inspect with `curl -sD -`). The route enforces this itself, before the package's handler runs: it parses the `Origin` header's hostname (falling back to `Referer`) and compares it to `site_domains`. The package's own `allowedOrigins` is only a CORS-header decision and rejects nothing — that is why the check lives in our route.
+
+Also confirm the no-header case, which is the hole a browser-only CORS check leaves open:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3000/api/siteping/siteping-test \
+  -H "Content-Type: application/json" \
+  -d '{"projectName":"siteping-test","type":"bug","message":"test","url":"https://x.com","viewport":"1x1","userAgent":"x","authorName":"x","authorEmail":"x@x.com","annotations":[],"clientId":"abc124"}'
+# Expected: 403 — no Origin and no Referer is a refusal, not a pass.
+```
 
 Also confirm the 404 path — disable the flag and confirm the endpoint disappears:
 

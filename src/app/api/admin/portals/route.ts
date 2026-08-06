@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
       reportsEnabled: portals.reportsEnabled,
       historyEnabled: portals.historyEnabled,
       dashboardEnabled: portals.dashboardEnabled,
+      sitepingEnabled: portals.sitepingEnabled,
+      siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
       contactMemberIds: portals.contactMemberIds,
@@ -43,6 +45,36 @@ const UpdatePortalSchema = z
     reportsEnabled: z.boolean().optional(),
     historyEnabled: z.boolean().optional(),
     dashboardEnabled: z.boolean().optional(),
+    sitepingEnabled: z.boolean().optional(),
+    /**
+     * Domeny, z których endpoint SitePing przyjmuje zgłoszenia — SAME NAZWY
+     * HOSTÓW po przecinku (`wdf.important.is,wodadlafirmy.pl`), bez schematu
+     * i bez ścieżki. Porównujemy je z hostem z nagłówka `Origin`/`Referer`,
+     * więc wpis ze schematem nigdy by nie pasował. Pusty ciąg czyści pole,
+     * a wtedy endpoint wraca do 404 niezależnie od flagi.
+     *
+     * Walidacja jest TUTAJ, bo /api/admin/* przyjmuje też ADMIN_API_TOKEN,
+     * czyli curl omija panel w całości — a to pole jest allowlistą
+     * bezpieczeństwa, nie kosmetyką.
+     */
+    siteDomains: z
+      .string()
+      .max(500)
+      .nullable()
+      .optional()
+      .transform(v =>
+        v === undefined
+          ? undefined
+          : v === null || v.trim() === ''
+            ? null
+            : v.split(',').map(d => d.trim().toLowerCase()).filter(Boolean).join(',')
+      )
+      // `localhost` (bez kropki) przechodzi celowo — to jest domena strony
+      // testowej z Task 7 planu.
+      .refine(
+        v => v === undefined || v === null || v.split(',').every(d => /^[a-z0-9.-]+$/.test(d)),
+        { message: 'Podaj same nazwy hostów po przecinku, bez https:// i bez ścieżki' }
+      ),
     /**
      * Kolor marki `#rrggbb`, `#rgb` albo bez kratki. Pusty ciąg i null
      * czyszczą pole, wracając do koloru domyślnego portalu.
@@ -126,6 +158,11 @@ const UpdatePortalSchema = z
  *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
  *        -d '{"slug":"onyx","brandColor":"#c8a24a","logoUrl":"https://onyx.wroclaw.pl/logo.png"}'
  *
+ * SitePing wymaga OBU pól naraz — sama flaga bez domen zostawia endpoint na
+ * 404, bo nie ma z czym porównać nagłówka Origin:
+ *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+ *        -d '{"slug":"wdf","sitepingEnabled":true,"siteDomains":"wdf.important.is,wodadlafirmy.pl"}'
+ *
  * Zod ma `.strict()`, więc nieznane pole daje 400 zamiast cichego pominięcia.
  */
 export async function PATCH(request: NextRequest) {
@@ -164,6 +201,8 @@ export async function PATCH(request: NextRequest) {
       reportsEnabled: portals.reportsEnabled,
       historyEnabled: portals.historyEnabled,
       dashboardEnabled: portals.dashboardEnabled,
+      sitepingEnabled: portals.sitepingEnabled,
+      siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
       contactMemberIds: portals.contactMemberIds,

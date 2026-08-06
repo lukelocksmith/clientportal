@@ -58,7 +58,15 @@ Odpowiedź w formacie AnnotationResponse/FeedbackResponse, jak oczekuje @sitepin
 ## Zmiany w schemacie (`src/lib/db/schema.ts`, nowa migracja)
 
 - `portals.siteping_enabled` (boolean, `not null default false`) — flaga rollout per projekt.
-- `portals.site_domains` (text, nullable) — domeny dozwolone dla tego portalu, po przecinku (np. `wdf.important.is,wodadlafirmy.pl`), sprawdzane wobec `Origin`/`Referer` żądania. Ten sam styl co istniejące `contactMemberIds`.
+- `portals.site_domains` (text, nullable) — domeny dozwolone dla tego portalu: **same nazwy hostów** po przecinku (np. `wdf.important.is,wodadlafirmy.pl`), bez schematu i bez ścieżki. Ten sam styl co istniejące `contactMemberIds`. Trasa parsuje nagłówek `Origin` żądania (a gdy go nie ma, `Referer`), bierze z niego `hostname` i porównuje z tą listą — porównanie idzie po hoście, nie po surowym ciągu, bo przeglądarka wysyła pełny origin (`https://wodadlafirmy.pl`), a lista trzyma same hosty.
+
+Oba pola przełącza się przez istniejące `/api/admin/portals` (PATCH, `ADMIN_API_TOKEN` albo sesja admina), nie ręcznym SQL-em:
+
+```bash
+curl -X PATCH https://portal.important.is/api/admin/portals \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" -H "Content-Type: application/json" \
+  -d '{"slug":"wdf","sitepingEnabled":true,"siteDomains":"wdf.important.is,wodadlafirmy.pl"}'
+```
 
 ## Endpoint: `src/app/api/siteping/[slug]/route.ts`
 
@@ -98,12 +106,20 @@ Zgodnie z resztą portalu (kanban czyta ClickUp live, nie cache'uje w Postgresie
 - `tags: ['siteping']`, `status: 'do zrobienia'`, lista = `defaultList` portalu (ten sam wybór co w tool `createTask` czatu AI).
 
 ### Koszt/ryzyko odczytu na żywo
-`getFeedbacks` robi jeden `getAllTasksForFolder` + N dociągnięć załącznika (N = liczba zgłoszeń na danej stronie, typowo niewielka — panel jest per-URL). Brak nowej tabeli, ale odczyt jest wolniejszy niż read z lokalnej bazy; akceptowalne, bo panel widgetu nie jest krytyczną ścieżką (klient i tak widzi status w kanbanie portalu).
+`getFeedbacks` bierze listę zadań folderu z **cache'u** (`getCachedTasksForScope(folderId, [])` — ten sam `unstable_cache`, 45 s i znacznik, z którego korzysta kanban; `store.ts` woła `invalidateFolderTasks` po każdym zapisie, więc świeżość jest zachowana), a potem dociąga załącznik dla **maksymalnie 20** zadań na żądanie. To samo dotyczy dedupu (`findByClientId`). Bez cache'u byłoby jedno pełne przejście po folderze (5-12 wywołań ClickUpa) na każde wejście na stronę klienta i każdą nawigację SPA widgetu, na wspólnym `CLICKUP_API_TOKEN` — ruch jednego klienta mógłby wyczerpać limit wszystkim pozostałym. Brak nowej tabeli, odczyt wolniejszy niż z lokalnej bazy; akceptowalne, bo panel widgetu nie jest krytyczną ścieżką (klient i tak widzi status w kanbanie portalu).
+
+## Warunek wstępny rolloutu: tag `siteping` w przestrzeni ClickUp
+
+**Zanim flaga zostanie włączona dla jakiegokolwiek portalu, tag `siteping` musi już istnieć w przestrzeni ClickUp tego klienta (`portals.clickup_space_id`).** ClickUp po cichu pomija nazwy tagów, których w danej przestrzeni nie ma — zadanie powstaje, ale bez tagu, a wtedy przestaje działać dedup, `getFeedbacks` i filtrowanie po stronie zespołu, bez jednego błędu gdziekolwiek (ta sama pułapka jest już udokumentowana przy `createTask` w `lib/clickup.ts`). Tag zakłada się raz, ręcznie w ClickUpie, na dowolnym zadaniu w tej przestrzeni.
+
+`createFeedback` sprawdza tagi zwrócone przez `createTask` i pisze `console.warn` z nazwą portalu, gdy tagu zabrakło — to jest sygnał do sprawdzenia w logach serwera przy pierwszym uruchomieniu na nowym kliencie, nie zabezpieczenie: zadanie i tak już powstało.
 
 ## Bezpieczeństwo
 
-- Origin/Referer musi się zgadzać z jedną z domen w `site_domains` — inaczej 403 (bez rozróżnienia „nie ma takiego portalu” vs „zła domena”, żeby nie ułatwiać rekonesansu).
-- Rate-limit per portal + per IP (implementacja w pamięci procesu wystarczy na start — pojedynczy kontener na Coolify; do udokumentowania jako znane ograniczenie, nie do rozwiązania w tym sub-projekcie).
+- Origin/Referer musi się zgadzać z jedną z domen w `site_domains` — inaczej 403 (bez rozróżnienia „nie ma takiego portalu” vs „zła domena”, żeby nie ułatwiać rekonesansu). Sprawdzenie robi **nasza trasa**, przed wywołaniem handlera pakietu: parsuje `Origin` (fallback `Referer`), bierze `hostname` i porównuje z listą; brak obu nagłówków to również 403, bo nic uprawnionego nie woła tego endpointu spoza przeglądarki. `allowedOrigins` w `createSitepingHandler` **nie jest** tą bramą — zweryfikowane w skompilowanym pakiecie (`buildCorsHeaders`): steruje wyłącznie nagłówkiem `Access-Control-Allow-Origin` i nie odrzuca żadnego żądania, więc curl bez `Origin` przeszedłby tamtędy nietknięty. Do tego samego handlera podajemy jako `allowedOrigins` dokładnie ten `Origin`, który przyszedł, i tylko po przejściu naszej kontroli — pakiet porównuje tę listę z nagłówkiem znak po znaku, a lista hostów nigdy by się z pełnym originem nie zrównała i nagłówek CORS nie pojawiłby się nawet dla prawdziwego klienta.
+- Rate-limit per portal + per IP, **osobne kubełki dla GET i POST** (30/min odczytów, 10/min zapisów): jedna uczciwa wizyta to kilka odczytów panelu i najwyżej jeden zapis, więc wspólny licznik albo dusiłby odczyty, albo rozluźniał zapisy. Kontrola domeny idzie przed limitem, żeby ruch spoza allowlisty nie zjadał budżetu realnego odwiedzającego z tego samego IP. Implementacja w pamięci procesu wystarczy na start — pojedynczy kontener na Coolify; do udokumentowania jako znane ograniczenie, nie do rozwiązania w tym sub-projekcie.
+- **Zgłoszenie nie może podszyć się pod agencję ani wejść do `audit_log` jako tożsamość.** `authorEmail`/`authorName` pochodzą z anonimowego formularza widgetu. Zgłoszenie z `admin@important.is` jest odrzucane w całości (ten adres uruchamia `isAdminActor` i podpisałby zadanie jako „important.is, tryb administratora”). Do `audit_log` idzie aktor pusty (`userId`/`email`/`name` = null), a deklarowane dane lądują w `meta.submittedName`/`meta.submittedEmail` — kolumny `user_email`/`user_name` są czytane przez `getTaskReporter`/`portalEventActors` jak tożsamość realnego członka portalu i nie wolno ich karmić danymi bez uwierzytelnienia. Stopka w opisie zadania ClickUp nadal pokazuje dane podane przez zgłaszającego: to niższa stawka, człowiek czytający opis zadania wie, że autor się przedstawił sam.
+- **Sufit rozstrzału odczytu.** `getFeedbacks` czyta listę zadań folderu przez `getCachedTasksForScope` (ten sam cache co kanban, 45 s, unieważniany po każdym zapisie), a liczbę zadań dociąganych per żądanie obcina do 20, niezależnie od `limit` przysłanego przez klienta (schemat pakietu dopuszcza 100). Bez tego jedno anonimowe GET mogło wymusić kilkaset wywołań na wspólnym `CLICKUP_API_TOKEN` i zablokować portale wszystkich pozostałych klientów.
 - Zod `.strict()` na całym payloadzie (wzorem `portal-ideas/route.ts`), limit długości treści i rozmiaru screenshotu (odrzucić zamiast próbować skalować/kompresować — to zwiększa powierzchnię błędu bez wyraźnej potrzeby).
 - Wszystkie stringi z widgetu (treść, `textSnippet`, `elementTag` itd.) przechodzą przez `esc()` wszędzie, gdzie later renderowane w portalu (TaskDrawer) — ClickUp API samo nie renderuje HTML, ale nasz frontend przy odczycie już tak.
 

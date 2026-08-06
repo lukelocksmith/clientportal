@@ -32,12 +32,33 @@ import {
   buildFeedbackDescription,
   buildFeedbackTitle,
 } from '@/lib/siteping/annotationMarker'
-import { withReporterFooter } from '@/lib/reporter'
+import { withReporterFooter, ADMIN_ACTOR_EMAIL } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
-import { invalidateFolderTasks } from '@/lib/clickupCache'
+import { invalidateFolderTasks, getCachedTasksForScope } from '@/lib/clickupCache'
+import type { PortalScope } from '@/lib/portalScope'
 
 const SITEPING_TAG = 'siteping'
 const DATA_ATTACHMENT_NAME = 'siteping-data.json'
+
+/**
+ * Pusty zakres znaczy „caly folder" (patrz portalScope.ts) — SitePing czyta
+ * zgloszenia z calego folderu klienta, bez zawezania do list portalu, bo
+ * zadanie moze zostac przeniesione miedzy listami po zgloszeniu.
+ */
+const WHOLE_FOLDER_SCOPE: PortalScope = []
+
+/**
+ * Ile zadan maksymalnie dociagamy per jedno GET.
+ *
+ * `query.limit` przychodzi OD KLIENTA i schemat pakietu (`getQuerySchema`)
+ * dopuszcza do 100. Kazde zadanie w wycinku strony to osobny `getTask` PLUS
+ * pobranie zalacznika JSON, czyli 200 wywolan sieciowych z jednego, darmowego,
+ * anonimowego GET-a. Lista zadan folderu idzie juz przez cache, ale ten
+ * rozstrzal NIE — wiec obcinamy go po naszej stronie, niezaleznie od tego, co
+ * przyslal klient. Panel widgetu jest per-URL, wiec 20 pozycji na strone to i
+ * tak wiecej, niz realnie widac.
+ */
+const MAX_TASKS_PER_PAGE = 20
 
 const STATUS_TO_CLICKUP: Record<FeedbackUpdateInput['status'], string> = {
   open: 'do zrobienia',
@@ -84,7 +105,14 @@ function isSitepingTask(task: ClickUpTask): boolean {
  * kolejna proba nie znajdywala niczego, tworzac drugie zadanie od zera.
  */
 async function findTaskByClientId(folderId: string, clientId: string): Promise<ClickUpTask | null> {
-  const tasks = await getAllTasksForFolder(folderId)
+  // Przez cache, NIE przez `getAllTasksForFolder` wprost: widget odpytuje
+  // endpoint przy kazdym wejsciu na strone klienta i przy kazdej nawigacji SPA
+  // (`watchNavigation` domyslnie true), a jedno przejscie po folderze to
+  // 5-12 wywolan ClickUpa na wspolnym `CLICKUP_API_TOKEN` — tym samym, z
+  // ktorego korzysta kanban, czat i cron wszystkich pozostalych klientow.
+  // Ruch na jednej stronie klienta nie moze wyczerpac limitu calej reszcie.
+  // Poprawnosc cache'u trzyma `invalidateFolderTasks` wolane po kazdym zapisie.
+  const tasks = await getCachedTasksForScope(folderId, WHOLE_FOLDER_SCOPE)
   const match = tasks.find(
     t => isSitepingTask(t) && extractClientIdFromDescription(t.description) === clientId
   )
@@ -174,9 +202,86 @@ async function reconstructFeedbackRecord(task: ClickUpTask): Promise<FeedbackRec
   }
 }
 
+/**
+ * Zgloszenie z widgetu NIE MA zweryfikowanego autora.
+ *
+ * `audit_log.user_email` / `user_name` sa czytane w innych miejscach portalu
+ * (`getTaskReporter`, `portalEventActors`) tak, jakby wskazywaly realnego
+ * czlonka portalu — tam kolumna jest tozsamoscia, nie notatka. Widget stoi na
+ * stronie klienta i przyjmuje dowolne imie i adres od kogokolwiek, wiec te
+ * dane nie moga trafic do tych kolumn. Ida do `meta`, gdzie sa widoczne przy
+ * diagnozie, ale zaden konsument `audit_log` nie potraktuje ich jak tozsamosci.
+ */
+const ANONYMOUS_ACTOR = { userId: null, email: null, name: null } as const
+
+function sitepingEventMeta(data: FeedbackCreateInput, taskName: string): Record<string, unknown> {
+  return {
+    source: 'siteping',
+    taskName,
+    url: data.url,
+    submittedName: data.authorName,
+    submittedEmail: data.authorEmail,
+  }
+}
+
+/**
+ * Zgloszenie podszywajace sie pod konto obejsciowe agencji.
+ *
+ * `authorEmail` przychodzi z FORMULARZA WIDGETU na stronie klienta, bez
+ * jakiegokolwiek uwierzytelnienia — kazdy moze tam wpisac cokolwiek. Adres
+ * `admin@important.is` ma w tym repo znaczenie: `isAdminActor` rozpoznaje go
+ * i `reporterFooter` podpisuje wtedy zadanie jako „important.is (tryb
+ * administratora, w imieniu klienta)". Anonim z internetu nie moze wystawic
+ * zadania z takim podpisem, bo to falszuje historie wspolpracy, na ktora
+ * powolujemy sie przy rozliczeniu.
+ *
+ * Odrzucamy CALE zgloszenie zamiast po cichu podmieniac adres: zadanie
+ * podpisane inaczej, niz prosil zglaszajacy, byloby trudniejsze do
+ * wytlumaczenia niz brak zadania.
+ */
+class SitepingImpersonationError extends Error {
+  constructor() {
+    super('Zgłoszenie odrzucone: adres nadawcy jest zastrzeżony')
+    this.name = 'SitepingImpersonationError'
+  }
+}
+
+function assertNotImpersonatingAdmin(data: FeedbackCreateInput, portalSlug: string): void {
+  if (data.authorEmail.trim().toLowerCase() !== ADMIN_ACTOR_EMAIL.toLowerCase()) return
+
+  console.warn(
+    `[siteping] odrzucono zgłoszenie podszywające się pod ${ADMIN_ACTOR_EMAIL} (portal ${portalSlug})`
+  )
+  // `createSitepingHandler` lapie wyjatek ze store'a i zwraca 500 z generycznym
+  // „Internal server error" (zweryfikowane w `dist/index.js`:
+  // `actionableErrorMessage` nie przepuszcza tresci bledu). Zglaszajacy nie
+  // dowiaduje sie wiec, ze ten adres jest szczegolny, a my mamy wpis w logu.
+  throw new SitepingImpersonationError()
+}
+
+/**
+ * Ostrzega, gdy ClickUp zjadl tag `siteping`.
+ *
+ * ClickUp po cichu POMIJA nazwy tagow, ktore nie istnieja juz w przestrzeni
+ * zadania (udokumentowane przy `createTask` w lib/clickup.ts) — zadanie
+ * powstaje, ale bez taga. Bez taga przestaje dzialac dedup, `getFeedbacks` i
+ * filtrowanie po stronie zespolu, i to wszystko bez jednego bledu gdziekolwiek.
+ * Tag trzeba raz zalozyc recznie w przestrzeni klienta przed wlaczeniem flagi.
+ */
+function warnIfTagMissing(task: ClickUpTask, portalSlug: string): void {
+  if (isSitepingTask(task)) return
+  console.warn(
+    `[siteping] zadanie ${task.id} (portal ${portalSlug}) powstało BEZ tagu "${SITEPING_TAG}" — ` +
+      `tag prawdopodobnie nie istnieje w przestrzeni ClickUp tego klienta. Załóż go w ClickUpie, ` +
+      `inaczej dedup i odczyt zgłoszeń nie będą działać.`
+  )
+}
+
 export function createClickUpSitepingStore(portal: PortalContext): SitepingStore {
   return {
     async createFeedback(data: FeedbackCreateInput): Promise<FeedbackRecord> {
+      assertNotImpersonatingAdmin(data, portal.slug)
+
       const match = await findTaskByClientId(portal.clickupFolderId, data.clientId)
       if (match) {
         const full = await getTask(match.id)
@@ -194,10 +299,10 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
         await invalidateFolderTasks(portal.clickupFolderId)
         await logEvent({
           portalId: portal.id,
-          actor: { userId: null, email: data.authorEmail, name: data.authorName || null },
+          actor: ANONYMOUS_ACTOR,
           action: EVENT_TASK_CREATED,
           resourceId: match.id,
-          meta: { source: 'siteping', taskName: full.name, url: data.url },
+          meta: sitepingEventMeta(data, full.name),
         })
         return recordFromCreateInput(data, match.id, new Date(Number(full.date_created)))
       }
@@ -224,15 +329,17 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
         status: STATUS_TO_CLICKUP.open,
       })
 
+      warnIfTagMissing(task, portal.slug)
+
       await uploadFeedbackData(task.id, data)
 
       await invalidateFolderTasks(portal.clickupFolderId)
       await logEvent({
         portalId: portal.id,
-        actor: { userId: null, email: data.authorEmail, name: data.authorName || null },
+        actor: ANONYMOUS_ACTOR,
         action: EVENT_TASK_CREATED,
         resourceId: task.id,
-        meta: { source: 'siteping', taskName: task.name, url: data.url },
+        meta: sitepingEventMeta(data, task.name),
       })
 
       return recordFromCreateInput(data, task.id, new Date(Number(task.date_created)))
@@ -247,7 +354,10 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
     },
 
     async getFeedbacks(query: FeedbackQuery): Promise<FeedbackPage> {
-      const tasks = await getAllTasksForFolder(portal.clickupFolderId)
+      // Przez cache, nie wprost do ClickUpa — uzasadnienie przy
+      // `findTaskByClientId`. To jest goracsza sciezka z dwoch: panel widgetu
+      // odpytuje GET przy kazdym otwarciu i kazdej nawigacji.
+      const tasks = await getCachedTasksForScope(portal.clickupFolderId, WHOLE_FOLDER_SCOPE)
       const candidates = tasks.filter(t => {
         if (!isSitepingTask(t)) return false
         if (extractClientIdFromDescription(t.description) === null) return false
@@ -256,7 +366,12 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
       })
 
       const page = query.page ?? 1
-      const limit = query.limit ?? 50
+      // Limit obcinamy PRZED wyliczeniem wycinka, nie po nim, zeby strona i
+      // przesuniecie zgadzaly sie ze soba: `page=2` ma zaczynac sie tam, gdzie
+      // skonczyla sie strona 1, a nie tam, gdzie skonczylaby sie, gdyby klient
+      // dostal to, o co prosil. `total` zostaje pelne, wiec widget dalej wie,
+      // ile zgloszen jest naprawde.
+      const limit = Math.min(query.limit ?? 50, MAX_TASKS_PER_PAGE)
       const pageSlice = candidates.slice((page - 1) * limit, page * limit)
 
       const fullTasks = await Promise.all(pageSlice.map(t => getTask(t.id)))
@@ -288,6 +403,11 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
     },
 
     async deleteAllFeedbacks(): Promise<void> {
+      // Jedyne miejsce, ktore CELOWO omija cache: kasowanie hurtem jest
+      // nieodwracalne i nieosiagalne z publicznego widgetu (PATCH/DELETE bez
+      // `SITEPING_API_KEY` to 401), wiec kosztu ruchu tu nie ma, a dzialanie
+      // na liscie sprzed 45 sekund moglo by ominac zadanie utworzone chwile
+      // wczesniej albo probowac skasowac takie, ktorego juz nie ma.
       const tasks = await getAllTasksForFolder(portal.clickupFolderId)
       const targets = tasks.filter(isSitepingTask)
       await Promise.all(targets.map(t => deleteTask(t.id)))

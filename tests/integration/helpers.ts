@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { portals, portalUsers, taskIndex } from '@/lib/db/schema'
+import { portals, portalUsers, portalLists, taskIndex } from '@/lib/db/schema'
 
 /**
  * Pomocniki testow integracyjnych.
@@ -35,6 +35,26 @@ export async function createTestPortal(prefix = 'test'): Promise<{ id: string; s
 
 export async function dropTestPortal(portalId: string): Promise<void> {
   await db.delete(portals).where(eq(portals.id, portalId))
+}
+
+/**
+ * Dopisuje liste do portalu, czyli ZAWEZA jego zakres.
+ *
+ * Portal bez list dziala na calym folderze (zgodnosc w tyl, patrz portalScope.ts),
+ * wiec testy granicy list MUSZA jawnie utworzyc liste — inaczej sprawdzalyby
+ * przypadek "brak zawezenia" w przekonaniu, ze sprawdzaja zawezenie.
+ */
+export async function createTestList(input: {
+  portalId: string
+  clickupListId: string
+  isDefault?: boolean
+}): Promise<void> {
+  await db.insert(portalLists).values({
+    portalId: input.portalId,
+    clickupListId: input.clickupListId,
+    displayName: `Lista ${input.clickupListId}`,
+    isDefault: input.isDefault ?? false,
+  })
 }
 
 export async function createTestUser(portalId: string, email: string): Promise<string> {

@@ -55,6 +55,19 @@ export const portals = pgTable('portals', {
   reportsEnabled: boolean('reports_enabled').notNull().default(false),
   historyEnabled: boolean('history_enabled').notNull().default(false),
   dashboardEnabled: boolean('dashboard_enabled').notNull().default(false),
+  /**
+   * Widget SitePing na stronie klienta wolno pod tym flagiem. Domyslnie
+   * false, jak kazda nowa funkcja portalu (patrz reportsEnabled) — endpoint
+   * /api/siteping/[slug] zwraca 404 dopoki nie wlaczone w /admin.
+   */
+  sitepingEnabled: boolean('siteping_enabled').notNull().default(false),
+  /**
+   * Domeny, z ktorych /api/siteping/[slug] przyjmuje zadania — po przecinku
+   * (np. "wdf.important.is,wodadlafirmy.pl"). Klient moze miec staging i
+   * produkcje jako dwie realne, rozne domeny (nie www/non-www warianty
+   * jednej). Null = flaga bez sensu wlaczac, endpoint i tak 404uje.
+   */
+  siteDomains: text('site_domains'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

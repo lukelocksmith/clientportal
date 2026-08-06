@@ -269,6 +269,10 @@ export async function updateTask(
   })
 }
 
+export async function deleteTask(taskId: string): Promise<void> {
+  await clickupFetch<unknown>(`/task/${taskId}`, { method: 'DELETE' })
+}
+
 // Upload a file as an attachment on a ClickUp task (multipart/form-data).
 // Do NOT set Content-Type — fetch derives the multipart boundary from FormData.
 export async function addTaskAttachment(

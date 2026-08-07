@@ -182,9 +182,7 @@ export function HistoryTable({ rows, slug, userEmail }: HistoryTableProps) {
         <TaskDrawer
           task={task}
           slug={slug}
-          userEmail={userEmail}
           onClose={() => setTask(null)}
-          onTaskUpdated={updated => setTask(updated)}
           onNavigate={taskId => open(taskId)}
         />
       )}

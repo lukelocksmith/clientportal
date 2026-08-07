@@ -282,9 +282,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
         <TaskDrawer
           task={selectedTask}
           slug={slug}
-          userEmail={userEmail}
           onClose={() => setSelectedTask(null)}
-          onTaskUpdated={handleTaskUpdated}
           onNavigate={(id) => {
             const t = findTaskInTree(tasks, id)
             if (t) setSelectedTask(t)

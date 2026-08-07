@@ -73,16 +73,27 @@ function MarkdownLite({ text }: { text: string }) {
   return <div>{blocks}</div>
 }
 
+/**
+ * USUNIETE: `userEmail` i `onTaskUpdated`.
+ *
+ * Oba byly deklarowane i oba przekazywane przez wolajacych — `KanbanBoard`
+ * podpinal pod `onTaskUpdated` prawdziwa funkcje aktualizujaca tablice — ale ta
+ * szuflada NIGDY ich nie uzywala. Zadania nie da sie tu edytowac, wiec nie ma
+ * czego zglaszac wyzej; zmiana statusu idzie przez przeciagniecie karty na
+ * tablicy, nie przez ten panel.
+ *
+ * Martwy interfejs, ktory WYGLADA na zywy, jest gorszy od jego braku:
+ * `handleTaskUpdated` w KanbanBoard sprawialo wrazenie, ze szuflada odsyla
+ * zmiany, i pierwsza osoba dodajaca tu edycje uznalaby, ze podpiecie juz jest.
+ */
 interface TaskDrawerProps {
   task: ClickUpTask
   slug: string
-  userEmail: string
   onClose: () => void
-  onTaskUpdated: (task: ClickUpTask) => void
   onNavigate?: (taskId: string) => void
 }
 
-export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNavigate }: TaskDrawerProps) {
+export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps) {
   const [tab] = useState<'details'>('details')
   const [comments, setComments] = useState<ClickUpComment[]>([])
   /** Kotwica na końcu listy komentarzy, do przewinięcia po wysłaniu. */
@@ -219,11 +230,16 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
           </div>
 
           <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Przycisk jest samą ikoną, więc bez `aria-label` czytnik ekranu
+                czyta go jako „przycisk", nieodróżnialnie od przycisku wysyłki
+                komentarza niżej. Wyszło przy pisaniu testu, który nie potrafił
+                wskazać żadnego z nich po nazwie. */}
             <button
               onClick={onClose}
+              aria-label="Zamknij szczegóły zadania"
               className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4" aria-hidden />
             </button>
           </div>
         </div>
@@ -467,12 +483,13 @@ export function TaskDrawer({ task, slug, userEmail, onClose, onTaskUpdated, onNa
             <button
               type="submit"
               disabled={sendingComment || !newComment.trim()}
+              aria-label={sendingComment ? 'Wysyłanie komentarza' : 'Wyślij komentarz'}
               className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none h-9 w-9"
             >
               {sendingComment ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : (
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4" aria-hidden />
               )}
             </button>
           </form>

@@ -13,8 +13,13 @@ które ją sprawdzają.
 | Warstwa | Gdzie | Co sprawdza | Czas |
 |---|---|---|---|
 | Jednostkowe | `src/**/*.test.ts` | czysta logika, zero zależności | ms |
+| Komponentowe | `**/*.test.tsx` | render w jsdom: „czy klient to zobaczy" | ~0,5 s |
 | Integracyjne | `tests/integration/` | prawdziwy Postgres: SQL, sesje, granice | ~1 s |
 | Budowanie | `next build` | to, czego nie widzi ani `tsc`, ani test | ~4 s |
+
+Środowisko jest `node` **domyślnie**, bo jsdom kosztuje kilkaset milisekund na
+plik. Pliki komponentów włączają je same, blokiem `// @vitest-environment jsdom`
+w pierwszej linii.
 
 Trzecia warstwa nie jest formalnością. Błąd, który raz położył całą aplikację
 (sterownik postgresa wciągnięty do paczki przeglądarki), był **niewidoczny dla
@@ -75,25 +80,44 @@ poczta, cron, cache, SitePing.
 Dopisując trasę pod `/api/admin/`, dopisz ją do tej listy — trasa, której tam
 nie ma, nie ma sprawdzonego perymetru.
 
+## Komponenty
+
+Testowane: `usage` (cegiełki widoków zużycia), `AdminLoginScreen`, `TaskDrawer`.
+
+Trzy rodzaje rzeczy, których warto tu pilnować, bo żadna inna warstwa ich nie
+widzi:
+
+1. **Co komponent wysyła na serwer.** `TaskDrawer` wołał trasę komentarzy bez
+   `?slug=` i to był błąd widoczny dla użytkownika. Test „oba wywołania niosą
+   slug" jest jego parą po stronie przeglądarki.
+2. **Czy da się w to trafić bez myszy.** Przyciski ikonowe bez `aria-label` są
+   dla czytnika ekranu nierozróżnialne. Wyszło przy pisaniu testu, który nie
+   potrafił wskazać żadnego z dwóch przycisków po nazwie.
+3. **Czy treść od klienta jest tekstem, a nie kodem.** Opis zadania przechodzi
+   przez własny renderer znaczników (`MarkdownLite`), więc React nie chroni tu
+   automatycznie wszystkiego.
+
+**Czego celowo NIE testujemy komponentami:** układu, klas Tailwinda, kolorów.
+Test, który sprawdza `className`, psuje się przy każdej zmianie stylu i nie mówi
+nic o tym, czy interfejs działa.
+
 ## Czego NIE MA — stan na 2026-08-07
 
-**Warstwa API jest pokryta w całości.** Zostały dwie rzeczy.
-
-**Komponentów Reacta nie testujemy w ogóle.** Zmiana w `AdminPanel`,
-`TaskDrawer` czy `KanbanBoard` jest sprawdzana wyłącznie przez `tsc` i `next
-build`, czyli nikt nie sprawdza, czy panel się rysuje. To jest największa
-pozostała dziura i jedyna, przez którą realnie przechodzi dziś regresja.
+**Warstwa API jest pokryta w całości** (32 z 32 tras).
 
 **Moduły `lib/` bez własnego pliku testowego:** `adminUser`, `passwordNotice`,
-`team`, `timeSnapshots`, `historyParams`, `projectLinks`, `projectLinksStore`,
-`aiPricing`, `portalScopeStore`, `portalSession`, `admin-auth`, `apiAuth`,
-`loginAttempts`, `notificationStore`, `portalEvents`, `clickup`.
+`timeSnapshots`, `projectLinksStore`, `portalScopeStore`, `portalSession`,
+`admin-auth`, `notificationStore`, `portalEvents`, `clickup`.
 
 Ta lista wygląda gorzej niż jest: wszystkie te moduły są przechodzone przez
-testy tras, część intensywnie (`loginAttempts` przez blokadę konta, `admin-auth`
-przez perymetr, `portalEvents` przez sprawdzanie wpisów w `audit_log`). Czego
-brakuje, to testów **ich własnych przypadków brzegowych** — takich, do których
-przez trasę się nie dojdzie.
+testy tras, część intensywnie (`admin-auth` przez perymetr, `portalEvents`
+przez sprawdzanie wpisów w `audit_log`, `clickup` przez granice folderu i list).
+Czego brakuje, to testów **ich własnych przypadków brzegowych** — takich, do
+których przez trasę się nie dojdzie.
+
+**Komponentów wciąż nietestowanych jest więcej niż testowanych.** `AdminPanel`
+(753 linie), `KanbanBoard`, `ChatWindow`, `HistoryTable`, `PortalConfigForm`
+i formularze admina nie mają testów. To jest największa pozostała dziura.
 
 **Komponentów Reacta nie testujemy w ogóle.** Zmiana w `AdminPanel`,
 `TaskDrawer` czy `KanbanBoard` jest sprawdzana wyłącznie przez `tsc` i `next

@@ -237,8 +237,8 @@ export function ProjectSyncLog({ slug }: { slug: string }) {
         {(data.statusy ?? []).length === 0 ? (
           <p className="rounded-lg border border-border bg-card px-4 py-6 text-center text-xs text-muted-foreground">
             Brak zapisanych zmian statusu. Zapisujemy je od chwili wdrożenia tej
-            funkcji, więc pusto znaczy „jeszcze nic się nie zmieniło", a nie
-            „nie działa".
+            funkcji, więc pusto znaczy „jeszcze nic się nie zmieniło”, a nie
+            „nie działa”.
           </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">

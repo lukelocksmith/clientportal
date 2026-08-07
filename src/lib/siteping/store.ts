@@ -24,8 +24,10 @@ import {
   getTask,
   getAllTasksForFolder,
   verifyTaskBelongsToFolder,
+  addComment,
 } from '@/lib/clickup'
 import type { ClickUpTask } from '@/lib/types'
+import { buildDiagnosticsComment } from './diagnostics'
 import {
   extractClientIdFromDescription,
   extractUrlFromDescription,
@@ -358,6 +360,22 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
       })
 
       warnIfTagMissing(task, portal.slug)
+
+      // SLAD TECHNICZNY jako KOMENTARZ, nie w opisie: opis ma zostac czytelny,
+      // a to jest material do wejscia w szczegoly. Bez prefiksu `[P]`, wiec
+      // zostaje wewnetrzny — klient w portalu tego nie zobaczy.
+      //
+      // Best-effort: zgloszenie juz istnieje i ma komplet danych (pelna
+      // diagnostyka jest w zalaczniku JSON), wiec nieudany komentarz jest
+      // niedogodnoscia, a nie utrata.
+      const sladKomentarz = buildDiagnosticsComment(
+        (data as { diagnostics?: Parameters<typeof buildDiagnosticsComment>[0] }).diagnostics
+      )
+      if (sladKomentarz) {
+        await addComment(task.id, sladKomentarz).catch((e: unknown) =>
+          console.error(`[siteping] nie udalo sie dodac sladu technicznego do ${task.id}:`, e)
+        )
+      }
 
       // Link do zaznaczonego miejsca zawiera identyfikator zadania, ktory
       // powstaje dopiero teraz — stad drugi zapis opisu. Nie przewracamy

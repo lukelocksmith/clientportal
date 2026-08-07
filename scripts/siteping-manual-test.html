@@ -20,6 +20,14 @@
       // zadania w ClickUpie otworzy zwykla strone i NICZEGO nie podświetli.
       // Widget czyta wtedy `?siteping=<id>` i sam przewija do zaznaczenia.
       deepLink: true,
+      // SLAD TECHNICZNY: ostatnie wpisy z konsoli i nieudane zadania z chwili
+      // zgloszenia. Trafiaja do ClickUpa jako WEWNETRZNY komentarz pod zadaniem.
+      //
+      // UWAGA PRZED WLACZENIEM U KLIENTA: konsola jego strony moze zawierac
+      // cokolwiek, co ta strona loguje, lacznie z danymi jego uzytkownikow,
+      // a adresy nieudanych zadan niosa pelny query string. Trzeba go o tym
+      // uprzedzic. Tresci odpowiedzi widget NIE zbiera.
+      captureDiagnostics: true,
     })
   </script>
 </body>

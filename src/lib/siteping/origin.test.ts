@@ -74,3 +74,47 @@ describe('corsOrigins', () => {
     assert.deepStrictEqual(corsOrigins(req({ Referer: 'https://klient.pl/' }), domains), [])
   })
 })
+
+/**
+ * PORT W KONFIGURACJI.
+ *
+ * `site_domains` moze zawierac port (`localhost:5500`), bo ten sam wpis buduje
+ * link „Pokaz na stronie" w portalu — bez portu prowadzilby donikad. Do
+ * sprawdzania `Origin` port jest POMIJANY, bo `new URL(...).hostname` go nie
+ * zawiera; gdyby porownanie bralo caly wpis, kazde zgloszenie z tak
+ * skonfigurowanego projektu konczyloby sie 403.
+ */
+describe('wpis konfiguracji z portem', () => {
+  const zOriginem = (origin: string) =>
+    new Request('https://portal.example/api', { headers: { origin } })
+
+  it('zgloszenie z tego hosta przechodzi mimo portu w konfiguracji', () => {
+    assert.strictEqual(
+      isFromAllowedDomain(zOriginem('http://localhost:5500'), ['localhost:5500']),
+      true
+    )
+  })
+
+  it('INNY port tego samego hosta tez przechodzi', () => {
+    // Port pelni tu role adresu, nie granicy — to zachowanie dotychczasowe,
+    // zachowane swiadomie. Zawezenie po porcie byloby nowa regula.
+    assert.strictEqual(
+      isFromAllowedDomain(zOriginem('http://localhost:3000'), ['localhost:5500']),
+      true
+    )
+  })
+
+  it('OBCY host nadal odpada, mimo pasujacego portu', () => {
+    assert.strictEqual(
+      isFromAllowedDomain(zOriginem('http://zlodziej.example:5500'), ['localhost:5500']),
+      false
+    )
+  })
+
+  it('wielkosc liter we wpisie z portem nie ma znaczenia', () => {
+    assert.strictEqual(
+      isFromAllowedDomain(zOriginem('https://demo.example.test'), ['DEMO.example.TEST:8080']),
+      true
+    )
+  })
+})

@@ -43,7 +43,23 @@ export function requestHostname(request: Request): string | null {
 export function isFromAllowedDomain(request: Request, siteDomains: string[]): boolean {
   const hostname = requestHostname(request)
   if (!hostname) return false
-  return siteDomains.some(d => d.toLowerCase() === hostname)
+  return siteDomains.some(d => hostOnly(d) === hostname)
+}
+
+/**
+ * Sama nazwa hosta z wpisu konfiguracji, bez portu.
+ *
+ * Konfiguracja MOŻE zawierać port (`localhost:5500`), bo ten sam wpis służy
+ * też do zbudowania linku „Pokaż na stronie" w portalu, a link bez portu
+ * prowadzi donikąd. Porównanie robimy jednak po samym hoście, bo `Origin`
+ * rozkładamy przez `new URL(...).hostname`, który portu nie zawiera.
+ *
+ * Znaczy to, że port w konfiguracji NIE zawęża uprawnień: strona na innym
+ * porcie tego samego hosta nadal przejdzie. To jest zachowanie dotychczasowe,
+ * zachowane świadomie — port pełni tu rolę adresu, nie granicy.
+ */
+function hostOnly(wpis: string): string {
+  return wpis.toLowerCase().split(':')[0]
 }
 
 /**

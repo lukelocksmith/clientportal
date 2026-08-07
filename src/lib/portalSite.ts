@@ -13,15 +13,35 @@
  */
 
 /**
+ * Czy host jest lokalny, czyli podawany po http.
+ *
+ * `localhost` NIE MA certyfikatu, więc adres `https://localhost` kończy się
+ * odmową połączenia — nic nie nasłuchuje na porcie 443. Wymuszanie https
+ * wszędzie psuło przez to całe testowanie lokalne.
+ */
+function lokalny(host: string): boolean {
+  // Bez portu: `localhost:5500` jest tak samo lokalny jak `localhost`.
+  const nazwa = host.split(':')[0]
+  return (
+    nazwa === 'localhost' ||
+    nazwa.endsWith('.localhost') ||
+    nazwa === '127.0.0.1' ||
+    nazwa === '[::1]'
+  )
+}
+
+/**
  * Pierwsza skonfigurowana domena jako pełny adres, albo null.
  *
  * Null znaczy „portal nie zna strony tego klienta" i jest odpowiedzią
  * PRAWIDŁOWĄ, nie błędem: wołający ma wtedy pominąć wybór drogi i otworzyć
  * asystenta od razu.
  *
- * `https` na sztywno, mimo że `site_domains` trzyma same nazwy hostów. Portal
- * chodzi po https, więc odesłanie klienta na http oznaczałoby ostrzeżenie
- * przeglądarki przy zgłaszaniu usterki — czyli usterkę na usterce.
+ * Schemat WYLICZAMY z hosta, a nie wpisujemy na sztywno. `site_domains` trzyma
+ * same nazwy hostów, bo tak wymaga porównanie z nagłówkiem `Origin`, więc
+ * schemat trzeba skądś wziąć: dla hostów lokalnych http, dla reszty https.
+ * Strona klienta w internecie ma chodzić po https i odesłanie na http
+ * oznaczałoby ostrzeżenie przeglądarki w chwili zgłaszania usterki.
  */
 export function portalSiteUrl(portal: {
   sitepingEnabled: boolean
@@ -41,5 +61,5 @@ export function portalSiteUrl(portal: {
   const host = pierwsza.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
   if (!host) return null
 
-  return `https://${host}`
+  return `${lokalny(host) ? 'http' : 'https'}://${host}`
 }

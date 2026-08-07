@@ -71,9 +71,14 @@ const UpdatePortalSchema = z
       )
       // `localhost` (bez kropki) przechodzi celowo — to jest domena strony
       // testowej z Task 7 planu.
+      //
+      // PORT jest dozwolony (`localhost:5500`), bo ten sam wpis buduje link
+      // „Pokaż na stronie" w portalu, a link bez portu prowadzi donikąd.
+      // Do sprawdzania `Origin` port jest pomijany (patrz `hostOnly`
+      // w lib/siteping/origin.ts), więc nie zawęża uprawnień.
       .refine(
-        v => v === undefined || v === null || v.split(',').every(d => /^[a-z0-9.-]+$/.test(d)),
-        { message: 'Podaj same nazwy hostów po przecinku, bez https:// i bez ścieżki' }
+        v => v === undefined || v === null || v.split(',').every(d => /^[a-z0-9.-]+(:\d{1,5})?$/.test(d)),
+        { message: 'Podaj nazwy hostów po przecinku (opcjonalnie z portem), bez https:// i bez ścieżki' }
       ),
     /**
      * Kolor marki `#rrggbb`, `#rgb` albo bez kratki. Pusty ciąg i null

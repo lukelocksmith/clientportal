@@ -60,10 +60,43 @@ describe('portalSiteUrl', () => {
     assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'demo.pl/' })), 'https://demo.pl')
   })
 
-  it('zawsze https, nawet gdy w konfiguracji było http', () => {
-    // Portal chodzi po https, więc odesłanie na http oznaczaloby ostrzeżenie
-    // przeglądarki w chwili zgłaszania usterki.
+  it('domena w internecie dostaje https, nawet gdy w konfiguracji było http', () => {
+    // Strona klienta ma chodzić po https; odesłanie na http oznaczałoby
+    // ostrzeżenie przeglądarki w chwili zgłaszania usterki.
     assert.ok(portalSiteUrl(portal({ siteDomains: 'http://demo.pl' }))!.startsWith('https://'))
+  })
+
+  describe('hosty lokalne', () => {
+    // BŁĄD, KTÓRY TU BYŁ: schemat był wpisany na sztywno jako https, więc
+    // przycisk „Pokaż na stronie" prowadził na `https://localhost`, gdzie nic
+    // nie nasłuchuje — przeglądarka pokazywała ERR_CONNECTION_REFUSED.
+    // Zgłoszone przez Łukasza przy pierwszym kliknięciu, 2026-08-07.
+    it('localhost dostaje http, nie https', () => {
+      assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'localhost' })), 'http://localhost')
+    })
+
+    it('poddomena .localhost też', () => {
+      assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'wdf.localhost' })), 'http://wdf.localhost')
+    })
+
+    it('adres pętli zwrotnej też', () => {
+      assert.strictEqual(portalSiteUrl(portal({ siteDomains: '127.0.0.1' })), 'http://127.0.0.1')
+    })
+
+    it('PORT zostaje w adresie, bo bez niego link prowadzi donikąd', () => {
+      // Strona testowa stoi na 5500; `http://localhost` (port 80) to była
+      // druga połowa tego samego błędu.
+      assert.strictEqual(
+        portalSiteUrl(portal({ siteDomains: 'localhost:5500' })),
+        'http://localhost:5500'
+      )
+    })
+
+    it('domena KOŃCZĄCA SIĘ na „localhost" bez kropki to zwykła domena', () => {
+      // `mojlocalhost.pl` nie jest lokalny. Dopasowanie po samej końcówce
+      // wpuściłoby tu http dla prawdziwej domeny w internecie.
+      assert.ok(portalSiteUrl(portal({ siteDomains: 'mojlocalhost.pl' }))!.startsWith('https://'))
+    })
   })
 
   it('sam schemat bez hosta daje null, a nie pusty adres', () => {

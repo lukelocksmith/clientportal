@@ -143,6 +143,46 @@ export const notifications = pgTable('notifications', {
 }))
 
 /**
+ * Historia zmian statusu zadania.
+ *
+ * Osobna tabela, NIE `audit_log`: tamten opisuje, co zrobił człowiek w portalu
+ * („klient dodał komentarz"), a status zmienia się głównie w ClickUpie, przez
+ * zespół, bez udziału portalu. Wrzucenie tego do audytu zlałoby dwie różne
+ * rzeczy i zaśmieciło widok „kto tu był".
+ *
+ * `task_name` i `actor_label` są ZDENORMALIZOWANE, żeby wiersz przeżył
+ * usunięcie zadania w ClickUpie i odejście osoby z zespołu. Historia, która
+ * przestaje się dać odczytać po skasowaniu zadania, nie jest historią.
+ *
+ * `from_status` bywa nullem: pierwsze zdarzenie dla zadania, albo webhook,
+ * który nie podał wartości poprzedniej. Null znaczy „nie wiemy", a nie „brak
+ * statusu" — i tak trzeba to pokazywać.
+ */
+export const taskStatusHistory = pgTable('task_status_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  clickupTaskId: text('clickup_task_id').notNull(),
+  taskName: text('task_name').notNull(),
+  /** Null = nieznany stan poprzedni. */
+  fromStatus: text('from_status'),
+  toStatus: text('to_status').notNull(),
+  /** `webhook` (zmiana w ClickUpie) albo `portal` (klient przeciągnął kartę). */
+  source: text('source').notNull(),
+  /** Konto w portalu, gdy zmiana przyszła stamtąd. Null dla zmian zespołu. */
+  actorUserId: uuid('actor_user_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  /** Podpis czytelny: imię z portalu albo nazwa użytkownika z ClickUpa. */
+  actorLabel: text('actor_label'),
+  /** Czas zdarzenia wg ŹRÓDŁA, nie czas zapisu — webhook bywa opóźniony. */
+  changedAt: timestamp('changed_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  // Pod pytanie „co się działo z TYM zadaniem", od najnowszego.
+  taskIdx: index('task_status_history_task_idx').on(t.portalId, t.clickupTaskId, t.changedAt),
+  // Pod widok „ostatnie zmiany w projekcie" w panelu.
+  portalIdx: index('task_status_history_portal_idx').on(t.portalId, t.changedAt),
+}))
+
+/**
  * Linki projektu pokazywane na Dashboardzie: strona produkcyjna, staging,
  * panel WP, GA4, Search Console. Osobna tabela, nie kolumna JSON, bo panel
  * admina edytuje je wierszami, a nie jako tekst.

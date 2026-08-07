@@ -5,6 +5,8 @@ import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { getTask } from '@/lib/clickup'
 import { indexSingleTask, removeTaskFromIndex } from '@/lib/taskIndex'
+import { recordStatusChange } from '@/lib/statusHistory'
+import { parseStatusChange, type ClickUpHistoryItem } from '@/lib/clickupHistoryItems'
 
 const WEBHOOK_SECRET = process.env.CLICKUP_WEBHOOK_SECRET
 
@@ -46,7 +48,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
-  let payload: { event: string; task_id?: string; webhook_id?: string; history_items?: Array<{ field: string }> }
+  let payload: {
+    event: string
+    task_id?: string
+    webhook_id?: string
+    history_items?: ClickUpHistoryItem[]
+  }
   try {
     payload = JSON.parse(body)
   } catch {
@@ -107,6 +114,28 @@ export async function POST(request: NextRequest) {
     }
 
     await indexSingleTask(target.id, taskId)
+
+    // HISTORIA STATUSÓW. Zapisujemy PO ustaleniu portalu, bo wiersz bez
+    // projektu byłby historią niczyją, i tylko gdy zdarzenie faktycznie niesie
+    // zmianę statusu — `taskUpdated` przychodzi też przy zmianie opisu.
+    //
+    // Nazwę zadania bierzemy z zadania pobranego wyżej, a nie z payloadu:
+    // payload jej nie zawiera, a kolumna jest zdenormalizowana właśnie po to,
+    // żeby wiersz przeżył usunięcie zadania w ClickUpie.
+    const zmiana = parseStatusChange(payload.history_items)
+    if (zmiana) {
+      await recordStatusChange({
+        portalId: target.id,
+        clickupTaskId: taskId,
+        taskName: task.name ?? taskId,
+        fromStatus: zmiana.fromStatus,
+        toStatus: zmiana.toStatus,
+        source: 'webhook',
+        actorLabel: zmiana.actorLabel,
+        changedAt: zmiana.changedAt ?? undefined,
+      })
+    }
+
     revalidatePath(`/${target.slug}/historia`)
 
     return NextResponse.json({ ok: true, indexed: taskId, portal: target.slug })

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
 import { updateTask, getTask } from '@/lib/clickup'
 import { getTaskReporter } from '@/lib/portalEvents'
+import { recordStatusChange } from '@/lib/statusHistory'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { taskBelongsToPortal } from '@/lib/portalScope'
@@ -74,7 +75,28 @@ export async function PATCH(
   const scope = await requireTaskInPortal(taskId, portal)
   if (!scope.ok) return scope.response
 
+  // Stan PRZED zmianą, żeby historia miała `from`. Pobieramy tylko wtedy, gdy
+  // żądanie faktycznie rusza status — przy zmianie samej nazwy byłoby to
+  // zmarnowane wywołanie wspólnego tokenu ClickUpa.
+  const przed = parsed.data.status ? await getTask(taskId).catch(() => null) : null
+
   const task = await updateTask(taskId, parsed.data)
+
+  // HISTORIA STATUSÓW. Klient przeciągnął kartę, więc podpisujemy zmianę jego
+  // kontem — webhook z ClickUpa przyjdzie chwilę później i podpisałby ją
+  // kontem serwisowym agencji, czyli nami.
+  if (parsed.data.status) {
+    await recordStatusChange({
+      portalId: portal.id,
+      clickupTaskId: taskId,
+      taskName: task.name ?? przed?.name ?? taskId,
+      fromStatus: przed?.status?.status ?? null,
+      toStatus: parsed.data.status,
+      source: 'portal',
+      actorUserId: gate.session.userId === 'admin' ? null : gate.session.userId,
+      actorLabel: gate.session.name ?? gate.session.email,
+    })
+  }
 
   // Przeciagniecie karty zmienia status w ClickUpie. Bez unieważnienia
   // kolejne wejscie na tablice pokazaloby karte w starej kolumnie, czyli

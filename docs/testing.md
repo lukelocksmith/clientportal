@@ -71,6 +71,10 @@ sesje, ciasteczka, HMAC admina i zapis do `audit_log` są prawdziwe.
 | `/api/admin/users/[userId]` | PATCH, DELETE | `routes.admin` |
 | `/api/admin/users/invite` | POST | `routes.admin` |
 | `/api/admin/portals`, `/stats` | GET (perymetr) | `routes.admin` |
+| `/api/webhooks/clickup` | POST | `routes.webhook` |
+| `/api/cron/task-index` | GET, POST | `routes.cron` |
+| `/api/cron/time-snapshot` | GET | `routes.cron` |
+| `/api/siteping/[slug]` | POST, GET, OPTIONS | `routes.siteping` |
 
 Poza tym: brama sesji (`apiSession`), logowanie i wygasanie sesji, zaproszenia
 z testem wyścigu, indeks Historii, raporty czasu, powiadomienia, pomysły,
@@ -82,19 +86,17 @@ nie ma, nie ma sprawdzonego perymetru.
 
 ## Czego NIE MA — stan na 2026-08-07
 
-**13 z 32 tras API nie ma testu.** Najważniejsze braki, w kolejności ryzyka:
+**9 z 32 tras API nie ma testu.** Wszystkie wejścia bez sesji (logowanie,
+webhook, SitePing, crony) są już pokryte. Co zostało, w kolejności ryzyka:
 
 | Brak | Dlaczego to boli |
 |---|---|
-| `/api/webhooks/clickup` | wejście z zewnątrz, przyjmuje cudzy payload |
-| `/api/cron/*` | liczby, które klient widzi jako „dane na dzień X"; `lib/` pod spodem ma testy, pętla po portalach nie |
-| `/api/siteping/[slug]` | publiczny endpoint bez sesji; `lib/siteping` ma 38 testów, sama trasa nie |
 | `/api/ai/chat` | strumień i providerzy; brama ma test, samo narzędzie tworzenia zadania nie |
 | `/api/admin/portals` POST/PATCH | zakładanie i konfiguracja projektów; sprawdzony jest tylko perymetr GET |
+| `/api/panic/[id]/ack` | potwierdzenie alarmu tokenem z maila |
 | `/api/admin/portal-sync`, `portal-links`, `portal-events`, `mail-log` | odczyty do panelu |
 | `/api/admin/clickup/folders*` | proxy do ClickUpa |
 | `/api/admin/users/[userId]/activity` | historia jednej osoby |
-| `/api/panic/[id]/ack` | potwierdzenie alarmu tokenem z maila |
 
 **Moduły `lib/` bez własnego testu:** `adminUser`, `passwordNotice`, `team`,
 `timeSnapshots`, `historyParams`, `projectLinks`, `projectLinksStore`,
@@ -161,6 +163,23 @@ gdyby dobre hasło też nie wpuszczało. Do logowania służy
 **Hasło zapisane nie znaczy hasło działające.** Po ustawieniu hasła testem
 sprawdź je **logowaniem**, a nie oglądaniem hasha w bazie: hash może wyglądać
 poprawnie i mimo to nigdy nie pasować.
+
+**Trasy cronowe chodzą po WSZYSTKICH aktywnych portalach**, także po prawdziwych
+(Onyx, WDF, EFF) siedzących w tej samej bazie. W ich testach wszystko, co
+zapisuje (`writeSnapshots`, `syncPortalIndex`, `recordCronRun`), musi być
+podstawione — inaczej test dopisuje wiersze do danych klientów i do dziennika
+synchronizacji widocznego w panelu.
+
+**Ładunek SitePinga ma sztywny kontrakt** i brak dowolnego pola kończy się 400,
+zanim cokolwiek dojdzie do sklepu: `projectName`, `type`, `message`, `url`,
+`viewport`, `userAgent`, `authorName`, `authorEmail`, `clientId`, `annotations`.
+Pułapka: `viewport` na górnym poziomie jest **napisem** (`"1280x800"`), a wewnątrz
+anotacji to płaskie `viewportW`/`viewportH`. Gotowy kształt jest w
+`routes.siteping.test.ts` (`zgloszenie()`) i w `clampPayload.test.ts`.
+
+**Limit częstotliwości SitePinga żyje w pamięci modułu.** Bez
+`resetRateLimits()` w `beforeEach` poprzedni test zjada budżet następnemu,
+a porażka wygląda jak źle działająca brama.
 
 ## Pisząc nowy test
 

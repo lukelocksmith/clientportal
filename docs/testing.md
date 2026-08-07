@@ -52,29 +52,20 @@ z ich `.next`. Gdy sypie tysiącami błędów, sprawdź `npx eslint src tests`.
 Podstawione jest wyłącznie wyjście na świat: ClickUp, poczta, Discord. Postgres,
 sesje, ciasteczka, HMAC admina i zapis do `audit_log` są prawdziwe.
 
-| Trasa | Metody | Plik |
-|---|---|---|
-| `/api/clickup/tasks` | GET, POST | `routes.clickupTasks` |
-| `/api/clickup/tasks/[taskId]` | GET, PATCH | `routes.clickupTasks` |
-| `/api/clickup/tasks/[taskId]/comments` | GET, POST | `routes.clickupTasks` |
-| `/api/clickup/tasks/[taskId]/attachments` | POST | `routes.portal` |
-| `/api/panic` | POST | `routes.portal` |
-| `/api/notifications` | GET, POST | `routes.portal` |
-| `/api/portal-ideas` | POST | `routes.portal` |
-| `/api/auth/login` | POST | `routes.auth` |
-| `/api/auth/login-any` | POST | `routes.auth` |
-| `/api/auth/logout` | POST | `routes.auth` |
-| `/api/auth/set-password` | POST | `routes.auth` |
-| `/api/auth/forgot-password` | POST | `routes.auth` |
-| `/api/admin/login`, `/logout` | POST | `routes.admin` |
-| `/api/admin/users` | GET, POST | `routes.admin` |
-| `/api/admin/users/[userId]` | PATCH, DELETE | `routes.admin` |
-| `/api/admin/users/invite` | POST | `routes.admin` |
-| `/api/admin/portals`, `/stats` | GET (perymetr) | `routes.admin` |
-| `/api/webhooks/clickup` | POST | `routes.webhook` |
-| `/api/cron/task-index` | GET, POST | `routes.cron` |
-| `/api/cron/time-snapshot` | GET | `routes.cron` |
-| `/api/siteping/[slug]` | POST, GET, OPTIONS | `routes.siteping` |
+**Wszystkie 32 trasy API mają test.** Podział na pliki:
+
+| Plik | Co obejmuje |
+|---|---|
+| `routes.clickupTasks` | lista zadań, szczegóły, komentarze |
+| `routes.portal` | załączniki, alarm, powiadomienia, pomysły |
+| `routes.auth` | logowanie w projekcie i ze strony głównej, wylogowanie, hasło z zaproszenia, reset |
+| `routes.admin` | perymetr, logowanie admina, konta użytkowników, zaproszenia |
+| `routes.adminPanel` | portale (POST/PATCH), linki, zdarzenia, rejestr maili, log synchronizacji, foldery i listy ClickUpa, historia osoby, potwierdzenie alarmu |
+| `routes.webhook` | webhook ClickUpa |
+| `routes.cron` | indeks Historii, zamrażanie godzin |
+| `routes.siteping` | publiczny endpoint widgetu |
+| `routes.aiChat` | brama czatu i narzędzie tworzenia zadania |
+| `apiSession` | brama sesji, ścieżka sukcesu i wszystkie odmowy |
 
 Poza tym: brama sesji (`apiSession`), logowanie i wygasanie sesji, zaproszenia
 z testem wyścigu, indeks Historii, raporty czasu, powiadomienia, pomysły,
@@ -86,24 +77,23 @@ nie ma, nie ma sprawdzonego perymetru.
 
 ## Czego NIE MA — stan na 2026-08-07
 
-**9 z 32 tras API nie ma testu.** Wszystkie wejścia bez sesji (logowanie,
-webhook, SitePing, crony) są już pokryte. Co zostało, w kolejności ryzyka:
+**Warstwa API jest pokryta w całości.** Zostały dwie rzeczy.
 
-| Brak | Dlaczego to boli |
-|---|---|
-| `/api/ai/chat` | strumień i providerzy; brama ma test, samo narzędzie tworzenia zadania nie |
-| `/api/admin/portals` POST/PATCH | zakładanie i konfiguracja projektów; sprawdzony jest tylko perymetr GET |
-| `/api/panic/[id]/ack` | potwierdzenie alarmu tokenem z maila |
-| `/api/admin/portal-sync`, `portal-links`, `portal-events`, `mail-log` | odczyty do panelu |
-| `/api/admin/clickup/folders*` | proxy do ClickUpa |
-| `/api/admin/users/[userId]/activity` | historia jednej osoby |
+**Komponentów Reacta nie testujemy w ogóle.** Zmiana w `AdminPanel`,
+`TaskDrawer` czy `KanbanBoard` jest sprawdzana wyłącznie przez `tsc` i `next
+build`, czyli nikt nie sprawdza, czy panel się rysuje. To jest największa
+pozostała dziura i jedyna, przez którą realnie przechodzi dziś regresja.
 
-**Moduły `lib/` bez własnego testu:** `adminUser`, `passwordNotice`, `team`,
-`timeSnapshots`, `historyParams`, `projectLinks`, `projectLinksStore`,
-`aiPricing`, `portalScopeStore`, `portalSession`.
+**Moduły `lib/` bez własnego pliku testowego:** `adminUser`, `passwordNotice`,
+`team`, `timeSnapshots`, `historyParams`, `projectLinks`, `projectLinksStore`,
+`aiPricing`, `portalScopeStore`, `portalSession`, `admin-auth`, `apiAuth`,
+`loginAttempts`, `notificationStore`, `portalEvents`, `clickup`.
 
-`portalSession`, `admin-auth`, `apiAuth` i `loginAttempts` są pokryte pośrednio
-— przez testy bramy, logowania i perymetru admina — ale własnych nie mają.
+Ta lista wygląda gorzej niż jest: wszystkie te moduły są przechodzone przez
+testy tras, część intensywnie (`loginAttempts` przez blokadę konta, `admin-auth`
+przez perymetr, `portalEvents` przez sprawdzanie wpisów w `audit_log`). Czego
+brakuje, to testów **ich własnych przypadków brzegowych** — takich, do których
+przez trasę się nie dojdzie.
 
 **Komponentów Reacta nie testujemy w ogóle.** Zmiana w `AdminPanel`,
 `TaskDrawer` czy `KanbanBoard` jest sprawdzana wyłącznie przez `tsc` i `next
@@ -180,6 +170,15 @@ anotacji to płaskie `viewportW`/`viewportH`. Gotowy kształt jest w
 **Limit częstotliwości SitePinga żyje w pamięci modułu.** Bez
 `resetRateLimits()` w `beforeEach` poprzedni test zjada budżet następnemu,
 a porażka wygląda jak źle działająca brama.
+
+**`audit_log` i `ai_usage` gromadzą wpisy przez cały plik.** Testy dzielą jeden
+portal, a atrapy zwykle oddają wszędzie to samo id zadania, więc liczenie
+wierszy po `resourceId` policzy też cudze. Nadaj w takim teście własny,
+losowy identyfikator.
+
+**Nazwy kolumn sprawdź w schemacie, nie zgaduj.** W tej sesji zgadywanie
+kosztowało trzy przebiegi: `portal_lists.display_name` (nie `name`),
+`mail_log.ok` (nie `status`), tabela `user_invites` (nie `invites`).
 
 ## Pisząc nowy test
 

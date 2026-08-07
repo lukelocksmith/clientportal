@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { portals, portalUsers, portalLists, taskIndex } from '@/lib/db/schema'
@@ -61,6 +62,36 @@ export async function createTestUser(portalId: string, email: string): Promise<s
   const [user] = await db
     .insert(portalUsers)
     .values({ portalId, email, name: 'Test', passwordHash: 'x'.repeat(60) })
+    .returning({ id: portalUsers.id })
+  return user.id
+}
+
+/**
+ * Konto z PRAWDZIWYM hashem bcrypt, do testow logowania.
+ *
+ * `createTestUser` wstawia atrape hasha, ktora `bcrypt.compare` odrzuci — do
+ * testow sesji to wystarcza, bo one nie przechodza przez formularz. Test
+ * logowania na takim koncie sprawdzalby wylacznie to, ze zle haslo nie wpuszcza,
+ * i przechodzilby takze wtedy, gdyby DOBRE haslo tez nie wpuszczalo.
+ *
+ * `cost: 4` zamiast domyslnych 10: to jest najnizszy koszt akceptowany przez
+ * bcryptjs, a testy logowania hashuja i porownuja dziesiatki razy. Sila hasha
+ * nie jest tu przedmiotem testu.
+ */
+export async function createTestUserWithPassword(input: {
+  portalId: string
+  email: string
+  password: string
+  name?: string
+}): Promise<string> {
+  const [user] = await db
+    .insert(portalUsers)
+    .values({
+      portalId: input.portalId,
+      email: input.email,
+      name: input.name ?? 'Test',
+      passwordHash: bcrypt.hashSync(input.password, 4),
+    })
     .returning({ id: portalUsers.id })
   return user.id
 }

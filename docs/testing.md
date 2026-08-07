@@ -52,41 +52,56 @@ z ich `.next`. Gdy sypie tysiącami błędów, sprawdź `npx eslint src tests`.
 Podstawione jest wyłącznie wyjście na świat: ClickUp, poczta, Discord. Postgres,
 sesje, ciasteczka, HMAC admina i zapis do `audit_log` są prawdziwe.
 
-| Trasa | Metody |
-|---|---|
-| `/api/clickup/tasks` | GET, POST |
-| `/api/clickup/tasks/[taskId]` | GET, PATCH |
-| `/api/clickup/tasks/[taskId]/comments` | GET, POST |
-| `/api/clickup/tasks/[taskId]/attachments` | POST |
-| `/api/panic` | POST |
-| `/api/notifications` | GET, POST |
-| `/api/portal-ideas` | POST |
+| Trasa | Metody | Plik |
+|---|---|---|
+| `/api/clickup/tasks` | GET, POST | `routes.clickupTasks` |
+| `/api/clickup/tasks/[taskId]` | GET, PATCH | `routes.clickupTasks` |
+| `/api/clickup/tasks/[taskId]/comments` | GET, POST | `routes.clickupTasks` |
+| `/api/clickup/tasks/[taskId]/attachments` | POST | `routes.portal` |
+| `/api/panic` | POST | `routes.portal` |
+| `/api/notifications` | GET, POST | `routes.portal` |
+| `/api/portal-ideas` | POST | `routes.portal` |
+| `/api/auth/login` | POST | `routes.auth` |
+| `/api/auth/login-any` | POST | `routes.auth` |
+| `/api/auth/logout` | POST | `routes.auth` |
+| `/api/auth/set-password` | POST | `routes.auth` |
+| `/api/auth/forgot-password` | POST | `routes.auth` |
+| `/api/admin/login`, `/logout` | POST | `routes.admin` |
+| `/api/admin/users` | GET, POST | `routes.admin` |
+| `/api/admin/users/[userId]` | PATCH, DELETE | `routes.admin` |
+| `/api/admin/users/invite` | POST | `routes.admin` |
+| `/api/admin/portals`, `/stats` | GET (perymetr) | `routes.admin` |
 
 Poza tym: brama sesji (`apiSession`), logowanie i wygasanie sesji, zaproszenia
 z testem wyścigu, indeks Historii, raporty czasu, powiadomienia, pomysły,
 poczta, cron, cache, SitePing.
 
+**Perymetr admina jest sprawdzany pętlą** po liście tras w `routes.admin.test.ts`.
+Dopisując trasę pod `/api/admin/`, dopisz ją do tej listy — trasa, której tam
+nie ma, nie ma sprawdzonego perymetru.
+
 ## Czego NIE MA — stan na 2026-08-07
 
-**25 z 32 tras API nie ma żadnego testu.** Najważniejsze braki, w kolejności
-ryzyka:
+**13 z 32 tras API nie ma testu.** Najważniejsze braki, w kolejności ryzyka:
 
 | Brak | Dlaczego to boli |
 |---|---|
-| `/api/auth/*` (login, set-password, forgot-password) | to jest **wejście do systemu**; logika logowania ma testy przez `lib/auth`, ale sama trasa, jej limity prób i kształt odpowiedzi nie |
-| `/api/admin/*` (13 tras) | zakładanie portali i użytkowników, czyli miejsce, w którym da się nadać komuś dostęp do cudzego projektu |
-| `/api/cron/*` | liczby, które klient widzi jako „dane na dzień X"; `lib/` pod spodem ma testy, pętla po portalach nie |
 | `/api/webhooks/clickup` | wejście z zewnątrz, przyjmuje cudzy payload |
+| `/api/cron/*` | liczby, które klient widzi jako „dane na dzień X"; `lib/` pod spodem ma testy, pętla po portalach nie |
+| `/api/siteping/[slug]` | publiczny endpoint bez sesji; `lib/siteping` ma 38 testów, sama trasa nie |
 | `/api/ai/chat` | strumień i providerzy; brama ma test, samo narzędzie tworzenia zadania nie |
-| `/api/siteping/[slug]` | publiczny endpoint bez sesji; `lib/siteping` ma 38 testów, trasa nie |
+| `/api/admin/portals` POST/PATCH | zakładanie i konfiguracja projektów; sprawdzony jest tylko perymetr GET |
+| `/api/admin/portal-sync`, `portal-links`, `portal-events`, `mail-log` | odczyty do panelu |
+| `/api/admin/clickup/folders*` | proxy do ClickUpa |
+| `/api/admin/users/[userId]/activity` | historia jednej osoby |
+| `/api/panic/[id]/ack` | potwierdzenie alarmu tokenem z maila |
 
-**Moduły `lib/` bez testu:** `admin-auth`, `adminUser`, `apiAuth`,
-`loginAttempts`, `passwordNotice`, `team`, `timeSnapshots`, `historyParams`,
-`projectLinks`, `projectLinksStore`, `aiPricing`, `portalScopeStore`,
-`portalSession`.
+**Moduły `lib/` bez własnego testu:** `adminUser`, `passwordNotice`, `team`,
+`timeSnapshots`, `historyParams`, `projectLinks`, `projectLinksStore`,
+`aiPricing`, `portalScopeStore`, `portalSession`.
 
-`portalSession` i `admin-auth` są pokryte pośrednio, przez testy bramy i sesji,
-ale własnych nie mają.
+`portalSession`, `admin-auth`, `apiAuth` i `loginAttempts` są pokryte pośrednio
+— przez testy bramy, logowania i perymetru admina — ale własnych nie mają.
 
 **Komponentów Reacta nie testujemy w ogóle.** Zmiana w `AdminPanel`,
 `TaskDrawer` czy `KanbanBoard` jest sprawdzana wyłącznie przez `tsc` i `next
@@ -136,6 +151,16 @@ używaj gołego `vi.fn()`, a implementację dowiązuj w `beforeEach`.
 **Portal bez list działa na CAŁYM folderze.** Test granicy list musi jawnie
 utworzyć listę (`createTestList`), inaczej sprawdza przypadek „brak zawężenia"
 w przekonaniu, że sprawdza zawężenie.
+
+**`createTestUser` wstawia atrapę hasha**, której `bcrypt.compare` nigdy nie
+potwierdzi. Do testów sesji to wystarcza, ale test logowania na takim koncie
+sprawdzałby wyłącznie, że złe hasło nie wpuszcza, i przechodziłby także wtedy,
+gdyby dobre hasło też nie wpuszczało. Do logowania służy
+`createTestUserWithPassword`.
+
+**Hasło zapisane nie znaczy hasło działające.** Po ustawieniu hasła testem
+sprawdź je **logowaniem**, a nie oglądaniem hasha w bazie: hash może wyglądać
+poprawnie i mimo to nigdy nie pasować.
 
 ## Pisząc nowy test
 

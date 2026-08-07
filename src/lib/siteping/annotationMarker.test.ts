@@ -7,6 +7,8 @@ import {
   extractUrlFromDescription,
   buildFeedbackDescription,
   buildFeedbackTitle,
+  feedbackKindLabel,
+  feedbackKindTags,
   buildAnnotationLink,
   withSitepingMarkers,
 } from './annotationMarker'
@@ -204,5 +206,72 @@ describe('buildFeedbackTitle', () => {
 
   it('keeps short messages verbatim', () => {
     assert.strictEqual(buildFeedbackTitle('Literowka w naglowku'), 'Literowka w naglowku')
+  })
+})
+
+/**
+ * RODZAJ ZGLOSZENIA: blad, zmiana, pytanie, inne.
+ *
+ * Widget pyta o to klienta, bo kazdy rodzaj wymaga innej reakcji zespolu.
+ * Trafia w DWA miejsca i to jest swiadome: opis dziala ZAWSZE, a tag jest
+ * wygoda przy filtrowaniu, ktora ClickUp potrafi po cichu pominac.
+ */
+describe('rodzaj zgloszenia', () => {
+  describe('feedbackKindLabel', () => {
+    it('kazdy znany rodzaj ma czytelna etykiete po polsku', () => {
+      assert.match(feedbackKindLabel('bug'), /Błąd/)
+      assert.match(feedbackKindLabel('change'), /Zmiana/)
+      assert.match(feedbackKindLabel('question'), /Pytanie/)
+      assert.match(feedbackKindLabel('other'), /Inne/)
+    })
+
+    it('NIEZNANA wartosc spada na „Inne", zamiast gubic zgloszenie', () => {
+      // Pakiet moze kiedys dodac nowy rodzaj. Zadanie bez opisu byloby gorsze
+      // niz zadanie opisane ogolnie.
+      assert.match(feedbackKindLabel('cokolwiek-nowego'), /Inne/)
+      assert.match(feedbackKindLabel(null), /Inne/)
+      assert.match(feedbackKindLabel(undefined), /Inne/)
+    })
+  })
+
+  describe('feedbackKindTags', () => {
+    it('zawsze DWA tagi: zrodlo i rodzaj', () => {
+      // `siteping` mowi SKAD to przyszlo, rodzaj mowi CZEGO dotyczy.
+      assert.deepStrictEqual(feedbackKindTags('bug'), ['siteping', 'błąd'])
+      assert.deepStrictEqual(feedbackKindTags('change'), ['siteping', 'zmiana'])
+      assert.deepStrictEqual(feedbackKindTags('question'), ['siteping', 'pytanie'])
+    })
+
+    it('nieznany rodzaj nadal daje tag zrodla', () => {
+      // Utrata `siteping` zerwalaby rozpoznawanie zgloszen z widgetu.
+      assert.deepStrictEqual(feedbackKindTags('nowy-rodzaj'), ['siteping', 'inne'])
+      assert.deepStrictEqual(feedbackKindTags(null), ['siteping', 'inne'])
+    })
+  })
+
+  describe('opis zadania', () => {
+    const opis = (kind?: string | null) =>
+      buildFeedbackDescription({
+        clientId: 'c-1',
+        url: 'https://demo.test/kontakt',
+        message: 'przycisk nie dziala',
+        annotation: null,
+        kind,
+      })
+
+    it('rodzaj NIE wypycha tresci klienta z pierwszej linii', () => {
+      // Tresc zgloszenia zostaje na gorze — to byla swiadoma decyzja Lukasza
+      // i rodzaj jej nie przesłania. Do skanowania listy zadan sluzy TAG,
+      // ktory ClickUp pokazuje przy nazwie.
+      const linie = opis('bug').split('\n')
+      assert.strictEqual(linie[0], 'przycisk nie dziala')
+      assert.ok(opis('bug').includes('Błąd'), 'rodzaj jest w opisie, tylko nizej')
+    })
+
+    it('opis BEZ podanego rodzaju nadal niesie rodzaj „Inne"', () => {
+      // Brak rodzaju nie moze zostawic zadania bez tej informacji — zespol
+      // czytalby wtedy tresc, nie wiedzac, czy to usterka, czy pytanie.
+      assert.match(opis(undefined), /Rodzaj:.*Inne/)
+    })
   })
 })

@@ -30,6 +30,7 @@ import {
   extractClientIdFromDescription,
   extractUrlFromDescription,
   buildFeedbackDescription,
+  feedbackKindTags,
   buildFeedbackTitle,
   withSitepingMarkers,
 } from '@/lib/siteping/annotationMarker'
@@ -328,6 +329,8 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
               annotation,
               siteOrigin: portal.siteOrigin,
               feedbackId,
+              // Rodzaj zgloszenia z widgetu: blad, zmiana, pytanie, inne.
+              kind: (data as { type?: string }).type,
             }),
             {
               name: data.authorName || null,
@@ -344,7 +347,13 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
       const task = await createTask(portal.defaultListId, {
         name: buildFeedbackTitle(data.message),
         description: describe(null),
-        tags: [SITEPING_TAG],
+        // Dwa tagi: `siteping` mowi SKAD to przyszlo, rodzaj mowi CZEGO dotyczy.
+        // Filtrowanie po obu naraz jest tym, po co zespol siega do tagow.
+        //
+        // Tag nieistniejacy w przestrzeni ClickUpa jest po cichu POMIJANY, wiec
+        // te cztery trzeba zalozyc recznie przed wlaczeniem klientowi SitePinga.
+        // Dlatego rodzaj jest TAKZE w opisie, ktory dziala zawsze.
+        tags: feedbackKindTags((data as { type?: string }).type),
         status: STATUS_TO_CLICKUP.open,
       })
 

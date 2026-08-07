@@ -98,6 +98,55 @@ export function buildAnnotationLink(
  * jego utworzeniu: opis budujemy dwa razy, drugi raz z linkiem (patrz
  * `createFeedback` w store.ts).
  */
+/**
+ * Rodzaj zgloszenia z widgetu.
+ *
+ * Te cztery wartosci narzuca `@siteping/adapter-prisma` — walidacja odrzuca
+ * cokolwiek innego, wiec lista jest zamknieta nie z naszego wyboru.
+ */
+export type FeedbackKind = 'bug' | 'change' | 'question' | 'other'
+
+/**
+ * Etykieta do OPISU zadania i nazwa TAGU w ClickUpie.
+ *
+ * Po polsku, bo opis czyta zespol i klient, a nie maszyna. `tag` jest osobny
+ * od `label`, bo tagi w ClickUpie sa wspolne dla calej przestrzeni klientow
+ * i lepiej, zeby mialy krotka, jednoznaczna postac.
+ *
+ * PULAPKA CLICKUPA, ktora juz nas kosztowala: tag NIEISTNIEJACY w przestrzeni
+ * jest po cichu POMIJANY przy tworzeniu zadania — bez bledu, bez sladu.
+ * Znaczy to, ze te cztery tagi trzeba zalozyc w przestrzeni klienta RECZNIE,
+ * zanim wlaczy sie mu SitePinga. Dlatego rodzaj trafia TAKZE do opisu, ktory
+ * dziala zawsze: opis jest zrodlem prawdy, tag jest wygoda przy filtrowaniu.
+ */
+const RODZAJE: Record<FeedbackKind, { label: string; tag: string }> = {
+  bug: { label: '🐞 Błąd', tag: 'błąd' },
+  change: { label: '✏️ Zmiana', tag: 'zmiana' },
+  question: { label: '❓ Pytanie', tag: 'pytanie' },
+  other: { label: '💬 Inne', tag: 'inne' },
+}
+
+/** Nieznana wartosc traktujemy jak `other`, zamiast gubic zgloszenie. */
+function rodzaj(kind: string | null | undefined): { label: string; tag: string } {
+  return RODZAJE[(kind ?? '') as FeedbackKind] ?? RODZAJE.other
+}
+
+/** Etykieta rodzaju do opisu zadania. */
+export function feedbackKindLabel(kind: string | null | undefined): string {
+  return rodzaj(kind).label
+}
+
+/**
+ * Tag ClickUpa dla rodzaju zgloszenia, ZAWSZE razem z tagiem `siteping`.
+ *
+ * Dwa tagi, nie jeden: `siteping` odpowiada na pytanie „skad to przyszlo",
+ * rodzaj na „czego dotyczy". Filtrowanie po obu naraz jest tym, po co zespol
+ * w ogole siega do tagow.
+ */
+export function feedbackKindTags(kind: string | null | undefined): string[] {
+  return ['siteping', rodzaj(kind).tag]
+}
+
 export function buildFeedbackDescription(input: {
   clientId: string
   url: string
@@ -105,8 +154,13 @@ export function buildFeedbackDescription(input: {
   annotation: AnnotationLike | null
   siteOrigin?: string | null
   feedbackId?: string | null
+  /** `bug` | `change` | `question` | `other`. Nieznane traktujemy jak `other`. */
+  kind?: string | null
 }): string {
-  const lines = [input.message.trim(), '']
+  // TRESC KLIENTA ZOSTAJE W PIERWSZEJ LINII. Rodzaj wchodzi nizej, do bloku
+  // „gdzie i co", razem z linkiem i elementem. Do skanowania listy zadan sluzy
+  // TAG, ktory ClickUp pokazuje przy nazwie — opis czyta sie dopiero po wejsciu.
+  const lines = [input.message.trim(), '', `**Rodzaj:** ${feedbackKindLabel(input.kind)}`]
 
   const link = input.feedbackId
     ? buildAnnotationLink(input.siteOrigin, input.url, input.feedbackId)

@@ -159,7 +159,9 @@ describe('createFeedback — sciezka podstawowa', () => {
     assert.strictEqual(clickup.createTask.mock.calls.length, 1)
     const [listId, payload] = clickup.createTask.mock.calls[0]
     assert.strictEqual(listId, 'list-1')
-    assert.deepStrictEqual(payload.tags, ['siteping'])
+    // DWA tagi: `siteping` mowi SKAD to przyszlo, rodzaj mowi CZEGO dotyczy.
+    // Zgloszenie bez podanego rodzaju spada na `inne`, wiec drugi tag jest zawsze.
+    assert.deepStrictEqual(payload.tags, ['siteping', 'błąd'])
     assert.strictEqual(payload.status, 'do zrobienia')
   })
 

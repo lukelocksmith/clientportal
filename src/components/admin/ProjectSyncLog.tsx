@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { CheckCircle2, XCircle } from 'lucide-react'
+import { CheckCircle2, XCircle, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { pluralForm, DAYS } from '@/lib/plural'
@@ -28,8 +28,25 @@ type Run = {
   durationMs: number
 }
 
+/**
+ * Zmiana statusu zadania. Dwa zrodla: `webhook` (zespol zmienil w ClickUpie)
+ * i `portal` (klient przeciagnal karte). Rozroznienie jest tu wazne, bo
+ * odpowiada na pytanie „kto to ruszyl" inaczej niz sam podpis.
+ */
+type StatusChange = {
+  id: string
+  clickupTaskId: string
+  taskName: string
+  fromStatus: string | null
+  toStatus: string
+  source: string
+  actorLabel: string | null
+  changedAt: string
+}
+
 type Payload = {
   runs: Run[]
+  statusy: StatusChange[]
   labels: Record<string, string>
   lastSuccess: Record<string, string | null>
 }
@@ -202,6 +219,67 @@ export function ProjectSyncLog({ slug }: { slug: string }) {
           </Table>
         </div>
       )}
+
+      {/*
+        HISTORIA STATUSOW, pod przebiegami crona. Dwie rozne rzeczy w jednym
+        widoku, bo obie odpowiadaja na to samo pytanie: „co sie dzialo z tym
+        projektem". Przebiegi mowia, czy dane sa swieze; statusy mowia, co sie
+        w nich zmienilo.
+      */}
+      <div className="space-y-2 pt-2">
+        <div className="flex items-baseline justify-between">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Zmiany statusów
+          </h4>
+          <span className="text-[10px] text-muted-foreground">ostatnie 100</span>
+        </div>
+
+        {(data.statusy ?? []).length === 0 ? (
+          <p className="rounded-lg border border-border bg-card px-4 py-6 text-center text-xs text-muted-foreground">
+            Brak zapisanych zmian statusu. Zapisujemy je od chwili wdrożenia tej
+            funkcji, więc pusto znaczy „jeszcze nic się nie zmieniło", a nie
+            „nie działa".
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Kiedy</TableHead>
+                  <TableHead>Zadanie</TableHead>
+                  <TableHead>Zmiana</TableHead>
+                  <TableHead>Kto</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.statusy.map(z => (
+                  <TableRow key={z.id}>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {fmtDateTime(z.changedAt)}
+                    </TableCell>
+                    <TableCell className="max-w-[220px] text-xs text-foreground">
+                      <span className="line-clamp-1" title={z.taskName}>{z.taskName}</span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">
+                      {/* Null w `from` znaczy „nie wiemy", a nie „brak statusu",
+                          i tak trzeba to pokazac — mysłnik, nie puste miejsce. */}
+                      <span className="text-muted-foreground">{z.fromStatus ?? '—'}</span>
+                      <ArrowRight className="mx-1 inline h-3 w-3 text-muted-foreground" aria-hidden />
+                      <span className="font-medium text-foreground">{z.toStatus}</span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {z.actorLabel ?? '—'}
+                      <span className="ml-1.5 rounded bg-muted px-1 py-0.5 text-[10px]">
+                        {z.source === 'portal' ? 'portal' : 'ClickUp'}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

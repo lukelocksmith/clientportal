@@ -4,6 +4,7 @@ import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { listCronRuns, getLastSuccessfulRun, CRON_JOB_LABELS, type CronJob } from '@/lib/cronRuns'
+import { listStatusHistory } from '@/lib/statusHistory'
 
 /**
  * Logi synchronizacji projektu: Track Time i indeks Historii.
@@ -32,13 +33,18 @@ export async function GET(request: NextRequest) {
   const rawJob = request.nextUrl.searchParams.get('job')
   const job = JOBS.includes(rawJob as CronJob) ? (rawJob as CronJob) : undefined
 
-  const [runs, ...lastOk] = await Promise.all([
+  // Historia statusow leci RAZEM z przebiegami, jednym zapytaniem: to jest
+  // jeden widok w panelu, a trzy osobne pobrania z przegladarki znaczylyby trzy
+  // stany wczytywania i trzy mozliwe bledy w jednym okienku.
+  const [runs, statusy, ...lastOk] = await Promise.all([
     listCronRuns({ portalId: portal.id, job, limit: 100 }),
+    listStatusHistory({ portalId: portal.id, limit: 100 }),
     ...JOBS.map(j => getLastSuccessfulRun(j, portal.id)),
   ])
 
   return NextResponse.json({
     runs,
+    statusy,
     labels: CRON_JOB_LABELS,
     lastSuccess: Object.fromEntries(JOBS.map((j, i) => [j, lastOk[i]])),
   })

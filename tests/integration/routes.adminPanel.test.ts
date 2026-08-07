@@ -2,7 +2,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { portals, portalLists, panicAlerts, mailLog } from '@/lib/db/schema'
+import { portals, portalLists, panicAlerts, mailLog, taskStatusHistory } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -159,6 +159,62 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
         assert.strictEqual((await wywolaj(`/api/admin/${nazwa}?slug=${portalA.slug}`)).status, 200)
       })
     }
+  })
+
+  describe.skipIf(!maToken)('log synchronizacji niesie TEZ historie statusow', () => {
+    it('odpowiedz zawiera pole `statusy`, nawet gdy jest puste', async () => {
+      const res = await syncGET(zTokenem(`/api/admin/portal-sync?slug=${portalA.slug}`))
+      const body = await res.json()
+
+      // Brak pola i pusta tablica to dwie rozne rzeczy dla komponentu: przy
+      // braku widok wywalilby sie na `.map`, przy pustej pokaze komunikat.
+      assert.ok(Array.isArray(body.statusy), 'pole `statusy` jest tablica')
+    })
+
+    it('zapisana zmiana statusu pojawia sie w logu', async () => {
+      await db.insert(taskStatusHistory).values({
+        portalId: portalA.id,
+        clickupTaskId: 'zad-log-1',
+        taskName: 'Zadanie z logu',
+        fromStatus: 'do zrobienia',
+        toStatus: 'w trakcie',
+        source: 'portal',
+        actorLabel: 'Anna Klient',
+      })
+
+      const res = await syncGET(zTokenem(`/api/admin/portal-sync?slug=${portalA.slug}`))
+      const body = await res.json()
+
+      const wpis = body.statusy.find((z: { clickupTaskId: string }) => z.clickupTaskId === 'zad-log-1')
+      assert.ok(wpis, 'zmiana widoczna w logu')
+      assert.strictEqual(wpis.fromStatus, 'do zrobienia')
+      assert.strictEqual(wpis.toStatus, 'w trakcie')
+      assert.strictEqual(wpis.actorLabel, 'Anna Klient')
+      assert.strictEqual(wpis.source, 'portal')
+    })
+
+    it('historia INNEGO projektu nie wchodzi do logu', async () => {
+      const portalC = await createTestPortal('log-obcy')
+      try {
+        await db.insert(taskStatusHistory).values({
+          portalId: portalC.id,
+          clickupTaskId: 'zad-obce',
+          taskName: 'Cudze',
+          toStatus: 'zamkniete',
+          source: 'webhook',
+        })
+
+        const res = await syncGET(zTokenem(`/api/admin/portal-sync?slug=${portalA.slug}`))
+        const body = await res.json()
+
+        assert.ok(
+          !body.statusy.some((z: { clickupTaskId: string }) => z.clickupTaskId === 'zad-obce'),
+          'log projektu A nie pokazuje zmian projektu C'
+        )
+      } finally {
+        await dropTestPortal(portalC.id)
+      }
+    })
   })
 
   /**

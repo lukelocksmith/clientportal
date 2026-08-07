@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requirePortalApi } from '@/lib/apiSession'
-import { countUnread, listForUser, markRead } from '@/lib/notificationStore'
+import { countUnread, deleteForUser, listForUser, markRead } from '@/lib/notificationStore'
 import { normalizeActorId } from '@/lib/reporter'
 
 /**
@@ -59,4 +59,37 @@ export async function POST(request: NextRequest) {
   // nie oznaczy cudzego powiadomienia.
   await markRead(userId, parsed.data.ids)
   return NextResponse.json({ ok: true, unread: await countUnread(userId) })
+}
+
+const deleteSchema = z.object({
+  slug: z.string().min(1).max(50),
+  /**
+   * WYMAGANE i niepuste. `markRead` bez `ids` znaczy „wszystkie moje", ale
+   * przy kasowaniu ta sama wygoda oznaczałaby, że jedno przeoczone `undefined`
+   * czyści klientowi całą historię powiadomień.
+   */
+  ids: z.array(z.string().uuid()).min(1).max(100),
+})
+
+/**
+ * Kasowanie WSKAZANYCH powiadomień.
+ *
+ * Osobna metoda, nie kolejne pole w POST: kasowanie jest nieodwracalne, więc
+ * ma mieć własne wejście, a nie chować się za flagą w żądaniu, które na co
+ * dzień tylko oznacza przeczytane.
+ */
+export async function DELETE(request: NextRequest) {
+  const parsed = deleteSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+
+  const gate = await requirePortalApi(parsed.data.slug)
+  if (!gate.ok) return gate.response
+
+  const userId = ownUserId(gate.session.userId)
+  if (!userId) return NextResponse.json({ ok: true, adminPreview: true })
+
+  // `deleteForUser` sam wiąże warunek z `userId`, więc identyfikator
+  // z przeglądarki nie skasuje cudzego powiadomienia.
+  const usuniete = await deleteForUser(userId, parsed.data.ids)
+  return NextResponse.json({ ok: true, usuniete, unread: await countUnread(userId) })
 }

@@ -56,7 +56,7 @@ import { NextRequest } from 'next/server'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { createNotifications } from '@/lib/notificationStore'
 import { POST as panicPOST } from '@/app/api/panic/route'
-import { GET as notifGET, POST as notifPOST } from '@/app/api/notifications/route'
+import { GET as notifGET, POST as notifPOST, DELETE as notifDELETE } from '@/app/api/notifications/route'
 import { POST as ideasPOST } from '@/app/api/portal-ideas/route'
 import { POST as attachPOST } from '@/app/api/clickup/tasks/[taskId]/attachments/route'
 
@@ -191,6 +191,81 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
 
       const wiersze = await db.select().from(notifications).where(eq(notifications.userId, userA))
       assert.ok(wiersze.every(n => n.readAt != null), 'znacznik odczytu zapisany w bazie')
+    })
+
+    it('oznaczenie POJEDYNCZEGO zmniejsza licznik o jeden, nie zeruje', async () => {
+      const [a, b] = await Promise.all([
+        createNotifications([{ userId: userA, portalId: portalA.id, kind: 'comment', clickupTaskId: 'p-1', taskName: 'Pierwsze' }]),
+        createNotifications([{ userId: userA, portalId: portalA.id, kind: 'comment', clickupTaskId: 'p-2', taskName: 'Drugie' }]),
+      ])
+      void a; void b
+      await loginAs(userA)
+      const przed = await (await notifGET(new NextRequest(`http://localhost/api/notifications?slug=${portalA.slug}`))).json()
+
+      const res = await notifPOST(
+        jsonReq('/api/notifications', { slug: portalA.slug, ids: [przed.items[0].id] })
+      )
+      const body = await res.json()
+
+      // Wczesniej licznik schodzil WYLACZNIE przyciskiem „oznacz wszystkie",
+      // wiec przeczytanie jednej sprawy nie zmienialo cyfry przy dzwonku.
+      assert.strictEqual(body.unread, przed.unread - 1)
+    })
+
+    it('kasowanie usuwa WIERSZ z bazy, nie tylko z ekranu', async () => {
+      await createNotifications([
+        { userId: userA, portalId: portalA.id, kind: 'comment', clickupTaskId: 'p-3', taskName: 'Do skasowania' },
+      ])
+      await loginAs(userA)
+      const lista = await (await notifGET(new NextRequest(`http://localhost/api/notifications?slug=${portalA.slug}`))).json()
+      const doKasacji = lista.items.find((i: { taskName: string }) => i.taskName === 'Do skasowania')
+
+      const res = await notifDELETE(
+        jsonReq('/api/notifications', { slug: portalA.slug, ids: [doKasacji.id] })
+      )
+
+      assert.strictEqual(res.status, 200)
+      const wiersze = await db.select().from(notifications).where(eq(notifications.id, doKasacji.id))
+      assert.strictEqual(wiersze.length, 0)
+    })
+
+    it('NIE skasuje cudzego powiadomienia, nawet znajac jego identyfikator', async () => {
+      await createNotifications([
+        { userId: userB, portalId: portalB.id, kind: 'comment', clickupTaskId: 'p-4', taskName: 'Cudze' },
+      ])
+      const [cudze] = await db.select().from(notifications).where(eq(notifications.userId, userB))
+      await loginAs(userA)
+
+      const res = await notifDELETE(
+        jsonReq('/api/notifications', { slug: portalA.slug, ids: [cudze.id] })
+      )
+      const body = await res.json()
+
+      // Identyfikator przychodzi z przegladarki, wiec nie moze sam decydowac,
+      // czyj wiersz kasujemy. Odpowiedz jest 200, ale skasowano ZERO.
+      assert.strictEqual(body.usuniete, 0)
+      assert.strictEqual(
+        (await db.select().from(notifications).where(eq(notifications.id, cudze.id))).length,
+        1,
+        'cudze powiadomienie nietkniete'
+      )
+    })
+
+    it('PUSTA lista identyfikatorow -> 400, zeby nie skasowac wszystkiego', async () => {
+      await loginAs(userA)
+
+      const res = await notifDELETE(jsonReq('/api/notifications', { slug: portalA.slug, ids: [] }))
+
+      // `markRead` bez `ids` znaczy „wszystkie moje". Gdyby kasowanie mialo te
+      // sama wygode, jedno przeoczone `undefined` czyscilo by cala historie.
+      assert.strictEqual(res.status, 400)
+    })
+
+    it('kasowanie bez sesji -> 401', async () => {
+      const res = await notifDELETE(
+        jsonReq('/api/notifications', { slug: portalA.slug, ids: ['00000000-0000-0000-0000-000000000000'] })
+      )
+      assert.strictEqual(res.status, 401)
     })
 
     it.skipIf(!process.env.ADMIN_SECRET)(

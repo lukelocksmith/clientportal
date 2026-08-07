@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck } from 'lucide-react'
+import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck, X } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -100,6 +100,56 @@ export function NotificationBell({ slug }: { slug: string }) {
     return () => clearInterval(id)
   }, [load, pathname])
 
+  /**
+   * Oznacza JEDNO powiadomienie jako przeczytane.
+   *
+   * Wołane przy kliknięciu w pozycję, czyli w chwili, w której klient
+   * faktycznie się nią zajął. Wcześniej licznik schodził wyłącznie przyciskiem
+   * „oznacz wszystkie", więc przeczytanie jednej sprawy nie zmieniało niczego
+   * i cyfra przy dzwonku kłamała.
+   *
+   * Stan lokalny zmieniamy OD RAZU, przed odpowiedzią serwera: klient zaraz
+   * opuszcza tę stronę (pozycja jest linkiem), więc czekanie na odpowiedź
+   * znaczyłoby, że nie zobaczy skutku swojego kliknięcia.
+   */
+  async function markOne(id: string) {
+    const pozycja = items.find(i => i.id === id)
+    if (!pozycja || pozycja.read) return
+
+    setItems(prev => prev.map(i => (i.id === id ? { ...i, read: true } : i)))
+    setUnread(prev => Math.max(0, prev - 1))
+
+    await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, ids: [id] }),
+    }).catch(() => load())
+  }
+
+  /**
+   * Kasuje JEDNO powiadomienie.
+   *
+   * Oznaczenie jako przeczytane wycisza licznik, ale zostawia pozycję na
+   * liście — a klient, który sprawę załatwił, chce ją stąd usunąć. Bez tego
+   * dzwonek rośnie w nieskończoność i po tygodniu przestaje się nadawać do
+   * czegokolwiek.
+   */
+  async function removeOne(id: string) {
+    const pozycja = items.find(i => i.id === id)
+    if (!pozycja) return
+
+    setItems(prev => prev.filter(i => i.id !== id))
+    if (!pozycja.read) setUnread(prev => Math.max(0, prev - 1))
+
+    // Przy niepowodzeniu przeładowujemy listę, żeby pozycja wróciła —
+    // zniknięcie z ekranu bez skasowania w bazie byłoby kłamstwem.
+    await fetch('/api/notifications', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, ids: [id] }),
+    }).catch(() => load())
+  }
+
   async function markAll() {
     if (unread === 0) return
     setUnread(0)
@@ -149,16 +199,18 @@ export function NotificationBell({ slug }: { slug: string }) {
                 wygląda na klikalny, ale kliknięcie do niego nie dochodzi.
                 Zgłoszone przez Łukasza 2026-08-06: „nie klikają się linki". */}
             {items.map(item => (
-              <DropdownMenuItem key={item.id} asChild className="cursor-pointer rounded-none p-0">
+              <div
+                key={item.id}
+                className={
+                  'group relative flex items-stretch border-b border-border last:border-b-0 ' +
+                  (item.read ? '' : 'bg-primary/5')
+                }
+              >
+              <DropdownMenuItem asChild className="cursor-pointer rounded-none p-0 flex-1">
                 <Link
+                  onClick={() => markOne(item.id)}
                   href={item.taskId ? `/${slug}?task=${item.taskId}` : `/${slug}`}
-                  className={
-                    'flex w-full items-start gap-3 border-b border-border px-3 py-3 last:border-b-0 ' +
-                    // Nieprzeczytane ma TLO, nie tylko kropke: przy dziesieciu
-                    // pozycjach szescio­pikselowa kropka ginie, a to ona jest
-                    // jedynym powodem, dla ktorego klient tu zajrzal.
-                    (item.read ? '' : 'bg-primary/5')
-                  }
+                  className="flex w-full items-start gap-3 py-3 pl-3 pr-9"
                 >
                   <span
                     className={
@@ -200,6 +252,27 @@ export function NotificationBell({ slug }: { slug: string }) {
                   </span>
                 </Link>
               </DropdownMenuItem>
+
+              {/*
+                Kasowanie POZA `DropdownMenuItem`, nie w środku: Radix traktuje
+                pozycję menu jako jeden cel, więc przycisk zagnieżdżony w niej
+                wyglądałby na klikalny, a kliknięcie i tak wybrałoby całą
+                pozycję i przeniosło do zadania.
+
+                `preventDefault` na `pointerdown` blokuje domyślne zamknięcie
+                menu przez Radix — bez tego pierwsze kasowanie zamykałoby
+                dzwonek i klient musiałby go otwierać do każdej pozycji.
+              */}
+              <button
+                type="button"
+                aria-label={`Usuń powiadomienie: ${item.taskName}`}
+                onPointerDown={e => e.preventDefault()}
+                onClick={() => removeOne(item.id)}
+                className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              </div>
             ))}
           </div>
         )}

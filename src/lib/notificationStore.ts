@@ -85,6 +85,27 @@ export async function markRead(userId: string, ids?: string[]) {
 }
 
 /**
+ * Kasuje WSKAZANE powiadomienia użytkownika. Zwraca liczbę usuniętych.
+ *
+ * Warunek na `userId` jest w zapytaniu ZAWSZE, tak samo jak w `markRead`:
+ * identyfikator przychodzi z przeglądarki, więc nie może sam decydować, czyj
+ * wiersz kasujemy. Bez tego znajomość cudzego identyfikatora wystarczyłaby,
+ * żeby usunąć komuś powiadomienie.
+ *
+ * Pusta lista NIE kasuje niczego. To celowe: `markRead` bez `ids` znaczy
+ * „wszystkie moje", ale przy kasowaniu ta sama wygoda oznaczałaby, że jedno
+ * przeoczone `undefined` czyści klientowi całą historię powiadomień.
+ */
+export async function deleteForUser(userId: string, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0
+  const usuniete = await db
+    .delete(notifications)
+    .where(and(eq(notifications.userId, userId), inArray(notifications.id, ids)))
+    .returning({ id: notifications.id })
+  return usuniete.length
+}
+
+/**
  * Powiadomienia czekające na zbiorczy mail, razem z odbiorcą.
  *
  * Bierzemy tylko te bez stempla wysyłki, więc rzecz wysłana natychmiast nigdy

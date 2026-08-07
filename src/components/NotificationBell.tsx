@@ -2,14 +2,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell } from 'lucide-react'
+import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { formatDate } from '@/lib/utils'
+import { relativeTime, exactTime } from '@/lib/relativeTime'
 
 type Item = {
   id: string
@@ -40,6 +40,28 @@ function describe(item: Item): string {
       return 'Zespół podjął Twój alarm'
   }
 }
+
+/**
+ * Ikona rodzaju zdarzenia.
+ *
+ * Lista bez ikon zmusza do CZYTANIA kazdej pozycji, zeby stwierdzic, czy to
+ * odpowiedz zespolu, czy zmiana statusu. Ikona pozwala przelecec wzrokiem
+ * i zatrzymac sie na tym, co wazne.
+ */
+const IKONY = {
+  comment: MessageSquare,
+  status: ArrowRightLeft,
+  closed: CheckCircle2,
+  panic_ack: ShieldCheck,
+} as const
+
+/** Nazwa rodzaju, czytana przez czytniki ekranu zamiast samej ikony. */
+const NAZWY_RODZAJU = {
+  comment: 'Odpowiedź',
+  status: 'Zmiana statusu',
+  closed: 'Zamknięte',
+  panic_ack: 'Alarm podjęty',
+} as const
 
 /**
  * Dzwonek z licznikiem nieprzeczytanych.
@@ -105,7 +127,7 @@ export function NotificationBell({ slug }: { slug: string }) {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-80 p-0">
+      <DropdownMenuContent align="end" className="w-96 p-0">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-sm font-semibold text-foreground">Powiadomienia</span>
           {unread > 0 && (
@@ -130,28 +152,51 @@ export function NotificationBell({ slug }: { slug: string }) {
               <DropdownMenuItem key={item.id} asChild className="cursor-pointer rounded-none p-0">
                 <Link
                   href={item.taskId ? `/${slug}?task=${item.taskId}` : `/${slug}`}
-                  className="flex w-full gap-2 border-b border-border px-3 py-2.5 last:border-b-0"
+                  className={
+                    'flex w-full items-start gap-3 border-b border-border px-3 py-3 last:border-b-0 ' +
+                    // Nieprzeczytane ma TLO, nie tylko kropke: przy dziesieciu
+                    // pozycjach szescio­pikselowa kropka ginie, a to ona jest
+                    // jedynym powodem, dla ktorego klient tu zajrzal.
+                    (item.read ? '' : 'bg-primary/5')
+                  }
                 >
-                  {/* Kropka zamiast tła: nieprzeczytane ma się wyróżniać,
-                      ale lista ma dalej wyglądać jak lista. */}
                   <span
                     className={
-                      item.read
-                        ? 'mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-transparent'
-                        : 'mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive'
+                      'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ' +
+                      (item.read ? 'bg-muted text-muted-foreground' : 'bg-primary/15 text-primary')
                     }
-                    aria-hidden
-                  />
+                  >
+                    {(() => {
+                      const Ikona = IKONY[item.kind]
+                      return <Ikona className="h-3.5 w-3.5" aria-hidden />
+                    })()}
+                  </span>
+
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-foreground">
+                    <span className="flex items-baseline justify-between gap-2">
+                      {/* Rodzaj zdarzenia slowami: ikona sama nie wystarcza
+                          czytnikowi ekranu, a przy podobnych ikonach tez oku. */}
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {NAZWY_RODZAJU[item.kind]}
+                      </span>
+                      <span
+                        className="shrink-0 text-[11px] text-muted-foreground"
+                        title={exactTime(item.createdAt)}
+                      >
+                        {relativeTime(item.createdAt)}
+                      </span>
+                    </span>
+
+                    <span className="mt-0.5 block truncate text-sm font-medium text-foreground">
                       {item.taskName}
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">
+
+                    {/* DWIE linie zamiast jednej uciętej. Tresc komentarza
+                        obcieta po polowie slowa nie mowi nic i tak samo wymaga
+                        wejscia w zadanie, wiec oszczednosc miejsca byla pozorna. */}
+                    <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground">
                       {describe(item)}
                     </span>
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {formatDate(String(new Date(item.createdAt).getTime()))}
                   </span>
                 </Link>
               </DropdownMenuItem>

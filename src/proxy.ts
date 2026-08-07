@@ -34,7 +34,21 @@ function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
-    "style-src 'self'",
+    // `unsafe-inline` dla znaczników `<style>` WYŁĄCZNIE w dev, tak samo jak
+    // `unsafe-eval` wyżej i z tego samego powodu: to wymóg narzędzi Next, nie
+    // aplikacji. Nakładka deweloperska, Fast Refresh i system czcionek
+    // wstrzykują `<style>` z JS, przez co konsola zapełniała się setkami
+    // naruszeń przy każdym wejściu na stronę.
+    //
+    // To nie jest kosmetyka. Konsola pełna szumu znaczy, że prawdziwy błąd
+    // przy klikaniu po portalu przechodzi niezauważony — a klikanie jest
+    // jedynym sposobem sprawdzenia rzeczy, których testy nie widzą.
+    //
+    // ZMIERZONE, nie założone: produkcyjny build (`next start`) wczytuje style
+    // z plików, czyli z `self`, i nie generuje ANI JEDNEGO naruszenia. Kolory
+    // marki klienta idą atrybutem `style`, który obsługuje `style-src-attr`
+    // niżej i który zostaje ścisły w obu trybach.
+    `style-src 'self'${isDev ? " 'unsafe-inline'" : ''}`,
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self'",

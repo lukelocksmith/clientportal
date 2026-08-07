@@ -25,6 +25,7 @@ interface Props {
   userEmail: string
   flags: PortalFlags
   branding: PortalBranding
+  siteUrl: string | null
 }
 
 export function KanbanBoardClient(props: Props) {

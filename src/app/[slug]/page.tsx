@@ -5,6 +5,7 @@ import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
 import { firstEnabledTabPath, isTabEnabled } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
+import { portalSiteUrl } from '@/lib/portalSite'
 
 // Nie ma tu `export const revalidate`. Stało tam `60` i było MARTWE: strona
 // czyta ciasteczko sesji, więc renderuje się dynamicznie, a buforowanie
@@ -58,6 +59,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
       portalName={portal.name}
       flags={flags}
       branding={branding}
+      siteUrl={portalSiteUrl(portal)}
       userEmail={session.email}
     />
   )

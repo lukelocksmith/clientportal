@@ -17,7 +17,8 @@ import { getStatusColor, STATUS_COLUMNS } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
-import { Plus, RefreshCw } from 'lucide-react'
+import { NewTaskButton } from './NewTaskButton'
+import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
 import { PanicButton } from '@/components/PanicButton'
@@ -37,6 +38,8 @@ interface KanbanBoardProps {
   userEmail: string
   flags: PortalFlags
   branding: PortalBranding
+  /** Strona klienta z konfiguracji projektu; null = brak, wtedy bez menu. */
+  siteUrl: string | null
 }
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 }
@@ -86,7 +89,7 @@ function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
   }))
 }
 
-export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding }: KanbanBoardProps) {
+export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding, siteUrl }: KanbanBoardProps) {
   /**
    * Zadanie wskazane adresem: `/[slug]?task=<id>`.
    *
@@ -99,42 +102,47 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
 
   const [tasks, setTasks] = useState<ClickUpTask[]>(initialTasks)
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
-  /**
-   * Szuflada otwarta od razu, gdy adres wskazuje zadanie.
-   *
-   * Wyliczone w inicjalizatorze `useState`, a NIE w efekcie: ustawienie stanu
-   * w efekcie wywołuje dodatkowy render i jest wyłapywane przez lintera jako
-   * kaskada. Tutaj i tak chcemy zareagować dokładnie raz, przy montowaniu,
-   * więc inicjalizator jest właściwym miejscem, nie obejściem.
-   */
-  const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(() =>
-    taskFromUrl ? findTaskInTree(initialTasks, taskFromUrl) : null
-  )
+  const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
   const [showChat, setShowChat] = useState(false)
   const [chatMode, setChatMode] = useState<'new-task' | 'general'>('general')
   const [refreshing, setRefreshing] = useState(false)
 
   /**
-   * Sprzątanie po adresie z `?task=`. Bez ustawiania stanu: szuflada została
-   * już otwarta w inicjalizatorze wyżej.
+   * Szuflada otwarta na zadanie wskazane adresem: `/[slug]?task=<id>`.
    *
-   * Parametr zdejmujemy z adresu (`replaceState`, bez wpisu w historii), żeby
-   * zamknięcie szuflady i przycisk wstecz nie otwierały jej w kółko.
+   * BŁĄD, KTÓRY TU BYŁ, i powód, dla którego to jest efekt, a nie
+   * inicjalizator `useState`: inicjalizator wykonuje się WYŁĄCZNIE przy
+   * montowaniu komponentu. Klient stojący już na tablicy, który klikał
+   * powiadomienie z dzwonka, dostawał nawigację po stronie przeglądarki —
+   * adres się zmieniał, komponent NIE montował się ponownie, więc szuflada nie
+   * otwierała się wcale. Działało tylko wejście z innej zakładki albo
+   * z odświeżenia, czyli akurat nie ta droga, którą chodzi się najczęściej.
+   *
+   * Reguła `set-state-in-effect` jest tu wyciszona świadomie: to jest
+   * synchronizacja stanu ze ŹRÓDŁEM ZEWNĘTRZNYM (adresem), a nie kaskada
+   * renderów. Poprzednie podejście unikało ostrzeżenia lintera kosztem
+   * działania funkcji.
    */
   useEffect(() => {
     if (!taskFromUrl) return
 
+    const wskazane = findTaskInTree(tasks, taskFromUrl)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (wskazane) setSelectedTask(wskazane)
+
     // Zadanie bywa poza tablicą: zamknięte dawno temu, przeniesione na inną
     // listę albo usunięte. Cisza wyglądałaby jak zepsuty odnośnik, więc
     // mówimy wprost, gdzie go szukać.
-    if (!findTaskInTree(initialTasks, taskFromUrl)) {
+    if (!wskazane) {
       toast('Tego zadania nie ma na tablicy. Poszukaj go w Historii.')
     }
 
     const clean = new URL(window.location.href)
     clean.searchParams.delete('task')
     window.history.replaceState(null, '', clean.toString())
-    // `initialTasks` celowo poza zależnościami: reagujemy RAZ, na adres.
+    // `tasks` celowo poza zależnościami: reagujemy na ZMIANĘ ADRESU, a nie na
+    // każde odświeżenie tablicy — inaczej szuflada otwierałaby się sama po
+    // każdym pobraniu zadań.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskFromUrl])
 
@@ -240,13 +248,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
           Odśwież
         </button>
 
-        <button
-          onClick={() => openChat('new-task')}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Nowe zadanie
-        </button>
+        <NewTaskButton siteUrl={siteUrl} onOpenAssistant={() => openChat('new-task')} />
       </PortalHeader>
 
       {/* Board */}

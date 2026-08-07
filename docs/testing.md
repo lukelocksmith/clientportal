@@ -30,17 +30,53 @@ a nie opcją.
 ## Uruchamianie
 
 ```bash
+docker start cp-test-pg   # Postgres na porcie 5433, potrzebny do integracyjnych
+
 npm test                  # wszystko; integracyjne SAME SIĘ POMIJAJĄ bez bazy
 npm run test:unit         # tylko src/, w milisekundach, dobre do trybu watch
 npm run test:integration  # tylko tests/integration, wymaga bazy
 npm run verify            # tsc + eslint + testy + build — przed każdym pushem
 ```
 
-Baza do testów integracyjnych:
+**`npm run verify` musi kończyć się kodem 0.** Jeśli sypie tysiącami błędów
+w plikach, których nie pisaliście, sprawdź `eslint.config.mjs`: wzorce ignorowania
+muszą mieć `**/` z przodu, inaczej łapią tylko katalog główny i pierwszy lepszy
+worktree z własnym buildem zamienia bramę w szum.
+
+### Klikanie po aplikacji
+
+Testy nie zastąpią zobaczenia ekranu. Do przejścia ścieżki klienta od początku:
 
 ```bash
-docker start cp-test-pg   # Postgres na porcie 5433
+docker start cp-test-pg           # baza
+npm run db:migrate                # migracje, gdy schemat się zmienił
+npm run db:seed                   # portal `wdf` + konto klient@wdf.pl
+npm run dev                       # http://localhost:3000
 ```
+
+Seed tworzy portal `wdf` z kontem `klient@wdf.pl`; hasło jest w
+`src/lib/db/seed.ts`, tam też dopisuje się kolejne projekty. Wejścia:
+
+| Adres | Kto |
+|---|---|
+| `/wdf` | klient: kanban, szuflada zadania, alarm, czat |
+| `/wdf/historia`, `/wdf/raporty` | zakładki, jeśli włączone flagą |
+| `/admin` | panel: projekty, konta, zużycie AI |
+
+**Kanban i szuflada wołają prawdziwy ClickUp**, więc bez `CLICKUP_API_TOKEN`
+w `.env.local` tablica będzie pusta. To nie jest awaria portalu.
+
+Flagi zakładek włącza się bez klikania w panelu:
+
+```bash
+curl -X PATCH localhost:3000/api/admin/portals \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"slug":"wdf","reportsEnabled":true,"historyEnabled":true}'
+```
+
+Widget SitePinga ma własną stronę testową: `scripts/siteping-manual-test.html`.
+Podaj ją z dowolnego serwera statycznego i dopisz jego host do `siteDomains`
+tego portalu, inaczej endpoint odpowie 403.
 
 `DATABASE_URL` testy czytają z `.env.local`. **Wskazanie tam produkcji oznacza
 uruchomienie na żywych danych testów, które tworzą i kasują portale.** Każdy test

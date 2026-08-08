@@ -40,6 +40,7 @@ interface KanbanBoardProps {
   branding: PortalBranding
   /** Strona klienta z konfiguracji projektu; null = brak, wtedy bez menu. */
   siteUrl: string | null
+  statusControlsEnabled: boolean
 }
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 }
@@ -110,7 +111,7 @@ function closedTimestamp(task: ClickUpTask): number {
   return Number(task.date_closed ?? task.date_updated)
 }
 
-export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding, siteUrl }: KanbanBoardProps) {
+export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding, siteUrl, statusControlsEnabled }: KanbanBoardProps) {
   /**
    * Zadanie wskazane adresem: `/[slug]?task=<id>`.
    *
@@ -167,7 +168,13 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskFromUrl])
 
-  const columns = buildColumns(tasks, null)
+  // Link tylko gdy klient ma dostep do Historii — inaczej prowadziłby na
+  // strone, ktora go odesle z powrotem (brama serwerowa w historia/page.tsx).
+  const closedMoreHref = flags.historyEnabled
+    ? `/${slug}/historia?status=${encodeURIComponent('zamknięte')}`
+    : null
+
+  const columns = buildColumns(tasks, closedMoreHref)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -244,8 +251,15 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
     }
   }
 
+  /**
+   * Podlaczone do dropdownu statusu w TaskDrawer (Task 7). Aktualizuje DWIE
+   * rzeczy, nie jedna: `tasks` (żeby karta wskoczyła do nowej kolumny po
+   * zamknieciu szuflady) i `selectedTask` (żeby OTWARTA szuflada natychmiast
+   * pokazala nowy status, bez zamykania i otwierania zadania na nowo).
+   */
   function handleTaskUpdated(updatedTask: ClickUpTask) {
     setTasks(prev => prev.map(t => (t.id === updatedTask.id ? updatedTask : t)))
+    setSelectedTask(prev => (prev && prev.id === updatedTask.id ? updatedTask : prev))
   }
 
   return (
@@ -305,6 +319,8 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
         <TaskDrawer
           task={selectedTask}
           slug={slug}
+          statusControlsEnabled={statusControlsEnabled}
+          onTaskUpdated={handleTaskUpdated}
           onClose={() => setSelectedTask(null)}
           onNavigate={(id) => {
             const t = findTaskInTree(tasks, id)

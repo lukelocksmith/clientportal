@@ -67,6 +67,7 @@ const wlasciwosci = {
   flags: { kanbanEnabled: true, reportsEnabled: false, historyEnabled: false, dashboardEnabled: false },
   branding: { brandColor: '#c8a24a', brandForeground: '#111111', logoUrl: null },
   siteUrl: null,
+  statusControlsEnabled: false,
 }
 
 beforeEach(() => {

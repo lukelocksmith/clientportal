@@ -48,12 +48,13 @@ describe('getRecentlyClosedTasksForLists', () => {
   })
 
   it('odsiewa zadania OTWARTE zwrocone w tym samym oknie', async () => {
+    const now = Date.now()
     odpowiedzListy([
-      zadanie({ id: '1', status: { status: 'w trakcie', type: 'custom', color: '', orderindex: 0 } }),
+      zadanie({ id: '1', status: { status: 'w trakcie', type: 'custom', color: '', orderindex: 0 }, date_closed: String(now) }),
       zadanie({
         id: '2',
         status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 },
-        date_closed: '200',
+        date_closed: String(now),
       }),
     ])
 
@@ -63,10 +64,11 @@ describe('getRecentlyClosedTasksForLists', () => {
   })
 
   it('sortuje po dacie zamkniecia (najnowsze pierwsze) i przycina do limitu', async () => {
+    const now = Date.now()
     odpowiedzListy([
-      zadanie({ id: 'a', status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 }, date_closed: '100' }),
-      zadanie({ id: 'b', status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 }, date_closed: '300' }),
-      zadanie({ id: 'c', status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 }, date_closed: '200' }),
+      zadanie({ id: 'a', status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 }, date_closed: String(now - 300_000) }),
+      zadanie({ id: 'b', status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 }, date_closed: String(now) }),
+      zadanie({ id: 'c', status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 }, date_closed: String(now - 100_000) }),
     ])
 
     const wynik = await getRecentlyClosedTasksForLists(['lista-1'], { limit: 2 })
@@ -75,17 +77,20 @@ describe('getRecentlyClosedTasksForLists', () => {
   })
 
   it('brak date_closed -> uzywa date_updated jako przyblizenia', async () => {
+    const now = Date.now()
+    const oneDayAgo = now - 24 * 60 * 60 * 1000
+
     odpowiedzListy([
       zadanie({
         id: 'stare',
         status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 },
         date_closed: null,
-        date_updated: '50',
+        date_updated: String(oneDayAgo),
       }),
       zadanie({
         id: 'nowe',
         status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 },
-        date_closed: '9999',
+        date_closed: String(now),
       }),
     ])
 
@@ -99,6 +104,34 @@ describe('getRecentlyClosedTasksForLists', () => {
     await getRecentlyClosedTasksForLists(['lista-1', 'lista-2'])
 
     assert.strictEqual(fetchMock.mock.calls.length, 2)
+  })
+
+  it('odsiej zamkniete spoza okna, mimo swiezego date_updated', async () => {
+    const now = Date.now()
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000
+    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000
+
+    odpowiedzListy([
+      // Zamkniete dawno, ale zaktualizowane dzisiaj (np. komentarz)
+      // — powinno byc odrzucone pomimo swiezego date_updated
+      zadanie({
+        id: 'stare-ale-zaktualizowane',
+        status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 },
+        date_closed: String(sixtyDaysAgo),
+        date_updated: String(now),
+      }),
+      // Zamkniete niedawno, zaktualizowane niedawno — powinno zostac
+      zadanie({
+        id: 'nowe',
+        status: { status: 'zamknięte', type: 'closed', color: '', orderindex: 6 },
+        date_closed: String(thirtyDaysAgo + 100_000),
+        date_updated: String(now),
+      }),
+    ])
+
+    const wynik = await getRecentlyClosedTasksForLists(['lista-1'])
+
+    assert.deepStrictEqual(wynik.map(t => t.id), ['nowe'])
   })
 })
 

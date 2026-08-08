@@ -179,7 +179,7 @@ export async function getRecentlyClosedTasksForLists(
       page: '0',
     })
     const data = await clickupFetch<{ tasks: ClickUpTask[] }>(`/list/${listId}/task?${params}`)
-    closed.push(...(data.tasks ?? []).filter(t => t.status.type === 'closed'))
+    closed.push(...(data.tasks ?? []).filter(t => t.status.type === 'closed' && closedTimestamp(t) >= since))
   }
 
   return closed.sort((a, b) => closedTimestamp(b) - closedTimestamp(a)).slice(0, limit)

@@ -142,6 +142,8 @@ export type KanbanColumn = {
   color: string
   type: ClickUpStatus['type']
   tasks: ClickUpTask[]
+  /** Link "Zobacz wiecej" pod lista — dziś tylko kolumna "zamkniete", i tylko gdy Historia jest wlaczona. Null = bez linku. */
+  moreHref?: string | null
 }
 
 // Chat message

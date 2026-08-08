@@ -1,6 +1,7 @@
 'use client'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
+import { ChevronRight } from 'lucide-react'
 import type { KanbanColumn as KanbanColumnType, ClickUpTask } from '@/lib/types'
 import { TaskCard } from './TaskCard'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,16 @@ export function KanbanColumn({ column, onTaskClick }: KanbanColumnProps) {
           </div>
         )}
       </div>
+
+      {column.moreHref && (
+        <a
+          href={column.moreHref}
+          className="mt-1 flex items-center justify-center gap-1 rounded-md py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          Zobacz więcej
+          <ChevronRight className="h-3 w-3" aria-hidden />
+        </a>
+      )}
     </div>
   )
 }

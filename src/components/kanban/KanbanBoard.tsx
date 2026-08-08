@@ -64,7 +64,10 @@ function findTaskInTree(tasks: ClickUpTask[], id: string): ClickUpTask | null {
   return null
 }
 
-function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
+const CLOSED_STATUS = 'zamknięte'
+const CLOSED_COLUMN_LIMIT = 5
+
+export function buildColumns(tasks: ClickUpTask[], closedMoreHref: string | null): KanbanColumn[] {
   const tasksByStatus: Record<string, ClickUpTask[]> = {}
 
   for (const col of COLUMN_ORDER) {
@@ -80,13 +83,31 @@ function buildColumns(tasks: ClickUpTask[]): KanbanColumn[] {
     }
   }
 
-  return COLUMN_ORDER.map(status => ({
-    id: status,
-    title: status,
-    color: getStatusColor(status),
-    type: tasks.find(t => t.status.status === status)?.status.type ?? 'open',
-    tasks: sortByPriority(tasksByStatus[status] ?? []),
-  }))
+  return COLUMN_ORDER.map(status => {
+    const isClosedColumn = status === CLOSED_STATUS
+    // Kolumna "zamkniete" NIE sortuje po priorytecie: priorytet ma sens dla
+    // pracy w toku, a tu liczy sie to, co zamknieto NAJPOZNIEJ. Reszta kolumn
+    // zostaje przy dotychczasowym sortowaniu.
+    const columnTasks = isClosedColumn
+      ? [...(tasksByStatus[status] ?? [])]
+          .sort((a, b) => closedTimestamp(b) - closedTimestamp(a))
+          .slice(0, CLOSED_COLUMN_LIMIT)
+      : sortByPriority(tasksByStatus[status] ?? [])
+
+    return {
+      id: status,
+      title: status,
+      color: getStatusColor(status),
+      type: tasks.find(t => t.status.status === status)?.status.type ?? 'open',
+      tasks: columnTasks,
+      moreHref: isClosedColumn ? closedMoreHref : null,
+    }
+  })
+}
+
+/** Ten sam przyblizenie jak w lib/clickup.ts — date_closed bywa puste. */
+function closedTimestamp(task: ClickUpTask): number {
+  return Number(task.date_closed ?? task.date_updated)
 }
 
 export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, branding, siteUrl }: KanbanBoardProps) {
@@ -146,7 +167,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskFromUrl])
 
-  const columns = buildColumns(tasks)
+  const columns = buildColumns(tasks, null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),

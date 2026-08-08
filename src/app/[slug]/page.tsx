@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getCachedTasksForScope } from '@/lib/clickupCache'
+import { getCachedTasksForScope, getCachedRecentlyClosedTasksForScope } from '@/lib/clickupCache'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
@@ -49,8 +49,13 @@ export default async function PortalPage({ params }: PortalPageProps) {
   // CALY folder klienta, takze listy, ktorych do portalu nie wybralismy.
   const scope = await getPortalScope(portal.id)
   const rawTasks = await getCachedTasksForScope(portal.clickupFolderId, scope)
+  // Za flaga: bez niej kanban dziala jak dzis, zero dodatkowego wywolania
+  // ClickUpa dla portali, ktore tej funkcji nie maja wlaczonej.
+  const recentlyClosed = portal.statusControlsEnabled
+    ? await getCachedRecentlyClosedTasksForScope(portal.clickupFolderId, scope)
+    : []
   const snapshots = await getSnapshotMap(portal.id)
-  const tasks = mergeTrackedTime(rawTasks, snapshots)
+  const tasks = mergeTrackedTime([...rawTasks, ...recentlyClosed], snapshots)
 
   return (
     <KanbanBoardClient
@@ -61,6 +66,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
       branding={branding}
       siteUrl={portalSiteUrl(portal)}
       userEmail={session.email}
+      statusControlsEnabled={portal.statusControlsEnabled}
     />
   )
 }

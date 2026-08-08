@@ -26,6 +26,7 @@ interface Props {
   flags: PortalFlags
   branding: PortalBranding
   siteUrl: string | null
+  statusControlsEnabled: boolean
 }
 
 export function KanbanBoardClient(props: Props) {

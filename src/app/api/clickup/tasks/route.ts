@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { portalLists } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
-import { getAllTasksForFolder, getAllTasksForLists, createTask } from '@/lib/clickup'
+import { getAllTasksForFolder, getAllTasksForLists, getRecentlyClosedTasksForFolder, getRecentlyClosedTasksForLists, createTask } from '@/lib/clickup'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { withReporterFooter } from '@/lib/reporter'
@@ -23,8 +23,13 @@ export async function GET(request: NextRequest) {
   const rawTasks = scope.length > 0
     ? await getAllTasksForLists(scope)
     : await getAllTasksForFolder(portal.clickupFolderId)
+  const recentlyClosed = portal.statusControlsEnabled
+    ? scope.length > 0
+      ? await getRecentlyClosedTasksForLists(scope)
+      : await getRecentlyClosedTasksForFolder(portal.clickupFolderId)
+    : []
   const snapshots = await getSnapshotMap(portal.id)
-  const tasks = mergeTrackedTime(rawTasks, snapshots)
+  const tasks = mergeTrackedTime([...rawTasks, ...recentlyClosed], snapshots)
 
   // Świeże dane właśnie zobaczył klient, więc bufor strony jest od tej chwili
   // starszy niż jego ekran. Unieważniamy, żeby kolejne wejście na tablicę nie

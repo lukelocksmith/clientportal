@@ -546,3 +546,76 @@ describe('zglaszajacy', () => {
     assert.strictEqual(screen.queryByText('Anna Klient'), null)
   })
 })
+
+describe('dropdown statusu (statusControlsEnabled)', () => {
+  it('flaga WYLACZONA (domyslnie) -> plakietka statusu, BEZ dropdownu', async () => {
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+
+    const status = screen.getByText('w trakcie')
+    assert.notStrictEqual(status.tagName, 'BUTTON', 'bez flagi to nadal plakietka, nie przycisk')
+  })
+
+  it('flaga WLACZONA -> status jest przyciskiem z rozwijanym menu', async () => {
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled />)
+    await screen.findByText('Brak komentarzy')
+
+    const przycisk = screen.getByRole('button', { name: /w trakcie/ })
+    assert.ok(przycisk)
+  })
+
+  it('wybor NOWEGO statusu wysyla PATCH i zglasza sie do onTaskUpdated', async () => {
+    const uzytkownik = userEvent.setup()
+    const onTaskUpdated = vi.fn()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled onTaskUpdated={onTaskUpdated} />)
+    await screen.findByText('Brak komentarzy')
+
+    fetchMock.mockImplementation(async (url: string, opcje: RequestInit) => ({
+      ok: true,
+      json: async () =>
+        (opcje as RequestInit).method === 'PATCH'
+          ? { task: { ...zadanie(), status: { status: 'zamknięte', color: '#008844', type: 'closed' } } }
+          : { attachments: [], reporter: null },
+    }))
+
+    await uzytkownik.click(screen.getByRole('button', { name: /w trakcie/ }))
+    await uzytkownik.click(await screen.findByRole('menuitem', { name: /zamknięte/ }))
+
+    const wywolaniePatch = fetchMock.mock.calls.find(c => (c[1] as RequestInit)?.method === 'PATCH')
+    assert.ok(wywolaniePatch, 'PATCH zostal wyslany')
+    assert.match(wywolaniePatch![0] as string, /\/api\/clickup\/tasks\/zad-1\?slug=wdf/)
+    assert.deepStrictEqual(JSON.parse((wywolaniePatch![1] as RequestInit).body as string), { status: 'zamknięte' })
+
+    await waitFor(() => assert.strictEqual(onTaskUpdated.mock.calls.length, 1))
+    assert.strictEqual(onTaskUpdated.mock.calls[0][0].status.status, 'zamknięte')
+  })
+
+  it('wybor TEGO SAMEGO statusu nie wysyla PATCH', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled />)
+    await screen.findByText('Brak komentarzy')
+    fetchMock.mockClear()
+
+    await uzytkownik.click(screen.getByRole('button', { name: /w trakcie/ }))
+    const pozycjaAktualna = await screen.findByRole('menuitem', { name: /^w trakcie$/ })
+    assert.strictEqual(pozycjaAktualna.getAttribute('aria-disabled'), 'true')
+  })
+
+  it('blad PATCH pokazuje toast i NIE zglasza sie do onTaskUpdated', async () => {
+    const uzytkownik = userEvent.setup()
+    const onTaskUpdated = vi.fn()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled onTaskUpdated={onTaskUpdated} />)
+    await screen.findByText('Brak komentarzy')
+
+    fetchMock.mockImplementation(async (url: string, opcje: RequestInit) => ({
+      ok: (opcje as RequestInit)?.method !== 'PATCH',
+      json: async () => ({ attachments: [], reporter: null }),
+    }))
+
+    await uzytkownik.click(screen.getByRole('button', { name: /w trakcie/ }))
+    await uzytkownik.click(await screen.findByRole('menuitem', { name: /zamknięte/ }))
+
+    await waitFor(() => assert.strictEqual(toast.error.mock.calls.length, 1))
+    assert.strictEqual(onTaskUpdated.mock.calls.length, 0)
+  })
+})

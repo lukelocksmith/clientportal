@@ -1,11 +1,17 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
-import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria, STATUS_COLUMNS } from '@/lib/utils'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, ChevronDown, Paperclip, FileText, User, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 
 // Turn plain URLs into clickable links inside a text run.
 function linkify(text: string, kp: string): React.ReactNode[] {
@@ -74,27 +80,18 @@ function MarkdownLite({ text }: { text: string }) {
   return <div>{blocks}</div>
 }
 
-/**
- * USUNIETE: `userEmail` i `onTaskUpdated`.
- *
- * Oba byly deklarowane i oba przekazywane przez wolajacych — `KanbanBoard`
- * podpinal pod `onTaskUpdated` prawdziwa funkcje aktualizujaca tablice — ale ta
- * szuflada NIGDY ich nie uzywala. Zadania nie da sie tu edytowac, wiec nie ma
- * czego zglaszac wyzej; zmiana statusu idzie przez przeciagniecie karty na
- * tablicy, nie przez ten panel.
- *
- * Martwy interfejs, ktory WYGLADA na zywy, jest gorszy od jego braku:
- * `handleTaskUpdated` w KanbanBoard sprawialo wrazenie, ze szuflada odsyla
- * zmiany, i pierwsza osoba dodajaca tu edycje uznalaby, ze podpiecie juz jest.
- */
 interface TaskDrawerProps {
   task: ClickUpTask
   slug: string
   onClose: () => void
   onNavigate?: (taskId: string) => void
+  /** Za flaga portalu `statusControlsEnabled`. Bez niej: plakietka statusu jak dotychczas, bez interakcji. */
+  statusControlsEnabled?: boolean
+  /** Wywolywane PO potwierdzonej przez serwer zmianie statusu — task niesie SWIEZY stan z ClickUpa. */
+  onTaskUpdated?: (task: ClickUpTask) => void
 }
 
-export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps) {
+export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnabled = false, onTaskUpdated }: TaskDrawerProps) {
   const [tab] = useState<'details'>('details')
   const [comments, setComments] = useState<ClickUpComment[]>([])
   /** Kotwica na końcu listy komentarzy, do przewinięcia po wysłaniu. */
@@ -115,6 +112,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
     email: string | null
     isAgency: boolean
   } | null>(null)
+  const [changingStatus, setChangingStatus] = useState(false)
 
   useEffect(() => {
     async function loadComments() {
@@ -302,6 +300,32 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
     }
   }
 
+  /**
+   * Ten sam PATCH, ktorego dzis wola przeciagniecie karty (KanbanBoard.tsx).
+   * SWIADOMIE bez optymistycznej zmiany widoku: plakietka pokazuje nowy
+   * status wylacznie PO potwierdzeniu przez serwer, wiec nigdy nie pokazuje
+   * stanu, ktory sie nie zapisal.
+   */
+  async function handleStatusChange(newStatus: string) {
+    if (newStatus === task.status.status || changingStatus) return
+
+    setChangingStatus(true)
+    try {
+      const res = await fetch(`/api/clickup/tasks/${task.id}?slug=${encodeURIComponent(slug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!res.ok) throw new Error('Update failed')
+      const data = await res.json()
+      onTaskUpdated?.(data.task)
+    } catch {
+      toast.error('Nie udało się zmienić statusu')
+    } finally {
+      setChangingStatus(false)
+    }
+  }
+
   const priorityColor = getPriorityColor(task.priority?.priority)
   const statusColor = getStatusColor(task.status.status)
 
@@ -328,13 +352,45 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
         <div className="flex items-start justify-between p-5 border-b border-border gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
-              {/* Status badge */}
-              <span
-                className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white"
-                style={{ backgroundColor: statusColor }}
-              >
-                {task.status.status}
-              </span>
+              {/* Status: dropdown za flaga, inaczej plakietka jak dotychczas. */}
+              {statusControlsEnabled ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={changingStatus}
+                      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-white disabled:opacity-60"
+                      style={{ backgroundColor: statusColor }}
+                    >
+                      {task.status.status}
+                      <ChevronDown className="h-3 w-3 opacity-80" aria-hidden />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {STATUS_COLUMNS.map(status => (
+                      <DropdownMenuItem
+                        key={status}
+                        disabled={status === task.status.status}
+                        onSelect={() => handleStatusChange(status)}
+                      >
+                        <span
+                          className="h-2 w-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: getStatusColor(status) }}
+                          aria-hidden
+                        />
+                        {status}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <span
+                  className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                  style={{ backgroundColor: statusColor }}
+                >
+                  {task.status.status}
+                </span>
+              )}
 
               {/* Awaria: tag, nie priorytet, więc stoi obok plakietki
                   priorytetu, a nie zamiast niej. */}

@@ -1,0 +1,1 @@
+ALTER TABLE "portals" ADD COLUMN "status_controls_enabled" boolean DEFAULT false NOT NULL;

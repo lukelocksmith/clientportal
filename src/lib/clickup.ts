@@ -137,6 +137,72 @@ export async function getAllTasksForFolder(folderId: string): Promise<ClickUpTas
 }
 
 /**
+ * Zadania zamkniete w ostatnich `sinceDays` dniach, najnowsze pierwsze,
+ * przyciete do `limit`. Zrodlo danych dla podgladu w kolumnie "zamkniete" na
+ * kanbanie — NIE dla Historii, ktora ma wlasne, kompletne pobieranie
+ * (`getFolderTaskHistory` + `task_index`).
+ *
+ * Swiadomie NIE ciagniemy calej historii zamkniec (`include_closed: true` bez
+ * filtra daty): u klienta dzialajacego od miesiecy to setki zadan, ktorych
+ * i tak pokazujemy tylko `limit`, a `MAX_PAGES_PER_LIST` mogloby przy okazji
+ * obciac swiezo otwarte zadania tej samej listy. `date_updated_gt` zawęża
+ * pobor po stronie ClickUpa, zanim to dojedzie do nas.
+ *
+ * Jedna strona per lista, bez petli po stronach: okno 30 dni rzadko
+ * przekracza 100 zamkniec na liste, a nawet gdyby przekroczylo, pokazujemy
+ * i tak tylko `limit` najnowszych z tej strony — kolejna strona nie
+ * zmienilaby ostatecznego wyniku dla typowego klienta.
+ *
+ * Filtr `status.type === 'closed'` jest PO NASZEJ stronie: `include_closed:
+ * true` znaczy "nie wykluczaj zamknietych", NIE "pokaz TYLKO zamkniete" —
+ * strona zwraca też otwarte zadania zaktualizowane w tym samym oknie.
+ *
+ * Zamkniety PODZADANIE w tym oknie pojawi sie tu jako samodzielna karta, bez
+ * kontekstu rodzica (`subtasks: false`, zeby nie dotknac otwartego rodzica
+ * przez pomylke) — akceptowalne dla podgladu ograniczonego do garstki
+ * najnowszych; pelny kontekst jest w Historii.
+ */
+export async function getRecentlyClosedTasksForLists(
+  listIds: readonly string[],
+  options: { sinceDays?: number; limit?: number } = {}
+): Promise<ClickUpTask[]> {
+  const sinceDays = options.sinceDays ?? 30
+  const limit = options.limit ?? 5
+  const since = Date.now() - sinceDays * 24 * 60 * 60 * 1000
+
+  const closed: ClickUpTask[] = []
+  for (const listId of listIds) {
+    const params = new URLSearchParams({
+      subtasks: 'false',
+      include_closed: 'true',
+      date_updated_gt: String(since),
+      page: '0',
+    })
+    const data = await clickupFetch<{ tasks: ClickUpTask[] }>(`/list/${listId}/task?${params}`)
+    closed.push(...(data.tasks ?? []).filter(t => t.status.type === 'closed' && closedTimestamp(t) >= since))
+  }
+
+  return closed.sort((a, b) => closedTimestamp(b) - closedTimestamp(a)).slice(0, limit)
+}
+
+/**
+ * `date_closed` bywa puste u zadan zamknietych, zanim ClickUp zaczal je
+ * zapisywac (patrz ten sam problem w `lib/taskIndex.ts`) — `date_updated`
+ * jest wtedy najlepszym przyblizeniem momentu zamkniecia.
+ */
+function closedTimestamp(task: ClickUpTask): number {
+  return Number(task.date_closed ?? task.date_updated)
+}
+
+export async function getRecentlyClosedTasksForFolder(
+  folderId: string,
+  options: { sinceDays?: number; limit?: number } = {}
+): Promise<ClickUpTask[]> {
+  const lists = await getListsForFolder(folderId)
+  return getRecentlyClosedTasksForLists(lists.map(l => l.id), options)
+}
+
+/**
  * Wszystkie zadania folderu, włącznie z zamkniętymi, jednym przelotem przez
  * endpoint zespołowy. Źródło danych dla indeksu Historii.
  *

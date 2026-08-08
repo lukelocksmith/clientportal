@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import { createHmac } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog } from '@/lib/db/schema'
+import { auditLog, portals } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -45,6 +45,8 @@ const { cookieJar, clickup, cache } = vi.hoisted(() => ({
     addTaskAttachment: vi.fn(),
     getAllTasksForFolder: vi.fn(),
     getAllTasksForLists: vi.fn(),
+    getRecentlyClosedTasksForFolder: vi.fn(),
+    getRecentlyClosedTasksForLists: vi.fn(),
   },
   cache: { invalidateFolderTasks: vi.fn(async () => {}) },
 }))
@@ -103,6 +105,8 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
     cookieJar.clear()
     vi.clearAllMocks()
     cache.invalidateFolderTasks.mockResolvedValue(undefined)
+    clickup.getRecentlyClosedTasksForFolder.mockResolvedValue([])
+    clickup.getRecentlyClosedTasksForLists.mockResolvedValue([])
   })
 
   async function loginClient(): Promise<void> {
@@ -163,6 +167,35 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       await loginClient()
       const res = await tasksGET(req('/api/clickup/tasks'))
       assert.strictEqual(res.status, 400)
+    })
+
+    describe('niedawno zamkniete (statusControlsEnabled)', () => {
+      it('flaga WYLACZONA -> nie dociaga zamknietych, zero wywolania', async () => {
+        await loginClient()
+        clickup.getAllTasksForLists.mockResolvedValue([])
+
+        await tasksGET(req(`/api/clickup/tasks?slug=${portalA.slug}`))
+
+        assert.strictEqual(clickup.getRecentlyClosedTasksForLists.mock.calls.length, 0)
+        assert.strictEqual(clickup.getRecentlyClosedTasksForFolder.mock.calls.length, 0)
+      })
+
+      it('flaga WLACZONA -> zamkniete zadania trafiaja do odpowiedzi', async () => {
+        await db.update(portals).set({ statusControlsEnabled: true }).where(eq(portals.id, portalA.id))
+        await loginClient()
+        clickup.getAllTasksForLists.mockResolvedValue([{ id: 'otwarte-1', name: 'Otwarte' }])
+        clickup.getRecentlyClosedTasksForLists.mockResolvedValue([{ id: 'zamkniete-1', name: 'Zamkniete' }])
+
+        const res = await tasksGET(req(`/api/clickup/tasks?slug=${portalA.slug}`))
+        const { tasks } = await res.json()
+
+        assert.deepStrictEqual(tasks.map((t: { id: string }) => t.id).sort(), ['otwarte-1', 'zamkniete-1'])
+        // Portal A ma liste w zakresie (beforeAll), wiec droga to "...ForLists".
+        assert.strictEqual(clickup.getRecentlyClosedTasksForLists.mock.calls.length, 1)
+        assert.deepStrictEqual(clickup.getRecentlyClosedTasksForLists.mock.calls[0][0], ['lista-portalu'])
+
+        await db.update(portals).set({ statusControlsEnabled: false }).where(eq(portals.id, portalA.id))
+      })
     })
   })
 

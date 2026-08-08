@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
       historyEnabled: portals.historyEnabled,
       dashboardEnabled: portals.dashboardEnabled,
       sitepingEnabled: portals.sitepingEnabled,
+      statusControlsEnabled: portals.statusControlsEnabled,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
@@ -46,6 +47,7 @@ const UpdatePortalSchema = z
     historyEnabled: z.boolean().optional(),
     dashboardEnabled: z.boolean().optional(),
     sitepingEnabled: z.boolean().optional(),
+    statusControlsEnabled: z.boolean().optional(),
     /**
      * Domeny, z których endpoint SitePing przyjmuje zgłoszenia — SAME NAZWY
      * HOSTÓW po przecinku (`wdf.important.is,wodadlafirmy.pl`), bez schematu
@@ -207,6 +209,7 @@ export async function PATCH(request: NextRequest) {
       historyEnabled: portals.historyEnabled,
       dashboardEnabled: portals.dashboardEnabled,
       sitepingEnabled: portals.sitepingEnabled,
+      statusControlsEnabled: portals.statusControlsEnabled,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,

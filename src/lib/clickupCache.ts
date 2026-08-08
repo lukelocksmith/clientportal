@@ -1,5 +1,5 @@
 import { unstable_cache, revalidateTag } from 'next/cache'
-import { getAllTasksForFolder, getAllTasksForLists } from './clickup'
+import { getAllTasksForFolder, getAllTasksForLists, getRecentlyClosedTasksForFolder, getRecentlyClosedTasksForLists } from './clickup'
 import { scopeLimits, scopeCacheKey, type PortalScope } from './portalScope'
 import type { ClickUpTask } from './types'
 
@@ -54,6 +54,30 @@ export function getCachedTasksForScope(
     // Zakres też, bo inaczej zmiana list w panelu nie zmieniłaby klucza i portal
     // podawałby z bufora zestaw sprzed zmiany konfiguracji.
     ['clickup-folder-tasks', folderId, scopeCacheKey(scope)],
+    { revalidate: FOLDER_TASKS_TTL_SECONDS, tags: [folderTasksTag(folderId)] }
+  )()
+}
+
+/**
+ * Wersja `getCachedTasksForScope` dla niedawno zamknietych zadan (patrz
+ * `getRecentlyClosedTasksForLists` w lib/clickup.ts). Ten sam TTL i ten sam
+ * TAG uniewazniania jak otwarte zadania — jedno wywolanie
+ * `invalidateFolderTasks` po zmianie statusu uniewaznia OBA wpisy naraz,
+ * bez dodatkowego okablowania.
+ *
+ * Klucz cache ma osobny prefiks ('clickup-folder-tasks-closed'), inaczej
+ * ten wpis nadpisalby wpis otwartych zadan tego samego folderu i zakresu.
+ */
+export function getCachedRecentlyClosedTasksForScope(
+  folderId: string,
+  scope: PortalScope
+): Promise<ClickUpTask[]> {
+  return unstable_cache(
+    () =>
+      scopeLimits(scope)
+        ? getRecentlyClosedTasksForLists(scope)
+        : getRecentlyClosedTasksForFolder(folderId),
+    ['clickup-folder-tasks-closed', folderId, scopeCacheKey(scope)],
     { revalidate: FOLDER_TASKS_TTL_SECONDS, tags: [folderTasksTag(folderId)] }
   )()
 }

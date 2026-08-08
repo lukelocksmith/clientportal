@@ -62,6 +62,14 @@ export const portals = pgTable('portals', {
    */
   sitepingEnabled: boolean('siteping_enabled').notNull().default(false),
   /**
+   * Dropdown zmiany statusu w szufladzie zadania + widoczna, ograniczona
+   * kolumna "zamknięte" na kanbanie. Domyslnie false, jak kazda nowa funkcja
+   * portalu (patrz reportsEnabled) — bez tej flagi kanban dziala tak jak dzis:
+   * zamkniete zadania nie sa dociagane, status zmienia sie tylko przeciagnieciem
+   * karty.
+   */
+  statusControlsEnabled: boolean('status_controls_enabled').notNull().default(false),
+  /**
    * Domeny, z ktorych /api/siteping/[slug] przyjmuje zgloszenia — SAME NAZWY
    * HOSTOW po przecinku (np. "wdf.important.is,wodadlafirmy.pl"), bez schematu
    * i bez sciezki. Klient moze miec staging i produkcje jako dwie realne,

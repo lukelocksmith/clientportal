@@ -68,7 +68,11 @@ function findTaskInTree(tasks: ClickUpTask[], id: string): ClickUpTask | null {
 const CLOSED_STATUS = 'zamknięte'
 const CLOSED_COLUMN_LIMIT = 5
 
-export function buildColumns(tasks: ClickUpTask[], closedMoreHref: string | null): KanbanColumn[] {
+export function buildColumns(
+  tasks: ClickUpTask[],
+  closedMoreHref: string | null,
+  applyClosedLimit: boolean
+): KanbanColumn[] {
   const tasksByStatus: Record<string, ClickUpTask[]> = {}
 
   for (const col of COLUMN_ORDER) {
@@ -85,7 +89,12 @@ export function buildColumns(tasks: ClickUpTask[], closedMoreHref: string | null
   }
 
   return COLUMN_ORDER.map(status => {
-    const isClosedColumn = status === CLOSED_STATUS
+    // Limit i wlasne sortowanie kolumny "zamkniete" dzialaja WYLACZNIE gdy
+    // funkcja jest wlaczona (statusControlsEnabled). Fetch po stronie
+    // serwera jest juz za ta brama — bez niej trafiaja tu tylko zadania
+    // przeciagniete w tej samej sesji (drag&drop), ktore musza zachowac
+    // sprzed-planowe zachowanie: sortByPriority, bez limitu, bez linku.
+    const isClosedColumn = status === CLOSED_STATUS && applyClosedLimit
     // Kolumna "zamkniete" NIE sortuje po priorytecie: priorytet ma sens dla
     // pracy w toku, a tu liczy sie to, co zamknieto NAJPOZNIEJ. Reszta kolumn
     // zostaje przy dotychczasowym sortowaniu.
@@ -168,13 +177,15 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskFromUrl])
 
-  // Link tylko gdy klient ma dostep do Historii — inaczej prowadziłby na
-  // strone, ktora go odesle z powrotem (brama serwerowa w historia/page.tsx).
-  const closedMoreHref = flags.historyEnabled
+  // Link tylko gdy funkcja jest wlaczona ORAZ klient ma dostep do Historii —
+  // inaczej prowadziłby na strone, ktora go odesle z powrotem (brama
+  // serwerowa w historia/page.tsx), albo pokazywalby link do widoku, ktorego
+  // dane nigdy nie zostaly pobrane (fetch jest za ta sama flaga).
+  const closedMoreHref = statusControlsEnabled && flags.historyEnabled
     ? `/${slug}/historia?status=${encodeURIComponent('zamknięte')}`
     : null
 
-  const columns = buildColumns(tasks, closedMoreHref)
+  const columns = buildColumns(tasks, closedMoreHref, statusControlsEnabled)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -204,11 +215,19 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
     const task = tasks.find(t => t.id === taskId)
     if (!task || task.status.status === targetColumn) return
 
-    // Optimistic update
+    // Optimistic update. Przy przeciagnieciu do "zamknietych" stempluj
+    // `date_closed` na TERAZ — sortowanie i limit tej kolumny licza po
+    // `date_closed ?? date_updated` (patrz `closedTimestamp`), a
+    // `date_updated` zadania bywa stary. Bez tego swiezo zamkniete zadanie
+    // moze wypadac pod limit i znikac z widoku do najblizszego odswiezenia.
     setTasks(prev =>
       prev.map(t =>
         t.id === taskId
-          ? { ...t, status: { ...t.status, status: targetColumn, color: getStatusColor(targetColumn) } }
+          ? {
+              ...t,
+              status: { ...t.status, status: targetColumn, color: getStatusColor(targetColumn) },
+              ...(targetColumn === CLOSED_STATUS ? { date_closed: String(Date.now()) } : {}),
+            }
           : t
       )
     )
@@ -256,10 +275,31 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
    * rzeczy, nie jedna: `tasks` (żeby karta wskoczyła do nowej kolumny po
    * zamknieciu szuflady) i `selectedTask` (żeby OTWARTA szuflada natychmiast
    * pokazala nowy status, bez zamykania i otwierania zadania na nowo).
+   *
+   * `updatedTask` to SUROWE zadanie z ClickUpa, jak je oddaje PATCH. Nie ma
+   * `trackedTimeMs` (dopisywane po stronie serwera z osobnej tabeli) ani
+   * `children` (budowane po stronie klienta z plaskiej listy) — te pola
+   * istnieja WYLACZNIE na zadaniach juz trzymanych w stanie. Podstawienie
+   * calego obiektu zgubiloby oba, wiec zamiast zamieniac zadanie, laczymy
+   * TYLKO pola zwiazane ze statusem na istniejacej kopii. Funkcja rekurencyjnie
+   * schodzi w `children`, bo zadanie moze byc podzadaniem zagniezdzonym w
+   * rodzicu (drawer otwiera podzadania tez), a `.map` po samym `tasks` by tego
+   * nie znalazl.
    */
   function handleTaskUpdated(updatedTask: ClickUpTask) {
-    setTasks(prev => prev.map(t => (t.id === updatedTask.id ? updatedTask : t)))
-    setSelectedTask(prev => (prev && prev.id === updatedTask.id ? updatedTask : prev))
+    function patch(t: ClickUpTask): ClickUpTask {
+      if (t.id === updatedTask.id) {
+        return {
+          ...t,
+          status: updatedTask.status,
+          date_closed: updatedTask.date_closed,
+          date_updated: updatedTask.date_updated,
+        }
+      }
+      return t.children ? { ...t, children: t.children.map(patch) } : t
+    }
+    setTasks(prev => prev.map(patch))
+    setSelectedTask(prev => (prev ? patch(prev) : prev))
   }
 
   return (

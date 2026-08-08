@@ -4,6 +4,12 @@
  * Pozostale kolumny nie zmieniaja zachowania — to jest regresja, ktorej ten
  * plik pilnuje.
  *
+ * Trzeci parametr, `applyClosedLimit`, to `statusControlsEnabled` z
+ * KanbanBoard. Testy nizej ustawiaja go WPROST na `true`, bo sprawdzaja
+ * zachowanie limitu/sortowania, ktore ma sens wylacznie gdy funkcja jest
+ * wlaczona. Ostatni test pilnuje drugiej strony: przy `false` kolumna
+ * "zamkniete" wraca do zachowania sprzed tego planu.
+ *
  *   npx vitest run src/components/kanban/KanbanBoard.buildColumns.test.ts
  */
 import { describe, it } from 'vitest'
@@ -29,7 +35,7 @@ describe('buildColumns', () => {
     const zamkniete = Array.from({ length: 7 }, (_, i) =>
       zadanie({ id: `z${i}`, status: 'zamknięte', date_closed: String(i) } as Partial<ClickUpTask> & { id: string; status: string })
     )
-    const kolumny = buildColumns(zamkniete, null)
+    const kolumny = buildColumns(zamkniete, null, true)
 
     const kolumnaZamkniete = kolumny.find(k => k.id === 'zamknięte')!
     assert.strictEqual(kolumnaZamkniete.tasks.length, 5)
@@ -41,7 +47,7 @@ describe('buildColumns', () => {
       zadanie({ id: 'nowe', status: 'zamknięte', date_closed: '300' } as Partial<ClickUpTask> & { id: string; status: string }),
       zadanie({ id: 'srednie', status: 'zamknięte', date_closed: '200' } as Partial<ClickUpTask> & { id: string; status: string }),
     ]
-    const kolumny = buildColumns(zadania, null)
+    const kolumny = buildColumns(zadania, null, true)
 
     const kolumnaZamkniete = kolumny.find(k => k.id === 'zamknięte')!
     assert.deepStrictEqual(kolumnaZamkniete.tasks.map(t => t.id), ['nowe', 'srednie', 'stare'])
@@ -52,14 +58,14 @@ describe('buildColumns', () => {
       zadanie({ id: '1', status: 'w trakcie', priority: { priority: 'low', id: '1', color: '', orderindex: '1' } } as unknown as Partial<ClickUpTask> & { id: string; status: string }),
       zadanie({ id: '2', status: 'w trakcie', priority: { priority: 'urgent', id: '2', color: '', orderindex: '2' } } as unknown as Partial<ClickUpTask> & { id: string; status: string }),
     ]
-    const kolumny = buildColumns(zadania, null)
+    const kolumny = buildColumns(zadania, null, true)
 
     const wTrakcie = kolumny.find(k => k.id === 'w trakcie')!
     assert.deepStrictEqual(wTrakcie.tasks.map(t => t.id), ['2', '1'])
   })
 
   it('moreHref trafia WYLACZNIE do kolumny zamkniete', () => {
-    const kolumny = buildColumns([], '/wdf/historia?status=zamkni%C4%99te')
+    const kolumny = buildColumns([], '/wdf/historia?status=zamkni%C4%99te', true)
 
     for (const kolumna of kolumny) {
       if (kolumna.id === 'zamknięte') assert.strictEqual(kolumna.moreHref, '/wdf/historia?status=zamkni%C4%99te')
@@ -68,7 +74,29 @@ describe('buildColumns', () => {
   })
 
   it('null jako closedMoreHref -> kolumna zamkniete bez linku', () => {
-    const kolumny = buildColumns([], null)
+    const kolumny = buildColumns([], null, true)
     assert.strictEqual(kolumny.find(k => k.id === 'zamknięte')!.moreHref, null)
+  })
+
+  it('applyClosedLimit=false: kolumna zamkniete wraca do zachowania sprzed tego planu', () => {
+    // Flaga statusControlsEnabled wylaczona. Jedyny sposob, w jaki zadanie
+    // trafia tu z wiecej niz 5 pozycjami, to drag&drop w tej samej sesji —
+    // fetch po stronie serwera jest juz za brama. Ten przypadek MUSI
+    // zachowywac sie identycznie jak przed calym planem: sortByPriority, bez
+    // limitu do 5, bez linku "Zobacz wiecej".
+    const zamkniete = Array.from({ length: 7 }, (_, i) =>
+      zadanie({
+        id: `z${i}`,
+        status: 'zamknięte',
+        date_closed: String(i),
+        priority: { priority: i === 0 ? 'urgent' : 'low', id: String(i), color: '', orderindex: String(i) },
+      } as unknown as Partial<ClickUpTask> & { id: string; status: string })
+    )
+    const kolumny = buildColumns(zamkniete, '/wdf/historia?status=zamkni%C4%99te', false)
+
+    const kolumnaZamkniete = kolumny.find(k => k.id === 'zamknięte')!
+    assert.strictEqual(kolumnaZamkniete.tasks.length, 7, 'bez limitu przy wylaczonej fladze')
+    assert.strictEqual(kolumnaZamkniete.tasks[0].id, 'z0', 'sortowanie po priorytecie, nie po dacie zamkniecia')
+    assert.strictEqual(kolumnaZamkniete.moreHref, null, 'bez linku przy wylaczonej fladze')
   })
 })

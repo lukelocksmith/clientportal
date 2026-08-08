@@ -69,6 +69,18 @@ const jsonReq = (url: string, body: unknown) =>
     body: JSON.stringify(body),
   } as ConstructorParameters<typeof NextRequest>[1])
 
+/** /api/portal-ideas przyjmuje multipart/form-data, nie JSON — patrz komentarz w trasie. */
+const ideaForm = (fields: { slug: string; text: string }, files: File[] = []) => {
+  const form = new FormData()
+  form.append('slug', fields.slug)
+  form.append('text', fields.text)
+  files.forEach(f => form.append('files', f))
+  return new NextRequest('http://localhost/api/portal-ideas', {
+    method: 'POST',
+    body: form,
+  } as ConstructorParameters<typeof NextRequest>[1])
+}
+
 describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
   let portalA: { id: string; slug: string }
   let portalB: { id: string; slug: string }
@@ -317,7 +329,7 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
       clickup.createTask.mockResolvedValue({ id: 'pomysl-1', name: 'x', url: null })
 
       const res = await ideasPOST(
-        jsonReq('/api/portal-ideas', { slug: portalA.slug, text: 'przydalby sie eksport do PDF' })
+        ideaForm({ slug: portalA.slug, text: 'przydalby sie eksport do PDF' })
       )
 
       assert.strictEqual(res.status, 200)
@@ -335,7 +347,7 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
     it('za krotki pomysl odrzucony przed dotknieciem ClickUpa', async () => {
       await loginAs(userA)
 
-      const res = await ideasPOST(jsonReq('/api/portal-ideas', { slug: portalA.slug, text: 'krotkie' }))
+      const res = await ideasPOST(ideaForm({ slug: portalA.slug, text: 'krotkie' }))
 
       assert.strictEqual(res.status, 400)
       assert.strictEqual(clickup.createTask.mock.calls.length, 0)
@@ -345,11 +357,49 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
       await loginAs(userA)
 
       const res = await ideasPOST(
-        jsonReq('/api/portal-ideas', { slug: portalB.slug, text: 'podpisane nie tym projektem' })
+        ideaForm({ slug: portalB.slug, text: 'podpisane nie tym projektem' })
       )
 
       assert.strictEqual(res.status, 401)
       assert.strictEqual(clickup.createTask.mock.calls.length, 0)
+    })
+
+    it('pomysl ze zrzutem: obraz idzie jako zalacznik NA UTWORZONE zadanie', async () => {
+      // Osobny uzytkownik, zeby nie wpasc na cooldown poprzedniego zgloszenia
+      // userA w tym samym pliku — cooldown jest sprawdzany na prawdziwej bazie.
+      await loginAs(await createTestUser(portalA.id, `zrzut-${portalA.slug}@example.com`))
+      process.env.CLICKUP_PORTAL_IDEAS_LIST_ID = 'nasza-lista-pomyslow'
+      clickup.createTask.mockResolvedValue({ id: 'pomysl-2', name: 'x', url: null })
+      clickup.addTaskAttachment.mockResolvedValue({ id: 'att-1', url: 'https://cu.test/1', title: 'a' })
+
+      const res = await ideasPOST(
+        ideaForm(
+          { slug: portalA.slug, text: 'przydalby sie ciemny motyw' },
+          [new File(['x'], 'zrzut.png', { type: 'image/png' })]
+        )
+      )
+      const body = await res.json()
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(body.attachmentsFailed, 0)
+      assert.strictEqual(clickup.addTaskAttachment.mock.calls.length, 1)
+      assert.strictEqual(clickup.addTaskAttachment.mock.calls[0][0], 'pomysl-2')
+    })
+
+    it('nie-obrazkowy plik jest po cichu pomijany, pomysl i tak dociera', async () => {
+      await loginAs(await createTestUser(portalA.id, `notatka-${portalA.slug}@example.com`))
+      process.env.CLICKUP_PORTAL_IDEAS_LIST_ID = 'nasza-lista-pomyslow'
+      clickup.createTask.mockResolvedValue({ id: 'pomysl-3', name: 'x', url: null })
+
+      const res = await ideasPOST(
+        ideaForm(
+          { slug: portalA.slug, text: 'zalaczam plik, ktory nie jest obrazkiem' },
+          [new File(['x'], 'notatka.txt', { type: 'text/plain' })]
+        )
+      )
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(clickup.addTaskAttachment.mock.calls.length, 0, 'plik spoza image/* nie ma trafic do ClickUpa')
     })
   })
 

@@ -25,6 +25,7 @@ const { db, clickup } = vi.hoisted(() => ({
   },
   clickup: {
     createTask: vi.fn(),
+    addTaskAttachment: vi.fn(),
   },
 }))
 
@@ -72,7 +73,13 @@ beforeEach(() => {
   db.update.mockReturnValue({ set: updateSet })
 
   clickup.createTask.mockResolvedValue({ id: 'task-1' })
+  clickup.addTaskAttachment.mockResolvedValue({ id: 'att-1', url: 'https://cu.test/att-1', title: 'x' })
 })
+
+/** Plik z dzialajacym arrayBuffer() — jsdom/node maja natywny File, ale bez tresci go nie potrzeba. */
+function plik(nazwa = 'zrzut.png'): File {
+  return new File(['dane'], nazwa, { type: 'image/png' })
+}
 
 describe('submitIdea — granice dlugosci', () => {
   it('odrzuca tekst o jeden znak krotszy niz minimum', async () => {
@@ -178,7 +185,7 @@ describe('submitIdea — sciezka z ClickUpem', () => {
   it('tworzy zadanie na skonfigurowanej liscie ze statusem backlog', async () => {
     const result = await submitIdea(input())
 
-    assert.deepStrictEqual(result, { ok: true, taskCreated: true })
+    assert.deepStrictEqual(result, { ok: true, taskCreated: true, attachmentsFailed: 0 })
     assert.strictEqual(clickup.createTask.mock.calls.length, 1)
     const [listId, payload] = clickup.createTask.mock.calls[0]
     assert.strictEqual(listId, 'list-99')
@@ -225,8 +232,51 @@ describe('submitIdea — sciezka z ClickUpem', () => {
 
     // Kolejnosc jest celowa (patrz komentarz w portalIdeas.ts): zapis u nas juz
     // sie odbyl, wiec awaria ClickUpa nie moze zamienic sukcesu klienta w blad.
-    assert.deepStrictEqual(result, { ok: true, taskCreated: false })
+    assert.deepStrictEqual(result, { ok: true, taskCreated: false, attachmentsFailed: 0 })
     assert.strictEqual(db.insert.mock.calls.length, 1, 'pomysl musi byc zapisany mimo awarii ClickUpa')
     assert.strictEqual(db.update.mock.calls.length, 0, 'bez zadania nie ma czego linkowac')
+  })
+
+  it('gdy ClickUp padnie a pomysl mial zrzuty, liczy je jako nieudane (nie ma gdzie ich podpiac)', async () => {
+    clickup.createTask.mockRejectedValue(new Error('ClickUp niedostepny'))
+
+    const result = await submitIdea(input({ files: [plik(), plik()] }))
+
+    assert.deepStrictEqual(result, { ok: true, taskCreated: false, attachmentsFailed: 2 })
+    assert.strictEqual(clickup.addTaskAttachment.mock.calls.length, 0, 'bez zadania nie ma czego zalaczac')
+  })
+})
+
+describe('submitIdea — zalaczniki', () => {
+  beforeEach(() => {
+    process.env.CLICKUP_PORTAL_IDEAS_LIST_ID = 'list-99'
+  })
+
+  it('bez plikow nie wola addTaskAttachment ani razu', async () => {
+    const result = await submitIdea(input())
+
+    assert.deepStrictEqual(result, { ok: true, taskCreated: true, attachmentsFailed: 0 })
+    assert.strictEqual(clickup.addTaskAttachment.mock.calls.length, 0)
+  })
+
+  it('kazdy plik idzie na UTWORZONE zadanie, w tej samej kolejnosci', async () => {
+    const a = plik('a.png')
+    const b = plik('b.png')
+    await submitIdea(input({ files: [a, b] }))
+
+    assert.strictEqual(clickup.addTaskAttachment.mock.calls.length, 2)
+    assert.strictEqual(clickup.addTaskAttachment.mock.calls[0][0], 'task-1')
+    assert.strictEqual(clickup.addTaskAttachment.mock.calls[0][2], 'a.png')
+    assert.strictEqual(clickup.addTaskAttachment.mock.calls[1][2], 'b.png')
+  })
+
+  it('jeden nieudany upload NIE psuje calego zgloszenia, tylko liczy sie do attachmentsFailed', async () => {
+    clickup.addTaskAttachment
+      .mockResolvedValueOnce({ id: 'att-1', url: 'https://cu.test/1', title: 'a' })
+      .mockRejectedValueOnce(new Error('ClickUp 500'))
+
+    const result = await submitIdea(input({ files: [plik('a.png'), plik('b.png')] }))
+
+    assert.deepStrictEqual(result, { ok: true, taskCreated: true, attachmentsFailed: 1 })
   })
 })

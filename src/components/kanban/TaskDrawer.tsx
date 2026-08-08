@@ -2,9 +2,10 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
 import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User, AlertTriangle } from 'lucide-react'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, Paperclip, FileText, User, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { Textarea } from '@/components/ui/textarea'
 
 // Turn plain URLs into clickable links inside a text run.
 function linkify(text: string, kp: string): React.ReactNode[] {
@@ -101,6 +102,12 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
   const [newComment, setNewComment] = useState('')
   const [loadingComments, setLoadingComments] = useState(true)
   const [sendingComment, setSendingComment] = useState(false)
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  /** Obrazy wybrane/wklejone, jeszcze nie wyslane razem z komentarzem. */
+  const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; url: string }>>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [attachments, setAttachments] = useState<ClickUpAttachment[]>([])
   /** Null oznacza „nie wiemy", czyli zadanie założone przez nas. Patrz niżej. */
   const [reporter, setReporter] = useState<{
@@ -137,18 +144,78 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
     loadAttachments()
   }, [task.id, slug])
 
+  function addCommentFiles(list: FileList | File[] | null) {
+    if (!list) return
+    const imgs = Array.from(list).filter(f => f.type.startsWith('image/'))
+    if (!imgs.length) return
+    setPendingFiles(prev => [...prev, ...imgs.map(f => ({ file: f, url: URL.createObjectURL(f) }))].slice(0, 5))
+  }
+
+  function removePendingFile(idx: number) {
+    setPendingFiles(prev => {
+      const next = [...prev]
+      const [gone] = next.splice(idx, 1)
+      if (gone) URL.revokeObjectURL(gone.url)
+      return next
+    })
+  }
+
+  function handleCommentPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const imgs = Array.from(e.clipboardData?.items ?? [])
+      .filter(i => i.type.startsWith('image/'))
+      .map(i => i.getAsFile())
+      .filter((f): f is File => !!f)
+    if (imgs.length) { e.preventDefault(); addCommentFiles(imgs) }
+  }
+
   async function handleSendComment(e: React.FormEvent) {
     e.preventDefault()
-    if (!newComment.trim()) return
+    const hasText = newComment.trim().length > 0
+    const hasFiles = pendingFiles.length > 0
+    if (!hasText && !hasFiles) return
 
     setSendingComment(true)
+
+    // Obrazy leca NAJPIERW jako zalaczniki zadania (ten sam mechanizm co
+    // zrzuty w AI Czacie), a ich adresy dopisujemy do tresci komentarza —
+    // ClickUp nie ma osobnego "zalacznika do komentarza", wiec link jest
+    // jedynym sposobem, zeby zdjecie bylo widoczne PRZY konkretnej wiadomosci,
+    // a nie tylko w ogolnej liscie Zalacznikow zadania.
+    let attachmentUrls: string[] = []
+    if (hasFiles) {
+      const form = new FormData()
+      pendingFiles.forEach(p => form.append('files', p.file))
+      const upRes = await fetch(
+        `/api/clickup/tasks/${task.id}/attachments?slug=${encodeURIComponent(slug)}`,
+        { method: 'POST', body: form }
+      )
+      if (upRes.ok) {
+        const data = await upRes.json()
+        const results = (data.attachments ?? []) as Array<{ ok: boolean; url?: string }>
+        attachmentUrls = results.filter((r): r is { ok: true; url: string } => r.ok && !!r.url).map(r => r.url)
+        const failedCount = results.length - attachmentUrls.length
+        if (failedCount > 0) {
+          toast.error(`Nie udało się dołączyć ${failedCount} ${failedCount === 1 ? 'obrazu' : 'obrazów'}`)
+        }
+      } else {
+        toast.error('Nie udało się dołączyć obrazów')
+      }
+    }
+
+    const text = [newComment.trim(), ...attachmentUrls].filter(Boolean).join('\n')
+    if (!text) {
+      // Wszystkie zalaczniki padly, a tresci nie bylo — nie ma czego wysylac.
+      setSendingComment(false)
+      return
+    }
+
     // `slug` obowiązkowo, tak samo jak przy odczycie: bez niego trasa nie zna
     // projektu, a obejście admina w `getSession` działa tylko dla nazwanego
     // portalu. Brak sluga oznaczał pusty wątek komentarzy w podglądzie admina.
     const res = await fetch(`/api/clickup/tasks/${task.id}/comments?slug=${encodeURIComponent(slug)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: newComment }),
+      body: JSON.stringify({ text }),
     })
 
     if (res.ok) {
@@ -159,6 +226,8 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
       // najstarszy. Te dwie rzeczy muszą się zgadzać, inaczej wątek kłamie.
       if (data.comment) setComments(prev => [...prev, data.comment])
       setNewComment('')
+      pendingFiles.forEach(p => URL.revokeObjectURL(p.url))
+      setPendingFiles([])
       // Nowy komentarz jest teraz na dole, więc przy dłuższym wątku powstaje
       // poza ekranem. Bez tego wysłanie wygląda, jakby nic się nie stało.
       requestAnimationFrame(() => {
@@ -168,6 +237,69 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
       toast.error('Nie udało się wysłać komentarza')
     }
     setSendingComment(false)
+  }
+
+  // Enter wysyła komentarz, Shift+Enter dodaje nową linię — standard znany
+  // z komunikatorów (stąd zgłoszenie klienta, który próbował Shift+Enter
+  // i dostał wysłaną, urwaną wiadomość zamiast akapitu).
+  function handleCommentKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      e.currentTarget.form?.requestSubmit()
+    }
+  }
+
+  function startEdit(comment: ClickUpComment) {
+    setEditingCommentId(comment.id)
+    setEditText(comment.comment_text)
+  }
+
+  function cancelEdit() {
+    setEditingCommentId(null)
+    setEditText('')
+  }
+
+  async function handleSaveEdit(commentId: string) {
+    if (!editText.trim()) return
+    setSavingEdit(true)
+    const res = await fetch(
+      `/api/clickup/tasks/${task.id}/comments/${commentId}?slug=${encodeURIComponent(slug)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: editText }),
+      }
+    )
+    if (res.ok) {
+      const savedText = editText
+      setComments(prev => prev.map(c => (c.id === commentId ? { ...c, comment_text: savedText } : c)))
+      cancelEdit()
+    } else {
+      toast.error('Nie udało się zapisać komentarza')
+    }
+    setSavingEdit(false)
+  }
+
+  function handleEditKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>, commentId: string) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSaveEdit(commentId)
+    } else if (e.key === 'Escape') {
+      cancelEdit()
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    if (!confirm('Na pewno usunąć ten komentarz?')) return
+    const res = await fetch(
+      `/api/clickup/tasks/${task.id}/comments/${commentId}?slug=${encodeURIComponent(slug)}`,
+      { method: 'DELETE' }
+    )
+    if (res.ok) {
+      setComments(prev => prev.filter(c => c.id !== commentId))
+    } else {
+      toast.error('Nie udało się usunąć komentarza')
+    }
   }
 
   const priorityColor = getPriorityColor(task.priority?.priority)
@@ -438,6 +570,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
                   const isAgency = comment.sender === 'important.is'
                   const initials = isAgency ? 'IM' : (comment.sender?.slice(0, 2).toUpperCase() ?? '?')
                   const bgColor = isAgency ? '#3b6fe8' : '#6b7280'
+                  const isEditing = editingCommentId === comment.id
                   return (
                     <div key={comment.id} className="flex gap-3">
                       <div
@@ -446,7 +579,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
                       >
                         {initials}
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2 mb-1">
                           <span className="text-xs font-medium text-foreground">
                             {comment.sender ?? 'Nieznany'}
@@ -454,10 +587,60 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
                           <span className="text-xs text-muted-foreground">
                             {formatDate(comment.date)}
                           </span>
+                          {comment.isOwn && !isEditing && (
+                            <span className="ml-auto flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEdit(comment)}
+                                aria-label="Edytuj komentarz"
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteComment(comment.id)}
+                                aria-label="Usuń komentarz"
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                            </span>
+                          )}
                         </div>
-                        <p className="text-sm text-foreground whitespace-pre-wrap">
-                          {comment.comment_text}
-                        </p>
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            <Textarea
+                              value={editText}
+                              onChange={e => setEditText(e.target.value)}
+                              onKeyDown={e => handleEditKeyDown(e, comment.id)}
+                              rows={2}
+                              autoFocus
+                              className="text-sm"
+                            />
+                            <div className="flex gap-3">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEdit(comment.id)}
+                                disabled={savingEdit || !editText.trim()}
+                                className="text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                Zapisz
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="text-xs font-medium text-muted-foreground hover:underline"
+                              >
+                                Anuluj
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-foreground whitespace-pre-wrap break-words">
+                            {linkify(comment.comment_text, comment.id)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )
@@ -472,19 +655,57 @@ export function TaskDrawer({ task, slug, onClose, onNavigate }: TaskDrawerProps)
 
         {/* Comment input — only on details tab */}
         {tab === 'details' && <div className="p-4 border-t border-border bg-card">
-          <form onSubmit={handleSendComment} className="flex gap-2">
+          {pendingFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {pendingFiles.map((p, i) => (
+                <div key={p.url} className="relative h-14 w-14 rounded-md overflow-hidden border border-border">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.url} alt={p.file.name} className="h-full w-full object-cover block" />
+                  <button
+                    type="button"
+                    onClick={() => removePendingFile(i)}
+                    aria-label="Usuń obraz"
+                    className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white flex items-center justify-center"
+                  >
+                    <X className="h-2.5 w-2.5" aria-hidden />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <form onSubmit={handleSendComment} className="flex gap-2 items-end">
             <input
-              type="text"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={e => { addCommentFiles(e.target.files); e.target.value = '' }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sendingComment || pendingFiles.length >= 5}
+              aria-label="Dołącz obraz"
+              title="Dołącz obraz"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:pointer-events-none h-9 w-9 flex-shrink-0"
+            >
+              <Paperclip className="h-4 w-4" aria-hidden />
+            </button>
+            <Textarea
               value={newComment}
               onChange={e => setNewComment(e.target.value)}
+              onKeyDown={handleCommentKeyDown}
+              onPaste={handleCommentPaste}
               placeholder="Dodaj komentarz..."
-              className="flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              rows={1}
+              className="flex-1 py-2"
             />
             <button
               type="submit"
-              disabled={sendingComment || !newComment.trim()}
+              disabled={sendingComment || (!newComment.trim() && pendingFiles.length === 0)}
               aria-label={sendingComment ? 'Wysyłanie komentarza' : 'Wyślij komentarz'}
-              className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none h-9 w-9"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none h-9 w-9 flex-shrink-0"
             >
               {sendingComment ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

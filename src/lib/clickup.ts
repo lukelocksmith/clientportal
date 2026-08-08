@@ -307,6 +307,17 @@ export async function addComment(taskId: string, text: string): Promise<ClickUpC
   })
 }
 
+export async function updateComment(commentId: string, text: string): Promise<void> {
+  await clickupFetch<unknown>(`/comment/${commentId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ comment_text: text }),
+  })
+}
+
+export async function deleteComment(commentId: string): Promise<void> {
+  await clickupFetch<unknown>(`/comment/${commentId}`, { method: 'DELETE' })
+}
+
 export async function getListStatuses(listId: string): Promise<ClickUpStatus[]> {
   const data = await clickupFetch<{ statuses: ClickUpStatus[] }>(`/list/${listId}`)
   return data.statuses ?? []

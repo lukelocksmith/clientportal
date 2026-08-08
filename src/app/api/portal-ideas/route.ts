@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import { requirePortalApi } from '@/lib/apiSession'
 import {
   submitIdea,
@@ -9,28 +8,40 @@ import {
   IDEA_COOLDOWN_MINUTES,
 } from '@/lib/portalIdeas'
 
+export const runtime = 'nodejs'
+
+// Te same limity co przy zalacznikach zadania (attachments/route.ts) — jeden
+// mechanizm uploadu, dwa miejsca w interfejsie, ktore z niego korzystaja.
+const MAX_BYTES = 10 * 1024 * 1024
+const MAX_FILES = 5
+
 /**
- * Pomysł klienta na ulepszenie portalu.
+ * Pomysł klienta na ulepszenie portalu, opcjonalnie ze zrzutami ekranu.
+ *
+ * multipart/form-data, nie JSON — plik nie da się zakodować w JSON-ie bez
+ * base64, a to trzykrotnie napompowałoby limit rozmiaru zapytania za darmo.
  *
  * Wymaga sesji w TYM portalu, bo `slug` decyduje, w imieniu którego projektu
  * pomysł zostanie podpisany. Bez tego sprawdzenia każdy zalogowany klient
  * mógłby wysyłać zgłoszenia podpisane cudzym projektem.
  */
-const schema = z.object({
-  slug: z.string().min(1).max(50),
-  text: z.string().min(IDEA_MIN_LENGTH).max(IDEA_MAX_LENGTH),
-})
-
 export async function POST(request: NextRequest) {
-  const parsed = schema.safeParse(await request.json().catch(() => null))
-  if (!parsed.success) {
+  const form = await request.formData().catch(() => null)
+  const slug = form?.get('slug')
+  const text = form?.get('text')
+
+  if (
+    typeof slug !== 'string' ||
+    !slug ||
+    typeof text !== 'string' ||
+    text.length < IDEA_MIN_LENGTH ||
+    text.length > IDEA_MAX_LENGTH
+  ) {
     return NextResponse.json(
       { error: `Napisz od ${IDEA_MIN_LENGTH} do ${IDEA_MAX_LENGTH} znaków.` },
       { status: 400 }
     )
   }
-
-  const { slug, text } = parsed.data
 
   const gate = await requirePortalApi(slug)
   if (!gate.ok) return gate.response
@@ -47,6 +58,12 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Zalacznik jest dodatkiem, nie warunkiem: za duzy albo nie-obrazkowy plik
+  // jest po prostu pomijany, nie wywala calego zgloszenia pomyslu.
+  const files = (form?.getAll('files') ?? [])
+    .filter((f): f is File => f instanceof File && f.type.startsWith('image/') && f.size <= MAX_BYTES)
+    .slice(0, MAX_FILES)
+
   const outcome = await submitIdea({
     userId,
     portalId: portal.id,
@@ -55,6 +72,7 @@ export async function POST(request: NextRequest) {
     authorEmail: session.email,
     authorName: session.name,
     text,
+    files,
   })
 
   if (!outcome.ok) {
@@ -67,5 +85,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nie udało się zapisać pomysłu.' }, { status: 400 })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, attachmentsFailed: outcome.attachmentsFailed })
 }

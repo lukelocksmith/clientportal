@@ -42,6 +42,8 @@ export type ClickUpComment = {
   date: string
   replies?: ClickUpComment[]
   sender?: string  // parsed from [PUBLIC] prefix: client name or 'important.is'
+  /** Czy TEN zalogowany dodal ten komentarz z portalu — steruje przyciskami edycji/usuwania. */
+  isOwn?: boolean
 }
 
 export type ClickUpSubtask = {

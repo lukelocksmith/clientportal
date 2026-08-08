@@ -37,6 +37,8 @@ const { cookieJar, clickup, cache } = vi.hoisted(() => ({
     getTask: vi.fn(),
     getTaskComments: vi.fn(),
     addComment: vi.fn(),
+    updateComment: vi.fn(),
+    deleteComment: vi.fn(),
     verifyTaskBelongsToFolder: vi.fn(),
     updateTask: vi.fn(),
     createTask: vi.fn(),
@@ -66,6 +68,7 @@ import { createSession, setSessionCookie } from '@/lib/auth'
 import { GET as tasksGET, POST as tasksPOST } from '@/app/api/clickup/tasks/route'
 import { GET as taskGET, PATCH as taskPATCH } from '@/app/api/clickup/tasks/[taskId]/route'
 import { GET as commentsGET, POST as commentsPOST } from '@/app/api/clickup/tasks/[taskId]/comments/route'
+import { PUT as commentPUT, DELETE as commentDELETE } from '@/app/api/clickup/tasks/[taskId]/comments/[commentId]/route'
 
 const dbUp = await isDbReachable()
 
@@ -423,6 +426,100 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
 
       assert.strictEqual(res.status, 200)
       assert.strictEqual(clickup.addComment.mock.calls.length, 1)
+    })
+  })
+
+  describe('PUT/DELETE /api/clickup/tasks/[taskId]/comments/[commentId] (edycja/usuniecie wlasnego)', () => {
+    const commentParams = (taskId: string, commentId: string) => ({
+      params: Promise.resolve({ taskId, commentId }),
+    })
+    const putReq = (url: string, body: unknown) =>
+      req(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const deleteReq = (url: string) => req(url, { method: 'DELETE' })
+
+    /** Dodaje komentarz jako userA i zwraca jego id — ten sam sposob, w jaki portal go tworzy. */
+    async function wlasnyKomentarz(): Promise<string> {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.addComment.mockResolvedValue({ id: 'c-wlasny' })
+      await commentsPOST(
+        jsonReq(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`, { text: 'oryginal' }),
+        params('task-1')
+      )
+      return 'c-wlasny'
+    }
+
+    it('wlasciciel MOZE edytowac wlasny komentarz, z zachowaniem prefiksu i podpisu', async () => {
+      const commentId = await wlasnyKomentarz()
+
+      const res = await commentPUT(
+        putReq(`/api/clickup/tasks/task-1/comments/${commentId}?slug=${portalA.slug}`, { text: 'poprawiony' }),
+        commentParams('task-1', commentId)
+      )
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(clickup.updateComment.mock.calls.length, 1)
+      const [id, tresc] = clickup.updateComment.mock.calls[0] as [string, string]
+      assert.strictEqual(id, commentId)
+      assert.ok(tresc.startsWith('[P]'), 'edycja nie moze zgubic prefiksu publicznego')
+      assert.ok(tresc.includes('poprawiony'))
+    })
+
+    it('wlasciciel MOZE usunac wlasny komentarz', async () => {
+      const commentId = await wlasnyKomentarz()
+
+      const res = await commentDELETE(
+        deleteReq(`/api/clickup/tasks/task-1/comments/${commentId}?slug=${portalA.slug}`),
+        commentParams('task-1', commentId)
+      )
+
+      assert.strictEqual(res.status, 200)
+      assert.deepStrictEqual(clickup.deleteComment.mock.calls[0], [commentId])
+    })
+
+    it('REGRESJA: inny uzytkownik TEGO SAMEGO portalu nie edytuje ani nie usunie cudzego komentarza', async () => {
+      const commentId = await wlasnyKomentarz()
+      const userB = await createTestUser(portalA.id, `inny-${portalA.slug}@example.com`)
+      await setSessionCookie(await createSession(userB, '127.0.0.1', 'vitest'))
+
+      const edycja = await commentPUT(
+        putReq(`/api/clickup/tasks/task-1/comments/${commentId}?slug=${portalA.slug}`, { text: 'podmiana' }),
+        commentParams('task-1', commentId)
+      )
+      assert.strictEqual(edycja.status, 403)
+      assert.strictEqual(clickup.updateComment.mock.calls.length, 0)
+
+      const usuniecie = await commentDELETE(
+        deleteReq(`/api/clickup/tasks/task-1/comments/${commentId}?slug=${portalA.slug}`),
+        commentParams('task-1', commentId)
+      )
+      assert.strictEqual(usuniecie.status, 403)
+      assert.strictEqual(clickup.deleteComment.mock.calls.length, 0)
+    })
+
+    it('pusta tresc edycji -> 400, ClickUp nietkniety', async () => {
+      const commentId = await wlasnyKomentarz()
+
+      const res = await commentPUT(
+        putReq(`/api/clickup/tasks/task-1/comments/${commentId}?slug=${portalA.slug}`, { text: '   ' }),
+        commentParams('task-1', commentId)
+      )
+
+      assert.strictEqual(res.status, 400)
+      assert.strictEqual(clickup.updateComment.mock.calls.length, 0)
+    })
+
+    it('zadanie spoza portalu -> 403, tak samo jak przy odczycie', async () => {
+      const commentId = await wlasnyKomentarz()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(false)
+
+      const res = await commentDELETE(
+        deleteReq(`/api/clickup/tasks/obce/comments/${commentId}?slug=${portalA.slug}`),
+        commentParams('obce', commentId)
+      )
+
+      assert.strictEqual(res.status, 403)
+      assert.strictEqual(clickup.deleteComment.mock.calls.length, 0)
     })
   })
 })

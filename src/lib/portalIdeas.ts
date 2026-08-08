@@ -1,7 +1,7 @@
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { db } from './db'
 import { auditLog } from './db/schema'
-import { createTask } from './clickup'
+import { createTask, addTaskAttachment } from './clickup'
 import { withReporterFooter } from './reporter'
 
 /**
@@ -25,7 +25,7 @@ export const IDEA_MIN_LENGTH = 10
 export const IDEA_MAX_LENGTH = 2000
 
 export type IdeaResult =
-  | { ok: true; taskCreated: boolean }
+  | { ok: true; taskCreated: boolean; attachmentsFailed: number }
   | { ok: false; reason: 'too-short' | 'too-long' | 'cooldown' | 'not-configured' }
 
 export async function ideaSubmittedRecently(userId: string): Promise<boolean> {
@@ -60,6 +60,8 @@ export async function submitIdea(input: {
   authorEmail: string
   authorName: string | null
   text: string
+  /** Zrzuty ekranu dolaczone do pomyslu. Ide bez tekstu nie ma — obraz jest dodatkiem. */
+  files?: File[]
 }): Promise<IdeaResult> {
   const text = input.text.trim()
   if (text.length < IDEA_MIN_LENGTH) return { ok: false, reason: 'too-short' }
@@ -95,11 +97,28 @@ export async function submitIdea(input: {
     })
 
     await db.update(auditLog).set({ resourceId: task.id }).where(eq(auditLog.id, auditId))
-    return { ok: true, taskCreated: true }
+
+    // Zalaczniki NIE moga zawrocic calego zgloszenia — zadanie juz istnieje,
+    // pomysl juz dotarl. Padniety upload jest do zaraportowania klientowi,
+    // nie do udawania, ze pomysl sie nie zapisal.
+    let attachmentsFailed = 0
+    for (const file of input.files ?? []) {
+      try {
+        const buf = await file.arrayBuffer()
+        await addTaskAttachment(task.id, new Blob([buf], { type: file.type }), file.name || 'zrzut.png')
+      } catch (e) {
+        attachmentsFailed++
+        console.error('[portalIdeas] nie udało się dołączyć zrzutu:', e)
+      }
+    }
+
+    return { ok: true, taskCreated: true, attachmentsFailed }
   } catch (e) {
     console.error('[portalIdeas] nie udało się utworzyć zadania w ClickUpie:', e)
-    // Pomysł jest u nas, wiec dla klienta to sukces.
-    return { ok: true, taskCreated: false }
+    // Pomysl jest u nas, wiec dla klienta to sukces. Bez zadania nie ma gdzie
+    // podpiac zalacznikow — te licza sie jako nieudane, klient dowie sie
+    // z komunikatu, nie z ciszy.
+    return { ok: true, taskCreated: false, attachmentsFailed: input.files?.length ?? 0 }
   }
 }
 

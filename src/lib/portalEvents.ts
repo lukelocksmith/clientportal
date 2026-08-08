@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from './db'
 import { auditLog } from './db/schema'
 import { normalizeActorId, isAdminActor } from './reporter'
@@ -232,6 +232,61 @@ export async function getTaskReporter(
     email: isAgency ? null : row.userEmail,
     isAgency,
   }
+}
+
+/**
+ * Ktore z podanych komentarzy ClickUpa dodal TEN adres e-mail z tego portalu.
+ *
+ * `resourceId` zdarzenia `comment_added` to identyfikator komentarza w
+ * ClickUpie (patrz trasa POST komentarzy), nie zadania — inaczej niz przy
+ * `task_created`, gdzie resourceId to id zadania. Dwa rozne znaczenia tej
+ * samej kolumny, bo dwa rozne pytania: „kto zglosil to ZADANIE" kontra „kto
+ * dodal TEN komentarz", a jeden komentarz nie ma wlasnej tabeli.
+ *
+ * Do pokazania przyciskow edycji/usuwania wylacznie przy WLASNYCH komentarzach
+ * klienta — nie do autoryzacji samej zmiany, ta idzie osobnym zapytaniem w
+ * `isCommentOwnedBy` w trasie PUT/DELETE, bo klient nie jest zrodlem prawdy o
+ * tym, co wolno mu zrobic.
+ */
+export async function getOwnedCommentIds(
+  portalId: string,
+  userEmail: string,
+  commentIds: readonly string[]
+): Promise<Set<string>> {
+  if (commentIds.length === 0) return new Set()
+  const rows = await db
+    .select({ resourceId: auditLog.resourceId })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.portalId, portalId),
+        eq(auditLog.action, EVENT_COMMENT_ADDED),
+        eq(auditLog.userEmail, userEmail),
+        inArray(auditLog.resourceId, commentIds)
+      )
+    )
+  return new Set(rows.flatMap(r => (r.resourceId ? [r.resourceId] : [])))
+}
+
+/** Autoryzacja edycji/usuniecia: czy TEN e-mail dodal WLASNIE ten komentarz. */
+export async function isCommentOwnedBy(
+  portalId: string,
+  commentId: string,
+  userEmail: string
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.portalId, portalId),
+        eq(auditLog.action, EVENT_COMMENT_ADDED),
+        eq(auditLog.resourceId, commentId),
+        eq(auditLog.userEmail, userEmail)
+      )
+    )
+    .limit(1)
+  return rows.length > 0
 }
 
 /**

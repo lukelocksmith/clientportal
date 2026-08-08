@@ -22,6 +22,8 @@ import {
   portalEventActors,
   attachResourceId,
   getTaskReporter,
+  getOwnedCommentIds,
+  isCommentOwnedBy,
   EVENT_TASK_CREATED,
   EVENT_PANIC_ALERT,
   EVENT_COMMENT_ADDED,
@@ -395,5 +397,77 @@ describe.skipIf(!reachable)('portalEvents', () => {
     assert.strictEqual(events.length, 1, 'lista przewrocila sie na uszkodzonych metadanych')
     assert.strictEqual(events[0].meta, null)
     assert.strictEqual(events[0].userEmail, 'x@test.pl', 'kto/co/kiedy jest w kolumnach, wiec musi przezyc')
+  })
+})
+
+/**
+ * Wlasnosc komentarza. Klient moze edytowac/usuwac WYLACZNIE wlasny komentarz
+ * w portalu — te dwie funkcje odpowiadaja na pytanie "czy TEN adres dodal
+ * TEN komentarz z ClickUpa", odpowiednio do pokazania przyciskow (`getOwned...`)
+ * i do faktycznej autoryzacji w trasie PUT/DELETE (`isCommentOwnedBy`).
+ */
+describe.skipIf(!reachable)('wlasnosc komentarza', () => {
+  it('isCommentOwnedBy: wlasciciel tak, obcy adres i obcy portal nie', async () => {
+    const portal = await freshPortal('cmt-own')
+    const innyPortal = await freshPortal('cmt-inny')
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId: null, email: 'anna@test.pl', name: 'Anna' },
+      action: EVENT_COMMENT_ADDED,
+      resourceId: 'cu-komentarz-1',
+    })
+
+    assert.strictEqual(await isCommentOwnedBy(portal.id, 'cu-komentarz-1', 'anna@test.pl'), true)
+    assert.strictEqual(
+      await isCommentOwnedBy(portal.id, 'cu-komentarz-1', 'ktos-inny@test.pl'),
+      false,
+      'cudzy adres nie ma dostepu do komentarza Anny'
+    )
+    assert.strictEqual(
+      await isCommentOwnedBy(innyPortal.id, 'cu-komentarz-1', 'anna@test.pl'),
+      false,
+      'ten sam commentId w innym portalu nie moze uwierzytelnic'
+    )
+  })
+
+  it('isCommentOwnedBy: dodanie ZADANIA (nie komentarza) tym samym id nie liczy sie jako wlasnosc', async () => {
+    const portal = await freshPortal('cmt-typ')
+    // Ten sam identyfikator, ale zdarzenie task_created, nie comment_added —
+    // resourceId dla obu akcji zyje w tej samej kolumnie, wiec rodzaj akcji
+    // MUSI byc czescia warunku, inaczej zgloszenie zadania odblokowalo by
+    // edycje "komentarza" o tym samym id.
+    await logEvent({
+      portalId: portal.id,
+      actor: { userId: null, email: 'anna@test.pl', name: 'Anna' },
+      action: EVENT_TASK_CREATED,
+      resourceId: 'wspolne-id',
+    })
+
+    assert.strictEqual(await isCommentOwnedBy(portal.id, 'wspolne-id', 'anna@test.pl'), false)
+  })
+
+  it('getOwnedCommentIds: zwraca TYLKO komentarze tego adresu z podanej listy', async () => {
+    const portal = await freshPortal('cmt-many')
+    for (const [id, email] of [
+      ['c1', 'anna@test.pl'],
+      ['c2', 'anna@test.pl'],
+      ['c3', 'important.is'],
+    ] as const) {
+      await logEvent({
+        portalId: portal.id,
+        actor: { userId: null, email, name: null },
+        action: EVENT_COMMENT_ADDED,
+        resourceId: id,
+      })
+    }
+
+    const owned = await getOwnedCommentIds(portal.id, 'anna@test.pl', ['c1', 'c2', 'c3', 'c-nieznany'])
+    assert.deepStrictEqual([...owned].sort(), ['c1', 'c2'])
+  })
+
+  it('getOwnedCommentIds: pusta lista wejsciowa nie odpytuje bazy i zwraca pusty zbior', async () => {
+    const portal = await freshPortal('cmt-empty')
+    const owned = await getOwnedCommentIds(portal.id, 'anna@test.pl', [])
+    assert.strictEqual(owned.size, 0)
   })
 })

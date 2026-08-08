@@ -30,6 +30,8 @@ vi.mock('sonner', () => ({ toast }))
 import { TaskDrawer } from './TaskDrawer'
 
 const fetchMock = vi.fn()
+/** jsdom nie implementuje window.confirm. Domyslnie "tak", pojedyncze testy nadpisuja. */
+const confirmMock = vi.fn(() => true)
 
 /** Zadanie w ksztalcie, jaki oddaje ClickUp — pola nieistotne pominiete. */
 function zadanie(nadpisz: Partial<ClickUpTask> = {}): ClickUpTask {
@@ -69,9 +71,13 @@ const wlasciwosci = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('confirm', confirmMock)
   odpowiadaj()
   // jsdom nie implementuje przewijania, a szuflada przewija do konca watku.
   Element.prototype.scrollIntoView = vi.fn()
+  // jsdom nie implementuje URL.createObjectURL, a podglad zalacznika go wola.
+  URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+  URL.revokeObjectURL = vi.fn()
 })
 afterEach(cleanup)
 
@@ -155,6 +161,48 @@ describe('wysylanie komentarza', () => {
     assert.deepStrictEqual(teksty, ['Pierwszy', 'Nowy'])
   })
 
+  it('REGRESJA: pole komentarza to textarea, wiec wklejony tekst wieloliniowy nie gubi Enterow', async () => {
+    // Klient zglosil, ze kopiujac tresc z WhatsApp do panelu, wiadomosc wklejala
+    // sie jednym ciagiem — bo pole bylo <input type="text">, ktory z definicji
+    // nie moze zawierac znaku nowej linii, wiec przegladarka go po prostu usuwa.
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+
+    const pole = screen.getByPlaceholderText('Dodaj komentarz...') as HTMLTextAreaElement
+    assert.strictEqual(pole.tagName, 'TEXTAREA')
+  })
+
+  it('Shift+Enter dodaje nowa linie zamiast wysylac komentarz', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+    const wywolaniaPrzedPisaniem = fetchMock.mock.calls.length
+
+    const pole = screen.getByPlaceholderText('Dodaj komentarz...') as HTMLTextAreaElement
+    await uzytkownik.type(pole, 'Linia 1{Shift>}{Enter}{/Shift}Linia 2')
+
+    assert.strictEqual(pole.value, 'Linia 1\nLinia 2')
+    // Zaden POST nie poszedl — Shift+Enter nie mial wyslac formularza.
+    assert.strictEqual(fetchMock.mock.calls.length, wywolaniaPrzedPisaniem)
+  })
+
+  it('sam Enter wysyla komentarz, tak jak wczesniej klikniecie przycisku', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ comment: { id: 'k1', comment_text: 'Tresc', sender: 'Klient', date: '1' } }),
+    }))
+    const pole = screen.getByPlaceholderText('Dodaj komentarz...')
+    await uzytkownik.type(pole, 'Tresc{Enter}')
+
+    await waitFor(() => assert.ok(screen.queryByText('Tresc')))
+    const [, opcje] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]
+    assert.strictEqual((opcje as RequestInit).method, 'POST')
+  })
+
   it('pole czysci sie po wyslaniu', async () => {
     const uzytkownik = userEvent.setup()
     render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
@@ -182,6 +230,212 @@ describe('wysylanie komentarza', () => {
 
     await uzytkownik.type(screen.getByPlaceholderText('Dodaj komentarz...'), '   ')
     assert.strictEqual(przycisk.disabled, true, 'same spacje to nadal nic')
+  })
+})
+
+/**
+ * Edycja/usuwanie WLASNEGO komentarza. `isOwn` przychodzi juz gotowe z trasy
+ * GET (patrz routes.clickupTasks.test.ts po stronie serwera) — szuflada mu
+ * ufa i tylko na jego podstawie pokazuje przyciski. Autoryzacja samej zmiany
+ * i tak jest sprawdzana ponownie po stronie API, ale interfejs nie ma prawa
+ * kusic klienta przyciskiem, ktory i tak dostanie 403.
+ */
+describe('edycja i usuwanie wlasnego komentarza', () => {
+  it('przyciski edycji/usuwania widoczne TYLKO przy komentarzu z isOwn', async () => {
+    odpowiadaj({
+      komentarze: [
+        { id: 'moj', comment_text: 'Moj komentarz', sender: 'Klient', date: '1', isOwn: true },
+        { id: 'cudzy', comment_text: 'Cudzy komentarz', sender: 'important.is', date: '2', isOwn: false },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Moj komentarz')
+
+    assert.strictEqual(screen.getAllByLabelText('Edytuj komentarz').length, 1)
+    assert.strictEqual(screen.getAllByLabelText('Usuń komentarz').length, 1)
+  })
+
+  it('edycja: PUT niesie slug, zachowuje prefiks, i podmienia tresc lokalnie bez ponownego GET', async () => {
+    const uzytkownik = userEvent.setup()
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: 'Stara tresc', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Stara tresc')
+    const wywolaniaPrzedEdycja = fetchMock.mock.calls.length
+
+    fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ ok: true }) }))
+    await uzytkownik.click(screen.getByLabelText('Edytuj komentarz'))
+    const pole = screen.getByDisplayValue('Stara tresc')
+    await uzytkownik.clear(pole)
+    await uzytkownik.type(pole, 'Nowa tresc')
+    await uzytkownik.click(screen.getByRole('button', { name: 'Zapisz' }))
+
+    await waitFor(() => assert.ok(screen.queryByText('Nowa tresc')))
+    assert.strictEqual(screen.queryByText('Stara tresc'), null)
+    const [adres, opcje] = fetchMock.mock.calls[wywolaniaPrzedEdycja]
+    assert.match(adres as string, /\/comments\/k1\?slug=wdf/)
+    assert.strictEqual((opcje as RequestInit).method, 'PUT')
+  })
+
+  it('anulowanie edycji przywraca widok bez wysylania niczego', async () => {
+    const uzytkownik = userEvent.setup()
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: 'Stara tresc', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Stara tresc')
+    const wywolaniaPrzedEdycja = fetchMock.mock.calls.length
+
+    await uzytkownik.click(screen.getByLabelText('Edytuj komentarz'))
+    await uzytkownik.type(screen.getByDisplayValue('Stara tresc'), ' dopisek')
+    await uzytkownik.click(screen.getByRole('button', { name: 'Anuluj' }))
+
+    assert.ok(screen.getByText('Stara tresc'), 'wraca oryginalna tresc, dopisek nie zostaje')
+    assert.strictEqual(fetchMock.mock.calls.length, wywolaniaPrzedEdycja, 'anulowanie nie odpytuje API')
+  })
+
+  it('usuwanie: pyta o potwierdzenie, po "tak" wysyla DELETE i zdejmuje komentarz z listy', async () => {
+    const uzytkownik = userEvent.setup()
+    confirmMock.mockReturnValueOnce(true)
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: 'Do usuniecia', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Do usuniecia')
+
+    fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ ok: true }) }))
+    await uzytkownik.click(screen.getByLabelText('Usuń komentarz'))
+
+    await screen.findByText('Brak komentarzy')
+    assert.ok(confirmMock.mock.calls.length >= 1)
+    const [adres, opcje] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]
+    assert.match(adres as string, /\/comments\/k1\?slug=wdf/)
+    assert.strictEqual((opcje as RequestInit).method, 'DELETE')
+  })
+
+  it('usuwanie: odmowa w potwierdzeniu NIE wysyla DELETE i zostawia komentarz', async () => {
+    const uzytkownik = userEvent.setup()
+    confirmMock.mockReturnValueOnce(false)
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: 'Zostaje', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Zostaje')
+    const wywolaniaPrzedUsuwaniem = fetchMock.mock.calls.length
+
+    await uzytkownik.click(screen.getByLabelText('Usuń komentarz'))
+
+    assert.ok(screen.getByText('Zostaje'), 'komentarz zostaje, bo potwierdzenie odrzucone')
+    assert.strictEqual(fetchMock.mock.calls.length, wywolaniaPrzedUsuwaniem)
+  })
+})
+
+/**
+ * Zalaczanie obrazu do komentarza. ClickUp nie ma "zalacznika do komentarza",
+ * wiec obraz idzie NAJPIERW na trase zalacznikow zadania (ten sam mechanizm
+ * co zrzuty w AI Czacie), a dopiero jego URL trafia do tresci komentarza.
+ * Dwa zapytania, jedna akcja uzytkownika — testy pilnuja kolejnosci i tego,
+ * ze sam obraz (bez wpisanego tekstu) tez da sie wyslac.
+ */
+describe('zalaczanie obrazu do komentarza', () => {
+  function wybierzObraz(): File {
+    return new File(['dane obrazu'], 'zrzut.png', { type: 'image/png' })
+  }
+
+  it('wybranie obrazu odblokowuje wysylke, nawet bez wpisanego tekstu', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+    const przycisk = screen.getByRole('button', { name: 'Wyślij komentarz' }) as HTMLButtonElement
+    assert.strictEqual(przycisk.disabled, true, 'pusty formularz, bez obrazu i tekstu')
+
+    const wejscie = document.querySelector('input[type="file"]') as HTMLInputElement
+    await uzytkownik.upload(wejscie, wybierzObraz())
+
+    assert.strictEqual(przycisk.disabled, false, 'sam obraz wystarczy do wyslania')
+  })
+
+  it('wysylka: obraz idzie NAJPIERW na /attachments, jego URL dopisuje sie do tresci komentarza', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+    const wywolaniaPrzedWyslaniem = fetchMock.mock.calls.length
+
+    fetchMock.mockImplementation(async (url: string) =>
+      url.includes('/attachments')
+        ? { ok: true, json: async () => ({ attachments: [{ name: 'zrzut.png', ok: true, url: 'https://cu.test/zrzut.png' }] }) }
+        : { ok: true, json: async () => ({ comment: { id: 'k1', comment_text: 'Patrz obrazek\nhttps://cu.test/zrzut.png', sender: 'Klient', date: '1' } }) }
+    )
+
+    const wejscie = document.querySelector('input[type="file"]') as HTMLInputElement
+    await uzytkownik.upload(wejscie, wybierzObraz())
+    await uzytkownik.type(screen.getByPlaceholderText('Dodaj komentarz...'), 'Patrz obrazek')
+    await uzytkownik.click(screen.getByRole('button', { name: 'Wyślij komentarz' }))
+
+    await waitFor(() => assert.ok(fetchMock.mock.calls.length >= wywolaniaPrzedWyslaniem + 2))
+    const wywolania = fetchMock.mock.calls.slice(wywolaniaPrzedWyslaniem)
+    const [adresZalacznika, opcjeZalacznika] = wywolania[0]
+    const [adresKomentarza, opcjeKomentarza] = wywolania[1]
+
+    assert.match(adresZalacznika as string, /\/attachments\?slug=wdf/)
+    assert.strictEqual((opcjeZalacznika as RequestInit).method, 'POST')
+    assert.ok((opcjeZalacznika as RequestInit).body instanceof FormData, 'plik leci jako FormData, nie JSON')
+
+    assert.match(adresKomentarza as string, /\/comments\?slug=wdf/)
+    const tresc = JSON.parse((opcjeKomentarza as RequestInit).body as string).text as string
+    assert.ok(tresc.includes('https://cu.test/zrzut.png'), 'URL zalacznika dopisany do tresci')
+    assert.ok(tresc.includes('Patrz obrazek'))
+  })
+
+  it('link do zalacznika w juz wyslanym komentarzu jest klikalny, nie plaskim tekstem', async () => {
+    odpowiadaj({
+      komentarze: [
+        { id: 'k1', comment_text: 'Zobacz\nhttps://cu.test/zrzut.png', sender: 'Klient', date: '1' },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    const link = await screen.findByRole('link', { name: 'https://cu.test/zrzut.png' })
+    assert.strictEqual(link.getAttribute('href'), 'https://cu.test/zrzut.png')
+  })
+
+  it('usuniecie obrazu z podgladu PRZED wyslaniem nie idzie na /attachments', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+
+    const wejscie = document.querySelector('input[type="file"]') as HTMLInputElement
+    await uzytkownik.upload(wejscie, wybierzObraz())
+    await uzytkownik.click(screen.getByLabelText('Usuń obraz'))
+
+    const przycisk = screen.getByRole('button', { name: 'Wyślij komentarz' }) as HTMLButtonElement
+    assert.strictEqual(przycisk.disabled, true, 'obraz zdjety z podgladu, formularz znowu pusty')
+  })
+
+  it('padniety upload zalacznika NIE wysyla pustego komentarza', async () => {
+    const uzytkownik = userEvent.setup()
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+    await screen.findByText('Brak komentarzy')
+
+    fetchMock.mockImplementation(async (url: string) =>
+      url.includes('/attachments')
+        ? { ok: false, json: async () => ({}) }
+        : { ok: true, json: async () => ({ comment: { id: 'nie-powinno-powstac' } }) }
+    )
+
+    const wejscie = document.querySelector('input[type="file"]') as HTMLInputElement
+    await uzytkownik.upload(wejscie, wybierzObraz())
+    await uzytkownik.click(screen.getByRole('button', { name: 'Wyślij komentarz' }))
+
+    await waitFor(() => assert.ok(toast.error.mock.calls.length >= 1))
+    // Wyklucza GET z wczytania watku przy montowaniu — liczy sie tylko POST.
+    assert.ok(
+      !fetchMock.mock.calls.some(
+        c => (c[0] as string).includes('/comments?') && (c[1] as RequestInit)?.method === 'POST'
+      ),
+      'bez tresci i bez udanego zalacznika nie ma czego wysylac na trase komentarzy'
+    )
   })
 })
 

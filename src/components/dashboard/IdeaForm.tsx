@@ -1,6 +1,6 @@
 'use client'
-import { useState } from 'react'
-import { CheckCircle2, Loader2, Lightbulb } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { CheckCircle2, Loader2, Lightbulb, Paperclip, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 const MIN_LENGTH = 10
@@ -21,8 +21,34 @@ export function IdeaForm({ slug }: { slug: string }) {
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; url: string }>>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const tooShort = text.trim().length > 0 && text.trim().length < MIN_LENGTH
+
+  function addFiles(list: FileList | File[] | null) {
+    if (!list) return
+    const imgs = Array.from(list).filter(f => f.type.startsWith('image/'))
+    if (!imgs.length) return
+    setPendingFiles(prev => [...prev, ...imgs.map(f => ({ file: f, url: URL.createObjectURL(f) }))].slice(0, 5))
+  }
+
+  function removeFile(idx: number) {
+    setPendingFiles(prev => {
+      const next = [...prev]
+      const [gone] = next.splice(idx, 1)
+      if (gone) URL.revokeObjectURL(gone.url)
+      return next
+    })
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const imgs = Array.from(e.clipboardData?.items ?? [])
+      .filter(i => i.type.startsWith('image/'))
+      .map(i => i.getAsFile())
+      .filter((f): f is File => !!f)
+    if (imgs.length) { e.preventDefault(); addFiles(imgs) }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -30,16 +56,18 @@ export function IdeaForm({ slug }: { slug: string }) {
     setError(null)
     setSending(true)
     try {
-      const res = await fetch('/api/portal-ideas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, text: text.trim() }),
-      })
+      const form = new FormData()
+      form.append('slug', slug)
+      form.append('text', text.trim())
+      pendingFiles.forEach(p => form.append('files', p.file))
+      const res = await fetch('/api/portal-ideas', { method: 'POST', body: form })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
         setError(data?.error ?? 'Nie udało się wysłać. Spróbuj ponownie.')
         return
       }
+      pendingFiles.forEach(p => URL.revokeObjectURL(p.url))
+      setPendingFiles([])
       setDone(true)
     } catch {
       setError('Brak połączenia. Spróbuj ponownie.')
@@ -76,21 +104,61 @@ export function IdeaForm({ slug }: { slug: string }) {
       <textarea
         value={text}
         onChange={e => setText(e.target.value)}
+        onPaste={handlePaste}
         rows={4}
         maxLength={2000}
         placeholder="np. przydałby się filtr po dacie w Historii, albo powiadomienie mailem, gdy zadanie zmieni status"
         className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
       />
 
+      {pendingFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {pendingFiles.map((p, i) => (
+            <div key={p.url} className="relative h-14 w-14 rounded-md overflow-hidden border border-border">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.url} alt={p.file.name} className="h-full w-full object-cover block" />
+              <button
+                type="button"
+                onClick={() => removeFile(i)}
+                aria-label="Usuń obraz"
+                className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white flex items-center justify-center"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {tooShort && (
         <p className="text-xs text-muted-foreground">Napisz jeszcze kilka słów, żebyśmy zrozumieli.</p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Button type="submit" size="sm" disabled={text.trim().length < MIN_LENGTH || sending}>
-        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
-        {sending ? 'Wysyłanie...' : 'Wyślij pomysł'}
-      </Button>
+      <div className="flex items-center gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={e => { addFiles(e.target.files); e.target.value = '' }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={sending || pendingFiles.length >= 5}
+          title="Dołącz obraz"
+          aria-label="Dołącz obraz"
+          className="inline-flex items-center justify-center rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:pointer-events-none h-9 w-9 flex-shrink-0"
+        >
+          <Paperclip className="h-4 w-4" />
+        </button>
+        <Button type="submit" size="sm" disabled={text.trim().length < MIN_LENGTH || sending}>
+          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
+          {sending ? 'Wysyłanie...' : 'Wyślij pomysł'}
+        </Button>
+      </div>
     </form>
   )
 }

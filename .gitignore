@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Katalogi robocze narzedzi, nie kod projektu.
+.claude/
+.playwright-mcp/
+.remember/

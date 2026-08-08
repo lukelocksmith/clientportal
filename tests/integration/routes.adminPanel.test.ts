@@ -332,6 +332,21 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
       )
       assert.strictEqual(res.status, 404)
     })
+
+    it('statusControlsEnabled da sie wlaczyc i wylaczyc, bez wplywu na inne pola', async () => {
+      const wlacz = await portalsPATCH(
+        wyslij('/api/admin/portals', 'PATCH', { slug: portalA.slug, statusControlsEnabled: true })
+      )
+      const { portal: wlaczony } = await wlacz.json()
+      assert.strictEqual(wlaczony.statusControlsEnabled, true)
+      assert.strictEqual(wlaczony.brandColor, '#c8a24a', 'kolor nietkniety')
+
+      const wylacz = await portalsPATCH(
+        wyslij('/api/admin/portals', 'PATCH', { slug: portalA.slug, statusControlsEnabled: false })
+      )
+      const { portal: wylaczony } = await wylacz.json()
+      assert.strictEqual(wylaczony.statusControlsEnabled, false)
+    })
   })
 
   describe.skipIf(!maToken)('POST /api/admin/portals (nowy projekt)', () => {

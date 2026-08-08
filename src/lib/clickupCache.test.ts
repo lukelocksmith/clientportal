@@ -24,7 +24,12 @@ import assert from 'node:assert'
 // staje sie 1-elementowa krotka i destrukturyzacja `[, keyA]` nie kompiluje sie.
 const { nextCache, clickup } = vi.hoisted(() => ({
   nextCache: { unstable_cache: vi.fn(), revalidateTag: vi.fn() },
-  clickup: { getAllTasksForFolder: vi.fn(), getAllTasksForLists: vi.fn() },
+  clickup: {
+    getAllTasksForFolder: vi.fn(),
+    getAllTasksForLists: vi.fn(),
+    getRecentlyClosedTasksForFolder: vi.fn(),
+    getRecentlyClosedTasksForLists: vi.fn(),
+  },
 }))
 
 vi.mock('next/cache', () => nextCache)
@@ -32,6 +37,7 @@ vi.mock('./clickup', () => clickup)
 
 import {
   getCachedTasksForScope,
+  getCachedRecentlyClosedTasksForScope,
   invalidateFolderTasks,
   folderTasksTag,
   FOLDER_TASKS_TTL_SECONDS,
@@ -44,6 +50,8 @@ beforeEach(() => {
   nextCache.revalidateTag.mockImplementation(() => undefined)
   clickup.getAllTasksForFolder.mockResolvedValue([])
   clickup.getAllTasksForLists.mockResolvedValue([])
+  clickup.getRecentlyClosedTasksForFolder.mockResolvedValue([])
+  clickup.getRecentlyClosedTasksForLists.mockResolvedValue([])
 })
 
 describe('getCachedTasksForScope — budowa klucza cache (izolacja miedzy klientami)', () => {
@@ -120,6 +128,36 @@ describe('getCachedTasksForScope — wybor zrodla danych', () => {
     const wynik = await getCachedTasksForScope('folder-1', [])
 
     assert.deepStrictEqual(wynik, zadania)
+  })
+})
+
+describe('getCachedRecentlyClosedTasksForScope — ten sam wzorzec klucza', () => {
+  it('klucz zawiera identyfikator folderu i jest INNY niz klucz otwartych zadan', async () => {
+    await getCachedTasksForScope('folder-A', [])
+    await getCachedRecentlyClosedTasksForScope('folder-A', [])
+
+    const [, keyOtwarte] = nextCache.unstable_cache.mock.calls[0]
+    const [, keyZamkniete] = nextCache.unstable_cache.mock.calls[1]
+    assert.ok((keyZamkniete as string[]).includes('folder-A'))
+    assert.notDeepStrictEqual(keyOtwarte, keyZamkniete, 'dwa rozne wpisy, nie nadpisuja sie wzajemnie')
+  })
+
+  it('zakres pusty -> caly folder (tak jak przy otwartych zadaniach)', async () => {
+    await getCachedRecentlyClosedTasksForScope('folder-1', [])
+    assert.strictEqual(clickup.getRecentlyClosedTasksForFolder.mock.calls.length, 1)
+    assert.strictEqual(clickup.getRecentlyClosedTasksForLists.mock.calls.length, 0)
+  })
+
+  it('zakres z listami -> tylko wybrane listy', async () => {
+    await getCachedRecentlyClosedTasksForScope('folder-1', ['lista-a'])
+    assert.strictEqual(clickup.getRecentlyClosedTasksForLists.mock.calls.length, 1)
+    assert.strictEqual(clickup.getRecentlyClosedTasksForFolder.mock.calls.length, 0)
+  })
+
+  it('dzieli tag uniewazniania z otwartymi zadaniami tego folderu', async () => {
+    await getCachedRecentlyClosedTasksForScope('folder-X', [])
+    const [, , opcje] = nextCache.unstable_cache.mock.calls[0]
+    assert.deepStrictEqual((opcje as { tags: string[] }).tags, [folderTasksTag('folder-X')])
   })
 })
 

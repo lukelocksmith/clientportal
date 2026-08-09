@@ -440,6 +440,44 @@ describe('zalaczanie obrazu do komentarza', () => {
 })
 
 /**
+ * Komentarze renderowane jako markdown (MarkdownLite, ten sam renderer co
+ * OPIS ZADANIA nizej), nie jako czysty tekst — klient zglosil, ze dluzsze
+ * komentarze z formatowaniem (listy, pogrubienia) byly nieczytelne jako
+ * jeden ciag znakow.
+ */
+describe('komentarze renderowane jako markdown', () => {
+  it('wypunktowanie w komentarzu jest renderowane jako lista', async () => {
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: 'Do zrobienia:\n- pierwsze\n- drugie', sender: 'Klient', date: '1' }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    const punkty = await screen.findAllByRole('listitem')
+    assert.deepStrictEqual(punkty.map(li => li.textContent), ['pierwsze', 'drugie'])
+  })
+
+  it('pogrubienie w komentarzu dziala', async () => {
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: 'To jest **pilne**', sender: 'Klient', date: '1' }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    const mocne = await screen.findByText('pilne')
+    assert.strictEqual(mocne.tagName, 'STRONG')
+  })
+
+  it('ZNACZNIKI wpisane przez klienta w komentarzu sa tekstem, nie kodem', async () => {
+    odpowiadaj({
+      komentarze: [{ id: 'k1', comment_text: '<img src=x onerror=alert(1)>', sender: 'Klient', date: '1' }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    assert.ok(await screen.findByText(/<img src=x onerror=alert\(1\)>/))
+    assert.strictEqual(document.querySelector('img'), null)
+  })
+})
+
+/**
  * OPIS ZADANIA. Tresc pochodzi z ClickUpa, w tym z formularza klienta i z czatu
  * AI, wiec musi byc renderowana jako TEKST, a nie jako znaczniki.
  */
@@ -617,5 +655,116 @@ describe('dropdown statusu (statusControlsEnabled)', () => {
 
     await waitFor(() => assert.strictEqual(toast.error.mock.calls.length, 1))
     assert.strictEqual(onTaskUpdated.mock.calls.length, 0)
+  })
+})
+
+/**
+ * KOEGZYSTENCJA dropdownu statusu i edycji komentarza.
+ *
+ * Te dwie funkcje powstały w RÓWNOLEGŁYCH gałęziach (dropdown statusu i
+ * edycja/usuwanie komentarzy), które nigdy nie widziały się nawzajem —
+ * scaliły się ręcznie w tym samym pliku przy mergu do main. Żaden z
+ * oryginalnych zestawów testów nie mógł wykryć interakcji między nimi, bo
+ * autor każdej gałęzi nie wiedział o istnieniu drugiej. Stan obu funkcji jest
+ * w kodzie rozłączny (`changingStatus` vs `editingCommentId`/`editText`), ale
+ * to właśnie ten sam typ założenia, który merge najłatwiej po cichu złamie —
+ * te testy pilnują, że nadal jest prawdziwe.
+ */
+describe('koegzystencja dropdownu statusu i edycji komentarza', () => {
+  it('obie funkcje renderuja sie naraz, bez wzajemnego wygaszania', async () => {
+    odpowiadaj({
+      komentarze: [{ id: 'moj', comment_text: 'Moj komentarz', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled />)
+    await screen.findByText('Moj komentarz')
+
+    assert.ok(screen.getByRole('button', { name: /w trakcie/ }), 'dropdown statusu widoczny')
+    assert.ok(screen.getByLabelText('Edytuj komentarz'), 'edycja komentarza widoczna')
+    assert.ok(screen.getByLabelText('Usuń komentarz'), 'usuwanie komentarza widoczne')
+  })
+
+  it('otwarcie menu statusu NIE rusza trybu edycji komentarza', async () => {
+    const uzytkownik = userEvent.setup()
+    odpowiadaj({
+      komentarze: [{ id: 'moj', comment_text: 'Stara tresc', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled />)
+    await screen.findByText('Stara tresc')
+
+    await uzytkownik.click(screen.getByLabelText('Edytuj komentarz'))
+    const pole = screen.getByDisplayValue('Stara tresc')
+    await uzytkownik.type(pole, ' dopisek')
+
+    // Otwarcie dropdownu statusu, BEZ wyboru pozycji — sam fakt otwarcia menu
+    // (osobny stan, osobny komponent Radix) nie ma prawa zresetowac edycji.
+    await uzytkownik.click(screen.getByRole('button', { name: /w trakcie/ }))
+    await screen.findByRole('menu')
+
+    assert.strictEqual((screen.getByDisplayValue('Stara tresc dopisek') as HTMLTextAreaElement).value, 'Stara tresc dopisek')
+  })
+
+  it('zmiana statusu podczas edycji komentarza nie wysyla PUT komentarza i nie gubi wpisanego tekstu', async () => {
+    const uzytkownik = userEvent.setup()
+    const onTaskUpdated = vi.fn()
+    odpowiadaj({
+      komentarze: [{ id: 'moj', comment_text: 'Stara tresc', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled onTaskUpdated={onTaskUpdated} />)
+    await screen.findByText('Stara tresc')
+
+    await uzytkownik.click(screen.getByLabelText('Edytuj komentarz'))
+    await uzytkownik.type(screen.getByDisplayValue('Stara tresc'), ' dopisek')
+
+    fetchMock.mockImplementation(async (url: string, opcje: RequestInit) => ({
+      ok: true,
+      json: async () =>
+        (opcje as RequestInit).method === 'PATCH'
+          ? { task: { ...zadanie(), status: { status: 'zamknięte', color: '#008844', type: 'closed' } } }
+          : { attachments: [], reporter: null },
+    }))
+    await uzytkownik.click(screen.getByRole('button', { name: /w trakcie/ }))
+    await uzytkownik.click(await screen.findByRole('menuitem', { name: /zamknięte/ }))
+
+    await waitFor(() => assert.strictEqual(onTaskUpdated.mock.calls.length, 1))
+    // Dropdown statusu wolal PATCH zadania — komentarz zostaje NIETKNIETY,
+    // wciaz w trybie edycji z dopisanym tekstem, zadnego PUT do komentarza.
+    assert.strictEqual((screen.getByDisplayValue('Stara tresc dopisek') as HTMLTextAreaElement).value, 'Stara tresc dopisek')
+    assert.strictEqual(
+      fetchMock.mock.calls.some(c => (c[1] as RequestInit)?.method === 'PUT'),
+      false,
+      'zmiana statusu nie wysyla PUT komentarza'
+    )
+  })
+
+  it('odswiezenie zadania (np. po zmianie statusu w tablicy) z tym samym id NIE resetuje trybu edycji komentarza', async () => {
+    odpowiadaj({
+      komentarze: [{ id: 'moj', comment_text: 'Stara tresc', sender: 'Klient', date: '1', isOwn: true }],
+    })
+    const uzytkownik = userEvent.setup()
+    const { rerender } = render(<TaskDrawer task={zadanie()} {...wlasciwosci} statusControlsEnabled />)
+    await screen.findByText('Stara tresc')
+    const wywolaniaPrzedRerenderem = fetchMock.mock.calls.length
+
+    await uzytkownik.click(screen.getByLabelText('Edytuj komentarz'))
+    await uzytkownik.type(screen.getByDisplayValue('Stara tresc'), ' dopisek')
+
+    // Rodzic (KanbanBoard) po `onTaskUpdated` przekazuje NOWY obiekt zadania,
+    // ale z TYM SAMYM id — tak dziala prawdziwy przepływ po zmianie statusu.
+    rerender(
+      <TaskDrawer
+        task={zadanie({ status: { status: 'zamknięte', color: '#008844', type: 'closed' } } as Partial<ClickUpTask>)}
+        {...wlasciwosci}
+        statusControlsEnabled
+      />
+    )
+
+    assert.strictEqual(
+      (screen.getByDisplayValue('Stara tresc dopisek') as HTMLTextAreaElement).value,
+      'Stara tresc dopisek',
+      'edycja komentarza przetrwala odswiezenie zadania o tym samym id'
+    )
+    // `task.id` sie nie zmienil, wiec efekt ladujacy komentarze/zalaczniki
+    // (zaleznosc [task.id, slug]) nie mial powodu wystrzelic drugi raz.
+    assert.strictEqual(fetchMock.mock.calls.length, wywolaniaPrzedRerenderem, 'brak ponownego GET po odswiezeniu tego samego zadania')
   })
 })

@@ -693,9 +693,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                             </div>
                           </div>
                         ) : (
-                          <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                            {linkify(comment.comment_text, comment.id)}
-                          </p>
+                          <MarkdownLite text={comment.comment_text} />
                         )}
                       </div>
                     </div>

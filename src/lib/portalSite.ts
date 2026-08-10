@@ -61,5 +61,23 @@ export function portalSiteUrl(portal: {
   const host = pierwsza.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
   if (!host) return null
 
-  return `${lokalny(host) ? 'http' : 'https'}://${host}`
+  return `${lokalny(host) ? 'http' : 'https'}://${host}${SITEPING_PARAM}`
 }
+
+/**
+ * Parametr włączający widget na stronie klienta.
+ *
+ * Strona może osadzać widget warunkowo, żeby nie pokazywać go każdemu
+ * odwiedzającemu (tak jest na important.is: to strona firmowa, a widoczny dla
+ * wszystkich przycisk zgłaszania uwag to otwarta droga spamu prosto do
+ * ClickUpa). Bez tego parametru przycisk „Pokaż na stronie" prowadził na
+ * stronę, na której widgetu nie ma, więc klient klikał „Zaznacz miejsce"
+ * i nie widział niczego.
+ *
+ * Wartość `1` jest umowna: strona sprawdza OBECNOŚĆ parametru, nie jego treść.
+ * Ten sam parametr niesie deep-linki z ClickUpa (`?siteping=<id>`), więc jedno
+ * sprawdzenie obsługuje obie drogi.
+ *
+ * Strony, które osadzają widget bezwarunkowo, po prostu ten parametr zignorują.
+ */
+const SITEPING_PARAM = '?siteping=1'

@@ -20,7 +20,7 @@ const portal = (nadpisz: Partial<{ sitepingEnabled: boolean; siteDomains: string
 
 describe('portalSiteUrl', () => {
   it('skonfigurowany projekt daje pełny adres https', () => {
-    assert.strictEqual(portalSiteUrl(portal()), 'https://wodadlafirmy.pl')
+    assert.strictEqual(portalSiteUrl(portal()), 'https://wodadlafirmy.pl?siteping=1')
   })
 
   it('bierze PIERWSZĄ domenę z listy', () => {
@@ -28,7 +28,7 @@ describe('portalSiteUrl', () => {
     // kolejne bywają stagingiem.
     assert.strictEqual(
       portalSiteUrl(portal({ siteDomains: 'wodadlafirmy.pl,wdf.important.is' })),
-      'https://wodadlafirmy.pl'
+      'https://wodadlafirmy.pl?siteping=1'
     )
   })
 
@@ -46,18 +46,18 @@ describe('portalSiteUrl', () => {
   })
 
   it('spacje wokół domeny nie psują adresu', () => {
-    assert.strictEqual(portalSiteUrl(portal({ siteDomains: '  demo.pl , inne.pl ' })), 'https://demo.pl')
+    assert.strictEqual(portalSiteUrl(portal({ siteDomains: '  demo.pl , inne.pl ' })), 'https://demo.pl?siteping=1')
   })
 
   it('domena wpisana ze schematem NIE daje podwójnego https', () => {
     // Panel na to nie pozwala, ale `/api/admin/*` przyjmuje też token, więc
     // curl omija tamtą walidację. `https://https//cos` byłoby martwym linkiem.
-    assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'https://demo.pl' })), 'https://demo.pl')
-    assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'http://demo.pl' })), 'https://demo.pl')
+    assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'https://demo.pl' })), 'https://demo.pl?siteping=1')
+    assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'http://demo.pl' })), 'https://demo.pl?siteping=1')
   })
 
   it('ukośnik na końcu jest ucinany', () => {
-    assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'demo.pl/' })), 'https://demo.pl')
+    assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'demo.pl/' })), 'https://demo.pl?siteping=1')
   })
 
   it('domena w internecie dostaje https, nawet gdy w konfiguracji było http', () => {
@@ -72,15 +72,15 @@ describe('portalSiteUrl', () => {
     // nie nasłuchuje — przeglądarka pokazywała ERR_CONNECTION_REFUSED.
     // Zgłoszone przez Łukasza przy pierwszym kliknięciu, 2026-08-07.
     it('localhost dostaje http, nie https', () => {
-      assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'localhost' })), 'http://localhost')
+      assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'localhost' })), 'http://localhost?siteping=1')
     })
 
     it('poddomena .localhost też', () => {
-      assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'wdf.localhost' })), 'http://wdf.localhost')
+      assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'wdf.localhost' })), 'http://wdf.localhost?siteping=1')
     })
 
     it('adres pętli zwrotnej też', () => {
-      assert.strictEqual(portalSiteUrl(portal({ siteDomains: '127.0.0.1' })), 'http://127.0.0.1')
+      assert.strictEqual(portalSiteUrl(portal({ siteDomains: '127.0.0.1' })), 'http://127.0.0.1?siteping=1')
     })
 
     it('PORT zostaje w adresie, bo bez niego link prowadzi donikąd', () => {
@@ -88,7 +88,7 @@ describe('portalSiteUrl', () => {
       // druga połowa tego samego błędu.
       assert.strictEqual(
         portalSiteUrl(portal({ siteDomains: 'localhost:5500' })),
-        'http://localhost:5500'
+        'http://localhost:5500?siteping=1'
       )
     })
 
@@ -101,5 +101,39 @@ describe('portalSiteUrl', () => {
 
   it('sam schemat bez hosta daje null, a nie pusty adres', () => {
     assert.strictEqual(portalSiteUrl(portal({ siteDomains: 'https://' })), null)
+  })
+
+  describe('parametr wlaczajacy widget', () => {
+    /**
+     * BLAD, KTORY TU BYL (2026-08-10): adres nie niosl zadnego parametru,
+     * a strona important.is osadza widget WARUNKOWO, zeby nie pokazywac go
+     * kazdemu odwiedzajacemu. Przycisk „Pokaz na stronie" otwieral wiec
+     * strone BEZ widgetu: klient klikal „Zaznacz miejsce, ktorego dotyczy
+     * sprawa" i nie widzial niczego, bez zadnego bledu.
+     */
+    it('KAZDY zwrocony adres niesie parametr, inaczej widget sie nie pokaze', () => {
+      const przypadki = ['demo.pl', 'localhost:5500', 'https://demo.pl', 'demo.pl/']
+      for (const siteDomains of przypadki) {
+        const url = portalSiteUrl(portal({ siteDomains }))!
+        assert.ok(
+          url.includes('siteping='),
+          `adres bez parametru prowadzi na strone bez widgetu: ${siteDomains} -> ${url}`
+        )
+      }
+    })
+
+    it('adres da sie sparsowac i ma parametr jako query, nie w hoscie', () => {
+      // Sklejenie bez znaku zapytania dawaloby host „demo.plsiteping=1",
+      // czyli link prowadzacy donikad.
+      const url = new URL(portalSiteUrl(portal({ siteDomains: 'demo.pl' }))!)
+      assert.strictEqual(url.host, 'demo.pl')
+      assert.strictEqual(url.searchParams.get('siteping'), '1')
+    })
+
+    it('port zostaje portem, a nie czescia parametru', () => {
+      const url = new URL(portalSiteUrl(portal({ siteDomains: 'localhost:5500' }))!)
+      assert.strictEqual(url.host, 'localhost:5500')
+      assert.strictEqual(url.searchParams.get('siteping'), '1')
+    })
   })
 })

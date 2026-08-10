@@ -44,3 +44,7 @@ next-env.d.ts
 .claude/
 .playwright-mcp/
 .remember/
+
+# Bundle widgetu SitePing: generowany artefakt zaleznosci (prebuild),
+# nie nasz kod. 468 KB w repo bez powodu.
+/public/siteping/widget.js

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-siteping-widget.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-siteping-widget.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -40,6 +42,7 @@
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.0",
     "@siteping/adapter-prisma": "^0.6.4",
+    "@siteping/widget": "^0.10.7",
     "@types/nodemailer": "^8.0.1",
     "ai": "^7.0.2",
     "bcryptjs": "^3.0.3",
@@ -61,7 +64,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@siteping/widget": "^0.10.7",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",

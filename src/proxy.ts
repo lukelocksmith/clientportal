@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { isSitepingWidgetPath } from '@/lib/siteping/widgetPath'
 
 /**
  * Polityka bezpieczeństwa treści (CSP), budowana per żądanie.
@@ -93,6 +94,20 @@ export function proxy(request: NextRequest) {
     response.headers.set('Content-Security-Policy', csp)
     return response
   }
+
+  /**
+   * Bundle widgetu SitePing: plik statyczny dla CUDZYCH stron, nie strona
+   * portalu. Bez tego wyjątku middleware bierze `/siteping/widget.js` za
+   * portal o slugu „siteping", nie znajduje sesji (bo strona klienta jej nie
+   * ma i mieć nie może) i odsyła przeglądarkę na ekran logowania. Objaw u
+   * klienta: skrypt nie ładuje się wcale, a w konsoli 307 zamiast kodu.
+   *
+   * Wykluczamy dokładnie ten jeden plik, nie prefiks `/siteping/`, żeby nie
+   * otworzyć niechcący czegoś więcej. Portal o slugu `siteping-test` to inna
+   * ścieżka i działa dalej normalnie; slug dokładnie `siteping` byłby z tym
+   * w konflikcie i nie wolno go założyć.
+   */
+  if (isSitepingWidgetPath(pathname)) return next()
 
   // Extract slug from path like /wdf or /wdf/chat
   const slugMatch = pathname.match(/^\/([a-z0-9-]+)(\/.*)?$/)

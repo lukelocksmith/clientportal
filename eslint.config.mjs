@@ -28,6 +28,14 @@ const eslintConfig = defineConfig([
     // Worktree'y trzymaja WLASNA kopie calego repo. Ich pliki sa juz sprawdzane
     // tam, gdzie naprawde mieszkaja, czyli w tym samym repo na innej galezi.
     ".claude/worktrees/**",
+    // Bundle widgetu SitePing: zminifikowany artefakt CUDZEJ zaleznosci,
+    // kopiowany tu przez `prebuild`. Bez tego wpisu `npm run verify` zwraca
+    // ~700 problemow w kodzie, ktorego nie piszemy i nie kontrolujemy, i
+    // przestaje mowic cokolwiek o naszym.
+    "public/siteping/widget.js",
+    // Katalogi `.remember` wtyczki, takze w podprojektach. Wpis `.remember/**`
+    // wyzej lapie tylko korzen repo.
+    "**/.remember/**",
   ]),
 ]);
 

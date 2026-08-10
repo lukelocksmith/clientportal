@@ -58,10 +58,34 @@ const activeHeaders = isDev
   ? securityHeaders.filter(h => h.key !== 'Strict-Transport-Security')
   : securityHeaders
 
+/**
+ * Bundle widgetu SitePing serwowany stronom klientów.
+ *
+ * `X-Frame-Options: DENY` i reszta polityki portalu dotyczy STRON portalu.
+ * Tutaj chodzi o plik JavaScript ładowany przez `<script src>` z cudzej
+ * domeny, więc potrzebuje własnych nagłówków.
+ *
+ * Cache jest tu istotny, nie kosmetyczny: to 467 KB, które bez tego ciągnęłoby
+ * się przy każdym wejściu na stronę klienta. Godzina to kompromis między
+ * ruchem a czasem propagacji nowej wersji po naszym deployu — adres jest
+ * stały i niewersjonowany, więc `immutable` byłoby tu błędem, bo zamroziłoby
+ * klientom starą wersję na zawsze.
+ */
+const sitepingWidgetHeaders = [
+  { key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' },
+  // Ładowanie przez <script src> nie wymaga CORS, ale nagłówek nie szkodzi,
+  // a pozwala stronie klienta pobrać ten plik także fetchem, gdy używa
+  // własnego mechanizmu ładowania skryptów.
+  { key: 'Access-Control-Allow-Origin', value: '*' },
+]
+
 const nextConfig: NextConfig = {
   output: 'standalone',
   async headers() {
-    return [{ source: '/:path*', headers: activeHeaders }]
+    return [
+      { source: '/:path*', headers: activeHeaders },
+      { source: '/siteping/widget.js', headers: sitepingWidgetHeaders },
+    ]
   },
 };
 

@@ -43,10 +43,18 @@ function lokalny(host: string): boolean {
  * Strona klienta w internecie ma chodzić po https i odesłanie na http
  * oznaczałoby ostrzeżenie przeglądarki w chwili zgłaszania usterki.
  */
-export function portalSiteUrl(portal: {
-  sitepingEnabled: boolean
-  siteDomains: string | null
-}): string | null {
+export function portalSiteUrl(
+  portal: {
+    sitepingEnabled: boolean
+    siteDomains: string | null
+  },
+  /**
+   * Krótkotrwały token tożsamości, żeby widget na stronie klienta nie pytał
+   * o imię i mail. Opcjonalny: bez niego link działa jak dotąd, tylko widget
+   * zapyta. Generuje go komponent serwerowy, bo tylko on zna sesję.
+   */
+  identityToken?: string | null
+): string | null {
   if (!portal.sitepingEnabled) return null
 
   const pierwsza = (portal.siteDomains ?? '')
@@ -61,7 +69,10 @@ export function portalSiteUrl(portal: {
   const host = pierwsza.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
   if (!host) return null
 
-  return `${lokalny(host) ? 'http' : 'https'}://${host}${SITEPING_PARAM}`
+  const baza = `${lokalny(host) ? 'http' : 'https'}://${host}${SITEPING_PARAM}`
+  // `encodeURIComponent` mimo że token JWT składa się ze znaków bezpiecznych
+  // w adresie: to założenie o cudzym formacie, a nie coś, co kontrolujemy.
+  return identityToken ? `${baza}&${SITEPING_TOKEN_PARAM}=${encodeURIComponent(identityToken)}` : baza
 }
 
 /**
@@ -81,3 +92,13 @@ export function portalSiteUrl(portal: {
  * Strony, które osadzają widget bezwarunkowo, po prostu ten parametr zignorują.
  */
 const SITEPING_PARAM = '?siteping=1'
+
+/**
+ * Parametr niosący token tożsamości.
+ *
+ * W adresie jedzie TOKEN, nigdy imię i mail. Token jest nieprzezroczysty,
+ * wygasa po kwadransie i jest związany z jednym projektem, więc jego
+ * wyciek do historii przeglądarki czy nagłówka `Referer` nie zdradza danych
+ * osobowych ani nie pozwala podszyć się pod kogoś na dłużej.
+ */
+export const SITEPING_TOKEN_PARAM = 'sp_token'

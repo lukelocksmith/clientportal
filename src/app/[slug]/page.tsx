@@ -6,6 +6,7 @@ import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
 import { firstEnabledTabPath, isTabEnabled } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
 import { portalSiteUrl } from '@/lib/portalSite'
+import { signIdentityToken } from '@/lib/siteping/identityToken'
 
 // Nie ma tu `export const revalidate`. Stało tam `60` i było MARTWE: strona
 // czyta ciasteczko sesji, więc renderuje się dynamicznie, a buforowanie
@@ -57,6 +58,22 @@ export default async function PortalPage({ params }: PortalPageProps) {
   const snapshots = await getSnapshotMap(portal.id)
   const tasks = mergeTrackedTime([...rawTasks, ...recentlyClosed], snapshots)
 
+  /**
+   * Token tożsamości do linku „Pokaż na stronie", żeby widget na stronie
+   * klienta nie pytał go o imię i mail.
+   *
+   * Generowany TUTAJ, bo to jedyne miejsce w tej ścieżce, które zna sesję:
+   * `portalSiteUrl` jest czystą funkcją bez dostępu do bazy, a `NewTaskButton`
+   * jest komponentem klienckim, więc podpisywanie w nim oznaczałoby wysłanie
+   * sekretu do przeglądarki.
+   *
+   * `null` przy braku sekretu albo dla podglądu admina jest w porządku: link
+   * powstanie bez tokenu i widget zapyta, jak dotąd.
+   */
+  const identityToken = portal.sitepingEnabled
+    ? await signIdentityToken({ name: session.name, email: session.email, slug })
+    : null
+
   return (
     <KanbanBoardClient
       initialTasks={tasks}
@@ -64,7 +81,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
       portalName={portal.name}
       flags={flags}
       branding={branding}
-      siteUrl={portalSiteUrl(portal)}
+      siteUrl={portalSiteUrl(portal, identityToken)}
       userEmail={session.email}
       statusControlsEnabled={portal.statusControlsEnabled}
     />

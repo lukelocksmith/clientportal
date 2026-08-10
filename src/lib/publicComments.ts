@@ -107,3 +107,36 @@ export function publicCommentTexts(comments: ClickUpComment[]): string[] {
     .map(c => c.comment_text ?? '')
     .filter(t => t.trim().length > 0)
 }
+
+/**
+ * Komentarz świeżo dodany z portalu, gotowy do wyświetlenia od razu, bez
+ * ponownego odpytania ClickUpa.
+ *
+ * POST /task/{id}/comment w ClickUpie zwraca OKROJONY obiekt: tylko `id`,
+ * `hist_id` i `date`, BEZ `comment_text`, `user`, `resolved` — inaczej niż
+ * odczyt listy komentarzy (GET). Oddanie tej odpowiedzi wprost do przeglądarki
+ * kończyło się `undefined.split()` w renderowaniu markdownu, bo szuflada
+ * dostawała komentarz bez treści (zgłoszone 2026-08-10).
+ *
+ * Nie musimy ufać ClickUpowi w tej sprawie: sami napisaliśmy tę treść przed
+ * chwilą. Z odpowiedzi ClickUpa bierzemy tylko `id` (do edycji/usunięcia)
+ * i `date`, gdy jest. Kształt wynikowy jest taki sam, jak po przejściu przez
+ * `filterPublicComments`, żeby świeży komentarz renderował się identycznie
+ * jak wczytane z listy.
+ */
+export function buildOwnComment(
+  created: { id: string; date?: string | null },
+  text: string,
+  senderName: string | null
+): ClickUpComment {
+  return {
+    id: created.id,
+    comment: [{ text: text.trim() }],
+    comment_text: text.trim(),
+    user: null,
+    resolved: false,
+    date: created.date ?? String(Date.now()),
+    sender: senderName ?? 'Klient',
+    isOwn: true,
+  }
+}

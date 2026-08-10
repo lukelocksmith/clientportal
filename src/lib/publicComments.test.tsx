@@ -15,6 +15,7 @@ import {
   stripPublicPrefix,
   filterPublicComments,
   publicCommentTexts,
+  buildOwnComment,
 } from '@/lib/publicComments'
 import type { ClickUpComment } from '@/lib/types'
 
@@ -136,5 +137,56 @@ describe('publicCommentTexts', () => {
     // Komentarz oznaczony, ale pusty po zdjeciu znacznika, nie wnosi nic do
     // wyszukiwania i tylko podbijalby licznik.
     assert.deepStrictEqual(teksty, ['zmiana koloru naglowka'])
+  })
+})
+
+describe('buildOwnComment', () => {
+  it('dziala nawet z okrojona odpowiedzia ClickUpa (bez comment_text, user, resolved)', () => {
+    // To jest DOKLADNIE odpowiedz, ktora zwraca prawdziwe API ClickUpa z
+    // POST /task/{id}/comment: id, hist_id, date, i nic wiecej. Kod, ktory
+    // by uzyl `created.comment_text` wprost, dostalby undefined. Zgloszone
+    // przez Lukasza 2026-08-10: "Cannot read properties of undefined
+    // (reading 'split')" przy renderowaniu swiezo dodanego komentarza.
+    const okrojona = { id: 'abc123', date: '1733900000000' }
+
+    const wynik = buildOwnComment(okrojona, 'dziekuje, dziala', 'Anna')
+
+    assert.strictEqual(wynik.comment_text, 'dziekuje, dziala')
+    assert.strictEqual(wynik.id, 'abc123')
+    assert.strictEqual(wynik.date, '1733900000000')
+    assert.strictEqual(wynik.sender, 'Anna')
+    assert.strictEqual(wynik.isOwn, true)
+  })
+
+  it('brak imienia w sesji daje sender "Klient", nie undefined', () => {
+    const wynik = buildOwnComment({ id: 'x', date: '1' }, 'tresc', null)
+    assert.strictEqual(wynik.sender, 'Klient')
+  })
+
+  it('brak daty w odpowiedzi ClickUpa nie zostawia pustego pola', () => {
+    // ClickUp zwykle podaje date, ale kod nie ma prawa zalozyc, ze zawsze.
+    const wynik = buildOwnComment({ id: 'x' }, 'tresc', 'Anna')
+    assert.ok(wynik.date && wynik.date.length > 0, 'date nie moze byc puste')
+  })
+
+  it('tresc jest przycinana, tak samo jak przy wysylce do ClickUpa', () => {
+    const wynik = buildOwnComment({ id: 'x', date: '1' }, '  ze spacjami  ', 'Anna')
+    assert.strictEqual(wynik.comment_text, 'ze spacjami')
+  })
+})
+
+describe('buildOwnComment -> MarkdownLite (zamkniecie petli)', () => {
+  it('wynik buildOwnComment renderuje sie bez wywalenia szuflady', async () => {
+    // To jest dokladnie miejsce, w ktorym pekl portal: undefined.split() przy
+    // renderowaniu swiezo dodanego komentarza. Test przechodzi caly lancuch
+    // od odpowiedzi ClickUpa do renderowania, nie tylko sam ksztalt obiektu.
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const { MarkdownLite } = await import('@/components/kanban/MarkdownLite')
+
+    const okrojona = { id: 'abc123', date: '1733900000000' }
+    const swiezyKomentarz = buildOwnComment(okrojona, 'dzieki, **super** robota', 'Anna')
+
+    const html = renderToStaticMarkup(<MarkdownLite text={swiezyKomentarz.comment_text} />)
+    assert.ok(html.includes('<strong>super</strong>'))
   })
 })

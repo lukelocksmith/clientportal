@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTaskComments, addComment } from '@/lib/clickup'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
-import { filterPublicComments, PUBLIC_PREFIX } from '@/lib/publicComments'
+import { filterPublicComments, buildOwnComment, PUBLIC_PREFIX } from '@/lib/publicComments'
 import { logEvent, getOwnedCommentIds, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
 import { sortOldestFirst } from '@/lib/utils'
 
@@ -48,7 +48,7 @@ export async function POST(
   // All client comments are public by definition — prefix so they pass the filter on GET.
   // Agency team must manually add [PUBLIC] in ClickUp to expose their replies.
   const clientLabel = session.name ? `(${session.name})` : '(Klient)'
-  const comment = await addComment(taskId, `${PUBLIC_PREFIX}${clientLabel} ${text}`)
+  const created = await addComment(taskId, `${PUBLIC_PREFIX}${clientLabel} ${text}`)
 
   // Podpis "(Imię)" w ClickUpie jest tekstem i imiona się powtarzają, więc
   // rozstrzygające przypisanie do konta trzymamy u siebie.
@@ -59,9 +59,13 @@ export async function POST(
     portalId: session.portalId,
     actor: { userId: session.userId, email: session.email, name: session.name },
     action: EVENT_COMMENT_ADDED,
-    resourceId: comment.id,
+    resourceId: created.id,
     meta: { excerpt: text.trim().slice(0, 200), taskId },
   })
+
+  // `created` jest okrojoną odpowiedzią ClickUpa (patrz buildOwnComment).
+  // Klient dostaje pełny obiekt zbudowany z tego, co sami napisaliśmy.
+  const comment = buildOwnComment(created, text, session.name)
 
   return NextResponse.json({ comment })
 }

@@ -389,6 +389,20 @@ export async function getListStatuses(listId: string): Promise<ClickUpStatus[]> 
   return data.statuses ?? []
 }
 
+/**
+ * Nazwy tagow istniejacych w przestrzeni klienta.
+ *
+ * Potrzebne, bo ClickUp przy tworzeniu zadania POMIJA po cichu tag, ktorego
+ * w przestrzeni nie ma: bez bledu, bez sladu w odpowiedzi. Zadanie powstaje
+ * bez oznaczenia, a razem z nim przestaje dzialac dedup zgloszen i filtrowanie
+ * po rodzaju. Jedyny sposob, zeby to wykryc przed pierwszym zgubionym
+ * zgloszeniem, to zapytac wprost o liste tagow.
+ */
+export async function getSpaceTags(spaceId: string): Promise<string[]> {
+  const data = await clickupFetch<{ tags: Array<{ name: string }> }>(`/space/${spaceId}/tag`)
+  return (data.tags ?? []).map(t => t.name)
+}
+
 export async function getFolderLists(
   folderId: string
 ): Promise<Array<{ id: string; name: string }>> {

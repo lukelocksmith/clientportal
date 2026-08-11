@@ -18,8 +18,12 @@
  * `localhost` NIE MA certyfikatu, więc adres `https://localhost` kończy się
  * odmową połączenia — nic nie nasłuchuje na porcie 443. Wymuszanie https
  * wszędzie psuło przez to całe testowanie lokalne.
+ *
+ * Eksportowana, bo test połączenia (`lib/siteping/check.ts`) buduje adres do
+ * pobrania strony klienta i musi wybrać ten sam schemat co link „Pokaż na
+ * stronie". Dwie kopie tej reguły rozjechałyby się przy pierwszej zmianie.
  */
-function lokalny(host: string): boolean {
+export function lokalny(host: string): boolean {
   // Bez portu: `localhost:5500` jest tak samo lokalny jak `localhost`.
   const nazwa = host.split(':')[0]
   return (

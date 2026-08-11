@@ -66,22 +66,51 @@ Osiemnaście commitów. Najważniejsze rzeczy, pogrupowane.
 Nowa tabela `task_status_history`, dwa źródła (webhook ClickUpa i przeciągnięcie
 karty w portalu), widok w **Logu synchronizacji** w karcie projektu.
 
+## Zakładka „SitePing" w panelu
+
+Dopisane **2026-08-11**. Karta projektu → zakładka **SitePing**, obok „Poczta".
+Wszystko, co dotyczy widgetu, stoi w jednym miejscu, bo pytanie „czemu klientowi
+nie dochodzą zgłoszenia" jest pytaniem o jedno miejsce w panelu.
+
+**Konfiguracja:** przełącznik, pole domen (zapis po opuszczeniu pola), stałe
+ostrzeżenie o tagach, zwijany kod do wklejenia w dwóch wariantach — mu-plugin
+WordPressa (podstawia tożsamość) i zwykły HTML (nie podstawia, widget zapyta
+o imię i mail).
+
+**Test połączenia** — przycisk, nie automat: sprawdzenie wychodzi do ClickUpa
+i na stronę klienta, więc nie ma powodu robić tego przy każdym otwarciu panelu.
+Cztery rzeczy naraz:
+
+| Sprawdzenie | Skąd |
+|---|---|
+| Funkcja włączona | baza |
+| Domeny ustawione | baza |
+| Tagi w przestrzeni ClickUp | `GET /space/{id}/tag` |
+| Widget na stronie — **osobno dla każdej domeny** | pobranie HTML + historia zgłoszeń |
+
+**Trzy stany, nie dwa.** `unknown` („nie udało się sprawdzić") jest myślnikiem,
+nigdy czerwonym krzyżykiem — inaczej test wysyłałby naprawiać coś, o czym nie
+wiadomo, czy jest zepsute. Jedno nieudane sprawdzenie nie zabiera pozostałych:
+padnięty ClickUp nie może ukryć tego, że domeny są puste.
+
+Dwie rzeczy warte zapamiętania, obie odkryte przy pisaniu:
+
+1. **Sprawdzenie pobiera `https://domena/?siteping=1`**, nie samą stronę.
+   mu-plugin osadza widget warunkowo, więc bez parametru wynik brzmiałby
+   „nie ma widgetu" u **każdego** poprawnie skonfigurowanego klienta.
+   Sprawdzone na `important.is`: bez parametru zero trafień, z parametrem jest.
+2. **Wymaganych tagów jest pięć, nie jeden.** Spec wymieniał sam `siteping`;
+   od tamtej pory każde zadanie dostaje też tag rodzaju.
+
 ## Czego NIE MA
 
-**Konfiguracji SitePinga w panelu.** `sitepingEnabled` i `siteDomains` ustawia
-się dziś **wyłącznie curlem**:
+**Logu diagnostycznego** (punkt 4 specu): tabela `siteping_log` z zapisem
+każdego wyjścia z trasy, także odrzuconego origina i rate-limitu. Dziś
+odrzucone żądanie nie zostawia śladu nigdzie poza `console.*` na serwerze.
+Spec mówi „migracja 0016", ale pierwszy wolny numer to **0018**.
 
-```bash
-curl -X PATCH localhost:3000/api/admin/portals \
-  -H "Authorization: Bearer $ADMIN_API_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"slug":"wdf","sitepingEnabled":true,"siteDomains":"wodadlafirmy.pl"}'
-```
-
-Brakuje też **gotowego snippetu do wklejenia na stronę klienta**. To jest
-następny sensowny krok.
-
-**Widget nie jest osadzony u żadnego klienta.** Działa tylko na stronie
-testowej. `wdf` i `onyx` mają SitePinga wyłączonego.
+**Widget osadzony tylko na `important.is`.** `wdf` i `onyx` mają SitePinga
+wyłączonego i puste domeny.
 
 **Nie ma trybu zaznaczania z adresu.** Publiczne API widgetu to `open()`,
 `close()`, `refresh()`, `focusFeedback(id)` — nie da się wejść od razu
@@ -95,13 +124,17 @@ wracamy — ale wtedy **rrweb** (zmiany w DOM), nie nagrywanie pikseli.
 
 ## Zanim włączysz SitePinga klientowi
 
+Kroki 1–3 sprawdza za Ciebie **Test połączenia** w zakładce SitePing. Nie
+zastąpi ich, bo tagi i osadzenie i tak trzeba zrobić ręcznie, ale powie, czego
+brakuje, zanim zgubi się pierwsze zgłoszenie.
+
 1. **Załóż tagi w jego przestrzeni ClickUpa:** `siteping`, `błąd`, `zmiana`,
    `pytanie`, `inne`. Tag nieistniejący jest **po cichu pomijany** — bez błędu,
    bez śladu.
-2. **Osadź widget** na jego stronie (WordPress) z `endpoint` wskazującym
-   `/api/siteping/<slug>`.
+2. **Osadź widget** na jego stronie: skopiuj kod z zakładki SitePing
+   (wariant WordPress → `wp-content/mu-plugins/siteping.php`).
 3. **Ustaw `siteDomains`** na host tej strony — bez `https://`, opcjonalnie
-   z portem.
+   z portem. Pole jest w tej samej zakładce.
 4. **Ustaw `SITEPING_API_KEY`** w środowisku produkcyjnym.
 5. ⚠️ **Uprzedź klienta o zbieraniu konsoli**, jeśli włączasz
    `captureDiagnostics`. Konsola jego strony może zawierać dane jego

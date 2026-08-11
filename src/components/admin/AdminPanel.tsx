@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, Send, Loader2, History } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
-import { SitepingConfigSection } from '@/components/admin/SitepingConfigSection'
+import { SitepingTab } from '@/components/admin/SitepingTab'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserActivityDialog } from '@/components/admin/UserActivityDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -427,6 +427,7 @@ export default function AdminPanel() {
                 <TabsTrigger value="zgloszenia">Zgłoszenia</TabsTrigger>
                 <TabsTrigger value="synchronizacja">Synchronizacja</TabsTrigger>
                 <TabsTrigger value="poczta">Poczta</TabsTrigger>
+                <TabsTrigger value="siteping">SitePing</TabsTrigger>
               </TabsList>
 
               <TabsContent value="konfiguracja">
@@ -461,18 +462,6 @@ export default function AdminPanel() {
                       </label>
                     ))}
                   </div>
-                  {/* SitePing: widget na CUDZEJ stronie, wiec nie nalezy do
-                      PortalFlags — tamte to zakladki w portalu. Stad osobna
-                      sekcja, a nie kolejny ptaszek w rzedzie wyzej. */}
-                  <SitepingConfigSection
-                    portal={portal}
-                    appUrl={typeof window === 'undefined' ? '' : window.location.origin}
-                    onSaved={changes =>
-                      setPortals(prev =>
-                        prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
-                      )
-                    }
-                  />
                   {/* Marka projektu nad listą userów: to konfiguracja projektu,
                       nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}
                   <PortalConfigForm
@@ -599,6 +588,21 @@ export default function AdminPanel() {
 
               <TabsContent value="poczta">
                 <ProjectMailLog slug={portal.slug} />
+              </TabsContent>
+
+              {/* SitePing ma własną zakładkę, bo to widget na CUDZEJ stronie:
+                  nie należy do PortalFlags (tamte to zakładki portalu), a razem
+                  z kodem do wklejenia i testem połączenia ma tyle treści co
+                  Synchronizacja czy Poczta. */}
+              <TabsContent value="siteping">
+                <SitepingTab
+                  portal={portal}
+                  onSaved={changes =>
+                    setPortals(prev =>
+                      prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
+                    )
+                  }
+                />
               </TabsContent>
             </Tabs>
           </TabsContent>

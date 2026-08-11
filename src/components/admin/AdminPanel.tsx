@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, Send, Loader2, History } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
+import { SitepingConfigSection } from '@/components/admin/SitepingConfigSection'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserActivityDialog } from '@/components/admin/UserActivityDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -19,6 +20,9 @@ import { Input } from '@/components/ui/input'
 
 type Portal = {
   id: string; slug: string; name: string; isActive: boolean
+  /** SitePing NIE jest zakladka portalu, wiec nie nalezy do PortalFlags. */
+  sitepingEnabled: boolean
+  siteDomains: string | null
   logoUrl: string | null; brandColor: string | null
   contactMemberIds: string | null
   contactName: string | null; contactEmail: string | null; contactPhone: string | null
@@ -457,6 +461,18 @@ export default function AdminPanel() {
                       </label>
                     ))}
                   </div>
+                  {/* SitePing: widget na CUDZEJ stronie, wiec nie nalezy do
+                      PortalFlags — tamte to zakladki w portalu. Stad osobna
+                      sekcja, a nie kolejny ptaszek w rzedzie wyzej. */}
+                  <SitepingConfigSection
+                    portal={portal}
+                    appUrl={typeof window === 'undefined' ? '' : window.location.origin}
+                    onSaved={changes =>
+                      setPortals(prev =>
+                        prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
+                      )
+                    }
+                  />
                   {/* Marka projektu nad listą userów: to konfiguracja projektu,
                       nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}
                   <PortalConfigForm

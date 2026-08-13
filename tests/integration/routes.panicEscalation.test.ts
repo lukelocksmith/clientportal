@@ -115,7 +115,6 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
         userEmail: 'klient@test.local',
         userName: 'Klient Testowy',
         message: 'strona nie dziala',
-        ackToken: `tok-${Math.random().toString(36).slice(2)}`,
         clickupTaskId: input.clickupTaskId === undefined ? 'task-1' : input.clickupTaskId,
         escalationCount: input.escalationCount ?? 0,
         createdAt: new Date(Date.now() - input.minutTemu * 60_000),

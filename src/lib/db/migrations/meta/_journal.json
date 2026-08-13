@@ -148,6 +148,13 @@
       "when": 1786613005993,
       "tag": "0020_panic_escalation",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786614488135,
+      "tag": "0021_drop_panic_ack",
+      "breakpoints": true
     }
   ]
 }

@@ -33,9 +33,10 @@ export const UNSTARTED_STATUSES = ['backlog', 'do zrobienia'] as const
  * ruszyło ze statusu początkowego. Samo przypisanie nie wystarcza, bo
  * przypisać można się odruchowo i wrócić do swojej roboty.
  *
- * Świadomie NIE patrzymy tu na `acknowledged_at` z maila („Zajmuję się tym").
- * To osobny sygnał, wybrany do pokazania klientowi, a nie do wyciszania
- * eskalacji.
+ * To JEDYNY sygnał reakcji, jaki mamy. Link „Zajmuję się tym" z maila został
+ * usunięty 2026-08-13: klikał go kto bądź, a trasa zapisywała jako
+ * podejmującego „telefon" albo „komputer" z user-agenta, więc deklaracja nie
+ * mówiła nic o tym, kto naprawdę wziął sprawę.
  */
 export function isTaskHandled(input: {
   assignees: Pick<ClickUpAssignee, 'id'>[] | null | undefined

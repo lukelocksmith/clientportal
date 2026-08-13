@@ -235,9 +235,6 @@ export const panicAlerts = pgTable('panic_alerts', {
   userEmail: text('user_email'),
   userName: text('user_name'),
   message: text('message').notNull(),
-  ackToken: text('ack_token').notNull().unique(),
-  acknowledgedAt: timestamp('acknowledged_at'),
-  acknowledgedBy: text('acknowledged_by'),
   /**
    * Zadanie założone za tym alarmem. NULL, gdy ClickUp nie odpowiedział:
    * zakładanie zadania jest best-effort i świadomie nie przerywa alarmu.

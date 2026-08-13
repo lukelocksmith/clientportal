@@ -2,7 +2,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { portals, portalLists, panicAlerts, mailLog, taskStatusHistory } from '@/lib/db/schema'
+import { portals, portalLists, mailLog, taskStatusHistory } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -11,7 +11,7 @@ import {
 } from './helpers'
 
 /**
- * RESZTA PANELU ADMINA plus potwierdzanie alarmu.
+ * RESZTA PANELU ADMINA.
  *
  * Zamyka liste dziur z docs/testing.md. Dwie rzeczy sa tu warte uwagi ponad
  * zwykly perymetr:
@@ -21,10 +21,7 @@ import {
  *    i kontakt przy KAZDYM przelaczeniu zwyklej flagi. Test pilnuje roznicy
  *    miedzy „nie przyslano" a „przyslano null".
  *
- * 2. Potwierdzenie alarmu (`/api/panic/[id]/ack`) jest trasa PUBLICZNA,
- *    autoryzowana wylacznie tokenem z maila. Odpowiada HTML-em, wiec kod stanu
- *    nie niesie tu informacji o wyniku — trzeba czytac tresc strony.
- *
+
  * ClickUp podstawiony, bo `/admin/clickup/folders` wychodzi do sieci.
  *
  *   docker start cp-test-pg && npm run test:integration
@@ -48,7 +45,6 @@ import { GET as syncGET } from '@/app/api/admin/portal-sync/route'
 import { GET as foldersGET } from '@/app/api/admin/clickup/folders/route'
 import { GET as listsGET } from '@/app/api/admin/clickup/folders/[folderId]/lists/route'
 import { GET as activityGET } from '@/app/api/admin/users/[userId]/activity/route'
-import { GET as ackGET } from '@/app/api/panic/[id]/ack/route'
 
 const dbUp = await isDbReachable()
 const maToken = !!process.env.ADMIN_API_TOKEN
@@ -530,113 +526,6 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
         { params: Promise.resolve({ userId: brak }) }
       )
       assert.strictEqual(res.status, 404)
-    })
-  })
-
-  /**
-   * POTWIERDZENIE ALARMU. Trasa PUBLICZNA, autoryzowana tokenem z maila.
-   * Odpowiada HTML-em, wiec kod stanu nie niesie wyniku — czytamy tresc.
-   */
-  describe('GET /api/panic/[id]/ack', () => {
-    async function alarm(): Promise<{ id: string; token: string }> {
-      const [wiersz] = await db.insert(panicAlerts).values({
-        portalId: portalA.id,
-        userEmail: 'klient@example.com',
-        userName: 'Klient',
-        message: 'strona lezy',
-        ackToken: `tok-${Math.random().toString(36).slice(2, 12)}`,
-      }).returning()
-      return { id: wiersz.id, token: wiersz.ackToken }
-    }
-
-    it('poprawny token oznacza alarm jako podjety', async () => {
-      const a = await alarm()
-
-      const res = await ackGET(
-        req(`/api/panic/${a.id}/ack?token=${a.token}`),
-        { params: Promise.resolve({ id: a.id }) }
-      )
-      const html = await res.text()
-
-      assert.match(html, /Potwierdzono/)
-      const [wiersz] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, a.id))
-      assert.ok(wiersz.acknowledgedAt, 'znacznik zapisany w bazie, nie tylko na ekranie')
-    })
-
-    it('ZLY token nie potwierdza alarmu', async () => {
-      const a = await alarm()
-
-      const res = await ackGET(
-        req(`/api/panic/${a.id}/ack?token=zgadywany`),
-        { params: Promise.resolve({ id: a.id }) }
-      )
-      const html = await res.text()
-
-      // Bez tego kazdy, kto zna identyfikator alarmu, mogl by go „odklikac",
-      // a zespol uznalby, ze ktos sie tym zajmuje.
-      assert.match(html, /nieważny|Błąd/i)
-      const [wiersz] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, a.id))
-      assert.strictEqual(wiersz.acknowledgedAt, null)
-    })
-
-    it('BEZ tokenu nie potwierdza', async () => {
-      const a = await alarm()
-
-      const html = await (await ackGET(
-        req(`/api/panic/${a.id}/ack`),
-        { params: Promise.resolve({ id: a.id }) }
-      )).text()
-
-      assert.match(html, /Brakuje tokenu/)
-      const [wiersz] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, a.id))
-      assert.strictEqual(wiersz.acknowledgedAt, null)
-    })
-
-    it('token od INNEGO alarmu nie dziala', async () => {
-      const a = await alarm()
-      const b = await alarm()
-
-      const html = await (await ackGET(
-        req(`/api/panic/${a.id}/ack?token=${b.token}`),
-        { params: Promise.resolve({ id: a.id }) }
-      )).text()
-
-      assert.match(html, /nieważny|Błąd/i)
-    })
-
-    it('drugie klikniecie NIE nadpisuje kto i kiedy potwierdzil', async () => {
-      const a = await alarm()
-      await ackGET(req(`/api/panic/${a.id}/ack?token=${a.token}`), { params: Promise.resolve({ id: a.id }) })
-      const [pierwsze] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, a.id))
-
-      const html = await (await ackGET(
-        req(`/api/panic/${a.id}/ack?token=${a.token}`),
-        { params: Promise.resolve({ id: a.id }) }
-      )).text()
-
-      assert.match(html, /już potwierdzony/i)
-      const [drugie] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, a.id))
-      // Czas pierwszej reakcji jest tym, co potem tlumaczymy klientowi.
-      assert.strictEqual(drugie.acknowledgedAt?.getTime(), pierwsze.acknowledgedAt?.getTime())
-    })
-
-    it('tresc alarmu w HTML-u jest escapowana', async () => {
-      const [wiersz] = await db.insert(panicAlerts).values({
-        portalId: portalA.id,
-        userEmail: 'k@example.com',
-        message: '<img src=x onerror=alert(1)>',
-        ackToken: `tok-xss-${Math.random().toString(36).slice(2, 8)}`,
-      }).returning()
-
-      const html = await (await ackGET(
-        req(`/api/panic/${wiersz.id}/ack?token=${wiersz.ackToken}`),
-        { params: Promise.resolve({ id: wiersz.id }) }
-      )).text()
-
-      // Tresc pochodzi od klienta i lezy na stronie, ktora otwiera NASZ zespol
-      // z maila, wiec musi byc obojetna.
-      assert.ok(!html.includes('<img src=x'), 'surowy znacznik nie trafil do strony')
-      assert.ok(html.includes('&lt;img'), 'tresc jest widoczna, ale escapowana')
     })
   })
 })

@@ -38,23 +38,6 @@ export function PanicButton({ slug }: Props) {
   const [state, setState] = useState<State>('idle')
   const [message, setMessage] = useState('')
   const [alertId, setAlertId] = useState<string | null>(null)
-  const [acknowledged, setAcknowledged] = useState(false)
-
-  // Poll for acknowledgment after sending
-  useEffect(() => {
-    if (state !== 'sent' || !alertId || acknowledged) return
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/panic?alertId=${alertId}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.acknowledged) {
-          setAcknowledged(true)
-          clearInterval(interval)
-        }
-      }
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [state, alertId, acknowledged])
 
   async function handleSend() {
     if (!message.trim()) return
@@ -81,7 +64,6 @@ export function PanicButton({ slug }: Props) {
     setState('idle')
     setMessage('')
     setAlertId(null)
-    setAcknowledged(false)
   }
 
   const sending = state === 'sending'
@@ -150,13 +132,9 @@ export function PanicButton({ slug }: Props) {
           {state === 'sent' && (
             <div className="py-4 text-center">
               <CheckCircle2 className="mx-auto mb-3 h-12 w-12 text-green-500" />
-              <p className="font-semibold text-foreground">
-                {acknowledged ? 'Zespół important reaguje!' : 'Zgłoszenie wysłane!'}
-              </p>
+              <p className="font-semibold text-foreground">Zgłoszenie wysłane!</p>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                {acknowledged
-                  ? 'Ktoś z zespołu potwierdził, że zajmuje się problemem. Skontaktują się z Tobą mailowo lub telefonicznie.'
-                  : 'Zespół important został poinformowany. Skontaktują się z Tobą mailowo lub telefonicznie.'}
+                Zespół important został poinformowany. Skontaktują się z Tobą mailowo lub telefonicznie.
               </p>
               <Button variant="link" size="sm" onClick={reset} className="mt-4 text-muted-foreground">
                 Zamknij

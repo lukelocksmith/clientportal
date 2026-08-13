@@ -127,7 +127,6 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
       assert.strictEqual(alarmy.length, 1)
       assert.strictEqual(alarmy[0].message, 'strona nie dziala')
       assert.strictEqual(alarmy[0].userId, userA, 'wiadomo KTO wcisnal, nie tylko ktory portal')
-      assert.ok(alarmy[0].ackToken, 'token potwierdzenia powstal')
 
       // 2. Powiadomienie mailem, przez wspolny mailer, wiec z wpisem w rejestrze.
       assert.ok(mailer.sendMail.mock.calls.length >= 1, 'mail alarmowy poszedl')

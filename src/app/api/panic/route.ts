@@ -3,7 +3,6 @@ import { db } from '@/lib/db'
 import { panicAlerts, portalLists } from '@/lib/db/schema'
 import { and, desc, eq, ne } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
-import crypto from 'crypto'
 import { normalizeActorId, reporterLabel, withReporterFooter } from '@/lib/reporter'
 import { logEvent, EVENT_PANIC_ALERT, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import {
@@ -17,8 +16,6 @@ import { DUTY_ASSIGNEE_ID } from '@/lib/panicDuty'
 import { createTask } from '@/lib/clickup'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { AWARIA_TAG } from '@/lib/utils'
-
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://portal.important.is'
 
 /**
  * SMS do zespołu przez własną bramkę (`sms.important.is`).
@@ -178,15 +175,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Message required' }, { status: 400 })
   }
 
-  const ackToken = crypto.randomBytes(32).toString('hex')
-
   const [alert] = await db.insert(panicAlerts).values({
     portalId: portal.id,
     userId: normalizeActorId(session.userId),
     userEmail: session.email,
     userName: session.name,
     message: message.trim(),
-    ackToken,
   }).returning()
 
   await logEvent({
@@ -197,8 +191,6 @@ export async function POST(request: NextRequest) {
     meta: { message: message.trim().slice(0, 200) },
   })
 
-  const ackUrl = `${APP_URL}/api/panic/${alert.id}/ack?token=${ackToken}`
-
   // Kto wcisnął. Przy alarmie to jest najważniejsza informacja po samej treści:
   // reakcją jest telefon do konkretnej osoby, a nie „do klienta".
   const who = reporterLabel({ name: session.name, email: session.email })
@@ -207,8 +199,7 @@ export async function POST(request: NextRequest) {
   await sendPanicDiscord(
     `🚨 **ALARM od klienta ${portal.name}!**\n\n` +
     `> ${message.trim()}\n\n` +
-    `**Zgłasza:** ${who}\n\n` +
-    `**Kliknij żeby potwierdzić że się tym zajmujesz:**\n${ackUrl}`
+    `**Zgłasza:** ${who}`
   )
 
   // Email notification
@@ -219,8 +210,7 @@ export async function POST(request: NextRequest) {
       portalName: portal.name,
       message: message.trim(),
       who,
-      button: { url: ackUrl, label: 'Zajmuję się tym →' },
-      footer: 'Ten link potwierdza że reagujesz na alarm. Po kliknięciu klient zobaczy że ktoś się tym zajmuje.',
+      footer: 'Zadanie awaryjne jest już na tablicy z przypisaną osobą dyżurną. Jeśli przez 25 minut nikt inny nie weźmie sprawy, portal przypomni SMS-em.',
     }),
     portalId: portal.id,
   })
@@ -244,19 +234,4 @@ export async function POST(request: NextRequest) {
   })
 
   return NextResponse.json({ ok: true, alertId: alert.id })
-}
-
-// GET /api/panic/status?alertId=xxx — check if acknowledged
-export async function GET(request: NextRequest) {
-  const alertId = request.nextUrl.searchParams.get('alertId')
-  if (!alertId) return NextResponse.json({ error: 'Missing alertId' }, { status: 400 })
-
-  const alert = await db.select().from(panicAlerts).where(eq(panicAlerts.id, alertId)).limit(1)
-  if (!alert[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  return NextResponse.json({
-    acknowledged: !!alert[0].acknowledgedAt,
-    acknowledgedBy: alert[0].acknowledgedBy,
-    acknowledgedAt: alert[0].acknowledgedAt,
-  })
 }

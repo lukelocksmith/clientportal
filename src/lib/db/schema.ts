@@ -238,6 +238,23 @@ export const panicAlerts = pgTable('panic_alerts', {
   ackToken: text('ack_token').notNull().unique(),
   acknowledgedAt: timestamp('acknowledged_at'),
   acknowledgedBy: text('acknowledged_by'),
+  /**
+   * Zadanie założone za tym alarmem. NULL, gdy ClickUp nie odpowiedział:
+   * zakładanie zadania jest best-effort i świadomie nie przerywa alarmu.
+   * Bez tego identyfikatora eskalacja nie ma czego zapytać o przypisanych,
+   * dlatego brak zadania sam w sobie jest powodem do eskalacji.
+   */
+  clickupTaskId: text('clickup_task_id'),
+  /** Kiedy poszło ostatnie ponowne powiadomienie. NULL, dopóki nikt nie eskalował. */
+  escalatedAt: timestamp('escalated_at'),
+  /**
+   * Ile ponownych powiadomień już poszło (0, 1 albo 2).
+   *
+   * Licznik, a nie sama data: trasa cronu jest wołana z zewnątrz i może przyjść
+   * dwa razy pod rząd. Bez licznika zapisanego PRZED wysyłką ta sama sprawa
+   * budziłaby zespół przy każdym przebiegu.
+   */
+  escalationCount: integer('escalation_count').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -415,6 +432,38 @@ export const mailLog = pgTable('mail_log', {
 }, (t) => ({
   portalCreatedIdx: index('mail_log_portal_created_idx').on(t.portalId, t.createdAt),
   recipientIdx: index('mail_log_recipient_idx').on(t.recipient, t.createdAt),
+}))
+
+/**
+ * Rejestr SMS-ów z bramki (dziś: alarmy). Odpowiednik `mail_log` dla drugiego
+ * kanału.
+ *
+ * Osobna tabela, a nie wspólna z mailem, bo pytania są inne: przy SMS-ie liczy
+ * się `provider_message_id` i `state`, bo bramka przyjmuje wiadomość do
+ * wysyłki (`Pending`) i dopiero potem zmienia stan na `Delivered` albo
+ * `Failed`, przy czym `Failed` jest KOŃCOWY i nic go nie ponawia. Bez zapisu
+ * identyfikatora nie da się później odpowiedzieć na pytanie, czy alarm
+ * faktycznie zadzwonił w czyjejś kieszeni.
+ */
+export const smsLog = pgTable('sms_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').references(() => portals.id, { onDelete: 'set null' }),
+  /** Numer w E.164, albo wartość surowa, gdy nie dało się jej odczytać. */
+  recipient: text('recipient').notNull(),
+  /** 'panic' */
+  kind: text('kind').notNull(),
+  /** Wysłana treść. Bramka po czasie hashuje treść u siebie, więc to jedyna kopia. */
+  text: text('text').notNull(),
+  ok: boolean('ok').notNull(),
+  detail: text('detail'),
+  /** Identyfikator z bramki. Po nim sprawdza się stan przez GET /messages/{id}. */
+  providerMessageId: text('provider_message_id'),
+  /** Stan w chwili wysyłki: zwykle 'Pending'. Nie jest odświeżany. */
+  state: text('state'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  portalCreatedIdx: index('sms_log_portal_created_idx').on(t.portalId, t.createdAt),
+  recipientIdx: index('sms_log_recipient_idx').on(t.recipient, t.createdAt),
 }))
 
 export const auditLog = pgTable('audit_log', {

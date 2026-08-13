@@ -312,6 +312,13 @@ export async function createTask(
      * pomijana, zadanie powstaje bez niej i bez błędu.
      */
     tags?: string[]
+    /**
+     * Id osób z workspace. ClickUp przyjmuje je przy tworzeniu jako płaską
+     * tablicę liczb (przy edycji zadania format jest inny: `{ add, rem }`).
+     * Id spoza workspace kończy się błędem całego żądania, nie cichym
+     * pominięciem, inaczej niż przy tagach.
+     */
+    assignees?: number[]
   }
 ): Promise<ClickUpTask> {
   return clickupFetch<ClickUpTask>(`/list/${listId}/task`, {

@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from './db'
 import { cronRuns } from './db/schema'
 
-export type CronJob = 'task-index' | 'time-snapshot'
+export type CronJob = 'task-index' | 'time-snapshot' | 'panic-escalation'
 
 /**
  * Zapis wyniku przebiegu crona plus alarm na Discorda przy porażce.
@@ -77,6 +77,7 @@ export async function recordCronRun(result: CronRunResult): Promise<void> {
 export const CRON_JOB_LABELS: Record<CronJob, string> = {
   'time-snapshot': 'Track Time (zamrożenie godzin)',
   'task-index': 'Indeks Historii i wyszukiwarki',
+  'panic-escalation': 'Eskalacja alarmów bez reakcji',
 }
 
 export type CronRunRow = {

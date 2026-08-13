@@ -134,6 +134,20 @@
       "when": 1786217860823,
       "tag": "0018_status_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786608056065,
+      "tag": "0019_sms_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786613005993,
+      "tag": "0020_panic_escalation",
+      "breakpoints": true
     }
   ]
 }

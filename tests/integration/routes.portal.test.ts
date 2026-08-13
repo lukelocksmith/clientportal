@@ -1,8 +1,8 @@
-import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, panicAlerts, notifications } from '@/lib/db/schema'
+import { auditLog, panicAlerts, notifications, smsLog } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -136,6 +136,16 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
       // 3. Zadanie na tablicy, zeby alarm nie zniknal w skrzynce.
       assert.strictEqual(clickup.createTask.mock.calls.length, 1)
       assert.strictEqual(clickup.createTask.mock.calls[0][1].priority, 1)
+
+      // 4. Osoba dyzurna przypisana od razu, zeby zadanie nie czekalo na to,
+      // az ktos je zobaczy. Domyslnie Paulina (94729587).
+      assert.deepEqual(clickup.createTask.mock.calls[0][1].assignees, [94729587])
+
+      // 5. Id zadania zapisane przy alarmie. Bez niego eskalacja po 25 minutach
+      // nie ma czego zapytac o przypisanych.
+      const [poZadaniu] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, alarmy[0].id))
+      assert.strictEqual(poZadaniu.clickupTaskId, 'alarm-task')
+      assert.strictEqual(poZadaniu.escalationCount, 0)
     })
 
     it('padniety ClickUp NIE psuje alarmu, bo powiadomienie jest wazniejsze', async () => {
@@ -169,6 +179,121 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
 
       assert.strictEqual(res.status, 400)
       assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
+    })
+  })
+
+  /**
+   * SMS z alarmu przez wlasna bramke. Bramka jest PODSTAWIONA (`fetch`), zeby
+   * test nie budzil nikogo w nocy, ale reszta jest prawdziwa: sesja, zapis
+   * alarmu i odczyt poprzedniego alarmu z bazy przy dlawiku.
+   *
+   * Wlasny portal i uzytkownik, bo dlawik patrzy na POPRZEDNI alarm w tym
+   * samym projekcie — na portalu A alarmy z testow wyzej wpadlyby w okno i
+   * uciszyly pierwszy SMS, czyli test sprawdzalby cos innego, niz sadzi.
+   */
+  describe('POST /api/panic — SMS do zespolu', () => {
+    const ENV_KEYS = ['PANIC_SMS_TO', 'SMSGATE_API_USERNAME', 'SMSGATE_API_PASSWORD'] as const
+    let savedEnv: Record<string, string | undefined>
+    let portalC: { id: string; slug: string }
+    let userC: string
+
+    beforeAll(async () => {
+      portalC = await createTestPortal('rp-sms')
+      userC = await createTestUser(portalC.id, `user-${portalC.slug}@example.com`)
+    })
+
+    afterAll(async () => {
+      if (portalC) await dropTestPortal(portalC.id)
+    })
+
+    beforeEach(() => {
+      savedEnv = Object.fromEntries(ENV_KEYS.map(k => [k, process.env[k]]))
+      // FIKCYJNE dane bramki i numery z zakresu testowego (+48 555 ...).
+      process.env.PANIC_SMS_TO = '555111222, 555333444'
+      process.env.SMSGATE_API_USERNAME = 'test-device'
+      process.env.SMSGATE_API_PASSWORD = 'test-pass-fixture'
+      fetchMock.mockImplementation(
+        async () => new Response(JSON.stringify({ id: 'sms-1', state: 'Pending' }), { status: 202 })
+      )
+      clickup.createTask.mockResolvedValue({ id: 'alarm-task', name: 'ALARM', url: 'https://cu.test/a' })
+    })
+
+    afterEach(async () => {
+      for (const k of ENV_KEYS) {
+        if (savedEnv[k] === undefined) delete process.env[k]
+        else process.env[k] = savedEnv[k]
+      }
+      // Oba rejestry, nie tylko alarmy: `sms_log` ma portal_id ON DELETE SET NULL,
+      // wiec wpisy przezylyby usuniecie portalu i liczylyby sie w kolejnym tescie.
+      await db.delete(panicAlerts).where(eq(panicAlerts.portalId, portalC.id))
+      await db.delete(smsLog).where(eq(smsLog.portalId, portalC.id))
+    })
+
+    it('wysyla SMS do kazdego numeru z PANIC_SMS_TO', async () => {
+      await loginAs(userC)
+
+      const res = await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'strona nie dziala' }))
+
+      assert.strictEqual(res.status, 200)
+      const wyslane = fetchMock.mock.calls.filter(c => String(c[0]).includes('/api/3rdparty/v1/messages'))
+      assert.strictEqual(wyslane.length, 2, 'po jednym SMS na odbiorce')
+
+      const body = JSON.parse(String((wyslane[0][1] as RequestInit).body))
+      assert.deepEqual(body.phoneNumbers, ['+48555111222'])
+      assert.match(body.textMessage.text, /ALARM/)
+      assert.match(body.textMessage.text, /strona nie dziala/)
+    })
+
+    it('zapisuje kazda probe do rejestru sms_log, zeby dalo sie sprawdzic czy dotarl', async () => {
+      await loginAs(userC)
+
+      await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'pilne' }))
+
+      const wpisy = await db.select().from(smsLog).where(eq(smsLog.portalId, portalC.id))
+      assert.strictEqual(wpisy.length, 2)
+      assert.ok(wpisy.every(w => w.ok))
+      assert.ok(wpisy.every(w => w.providerMessageId === 'sms-1'))
+    })
+
+    it('drugi alarm w tym samym projekcie w oknie dlawika NIE wysyla kolejnego SMS-a', async () => {
+      await loginAs(userC)
+
+      await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'pierwszy' }))
+      const poPierwszym = fetchMock.mock.calls.length
+      await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'drugi, ten sam problem' }))
+
+      assert.strictEqual(fetchMock.mock.calls.length, poPierwszym, 'drugi alarm nie wyslal SMS-a')
+      // ...ale mail poszedl przy OBU, bo dlawik dotyczy wylacznie SMS-a.
+      assert.strictEqual(mailer.sendMail.mock.calls.length, 2)
+      const alarmy = await db.select().from(panicAlerts).where(eq(panicAlerts.portalId, portalC.id))
+      assert.strictEqual(alarmy.length, 2, 'oba alarmy sa zapisane')
+    })
+
+    it('padnieta bramka NIE psuje alarmu, bo mail juz poszedl', async () => {
+      await loginAs(userC)
+      fetchMock.mockRejectedValue(new Error('bramka nie odpowiada'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const res = await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'awaria' }))
+
+      assert.strictEqual(res.status, 200)
+      assert.ok(mailer.sendMail.mock.calls.length >= 1)
+      const wpisy = await db.select().from(smsLog).where(eq(smsLog.portalId, portalC.id))
+      assert.ok(wpisy.every(w => !w.ok), 'nieudane proby sa w rejestrze, nie giną po cichu')
+      errorSpy.mockRestore()
+    })
+
+    it('brak PANIC_SMS_TO wylacza kanal, nie wywala alarmu', async () => {
+      await loginAs(userC)
+      delete process.env.PANIC_SMS_TO
+
+      const res = await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'bez smsa' }))
+
+      assert.strictEqual(res.status, 200)
+      const wyslane = fetchMock.mock.calls.filter(c => String(c[0]).includes('/api/3rdparty/v1/messages'))
+      assert.strictEqual(wyslane.length, 0)
+      const wpisy = await db.select().from(smsLog).where(eq(smsLog.portalId, portalC.id))
+      assert.strictEqual(wpisy.length, 0, 'skoro nikt nie mial dostac SMS-a, rejestr tez jest pusty')
     })
   })
 

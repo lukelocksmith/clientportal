@@ -1,64 +1,77 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { panicAlerts, portalLists } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, ne } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
 import crypto from 'crypto'
 import { normalizeActorId, reporterLabel, withReporterFooter } from '@/lib/reporter'
 import { logEvent, EVENT_PANIC_ALERT, EVENT_TASK_CREATED } from '@/lib/portalEvents'
-import { sendMail } from '@/lib/mailer'
+import {
+  panicEmailHtml,
+  sendPanicDiscord,
+  sendPanicEmails,
+  sendPanicSms as sendPanicSmsToTeam,
+} from '@/lib/panicNotify'
+import { buildPanicSmsText, isWithinThrottleWindow, PANIC_SMS_THROTTLE_MINUTES } from '@/lib/sms'
+import { DUTY_ASSIGNEE_ID } from '@/lib/panicDuty'
 import { createTask } from '@/lib/clickup'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { AWARIA_TAG } from '@/lib/utils'
 
-function esc(s: string) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-const DISCORD_WEBHOOK = process.env.PANIC_DISCORD_WEBHOOK_URL
-/**
- * Odbiorcy alarmu. Na produkcji ustawione przez PANIC_EMAIL_TO.
- *
- * Zapas to JEDEN adres skrzynki, która na pewno istnieje. Wcześniej stały tu
- * `filip@important.is` i `paulina@important.is`, a na serwerze pocztowym są
- * `filip.g@` i `paulina.a@`. Gdyby ktoś usunął zmienną, alarm poszedłby na
- * dwa nieistniejące adresy i odbiłby się w ciszy, bo `Promise.allSettled`
- * połyka błędy z rozmysłem: jeden zły adres nie może zablokować pozostałych.
- */
-const PANIC_EMAIL_TO = process.env.PANIC_EMAIL_TO ?? 'hi@important.is'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://portal.important.is'
 
-async function sendDiscord(content: string) {
-  if (!DISCORD_WEBHOOK) return
-  await fetch(DISCORD_WEBHOOK, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  }).catch(() => {})
-}
-
 /**
- * Powiadomienia o alarmie. Idą przez WSPÓLNY lib/mailer.ts, nie przez własny
- * transport.
+ * SMS do zespołu przez własną bramkę (`sms.important.is`).
  *
- * Wcześniej ta trasa konfigurowała nodemailera u siebie, więc alarm był jedynym
- * mailem portalu, który NIE trafiał do rejestru wysyłek. Akurat przy alarmie
- * pytanie „czy powiadomienie do nas dotarło" jest najważniejsze, bo od niego
- * zależy, czy ktokolwiek zareagował.
+ * Trzeci kanał obok maila i Discorda, bo dwa pierwsze wymagają, żeby ktoś
+ * patrzył w ekran. Alarm bywa wciśnięty w sobotę wieczorem i wtedy jedyne, co
+ * na pewno zawibruje w kieszeni, to SMS.
  *
- * Osobne wywołanie na odbiorcę, nie jedno z listą: chcemy wiedzieć, do kogo
- * dotarło, a nie tylko że „coś wyszło".
+ * Cała funkcja jest BEST-EFFORT i nigdy nie przerywa trasy: klient nie może
+ * dostać błędu przy alarmie dlatego, że telefon bramki akurat się restartuje.
+ *
+ * Odbiorcy siedzą w `PANIC_SMS_TO` (numery po przecinku), a nie w `TEAM_MEMBERS`.
+ * To są dwie różne listy, dziś przypadkiem te same osoby: `TEAM_MEMBERS` to
+ * kontakt POKAZYWANY klientowi, a tu chodzi o to, kogo wyrwać od stołu.
+ * Pusta zmienna wyłącza kanał, bez żadnego błędu.
  */
-async function sendEmails(subject: string, body: string, portalId: string) {
-  const recipients = PANIC_EMAIL_TO.split(',').map(e => e.trim()).filter(Boolean)
-  await Promise.allSettled(
-    recipients.map(to => sendMail({ to, subject, html: body, kind: 'panic', portalId }))
-  )
+async function sendPanicSms(input: {
+  portalId: string
+  portalName: string
+  message: string
+  who: string
+  /** Alarm zapisany przed chwilą. Wykluczamy go z pytania o poprzedni. */
+  currentAlertId: string
+}) {
+  try {
+    // Dławik: klient w panice wciska przycisk kilka razy pod rząd, a karta w
+    // bramce jest zwykłym abonamentem konsumenckim. Mail i Discord idą zawsze,
+    // ograniczony jest WYŁĄCZNIE SMS.
+    const [poprzedni] = await db
+      .select({ createdAt: panicAlerts.createdAt })
+      .from(panicAlerts)
+      .where(and(eq(panicAlerts.portalId, input.portalId), ne(panicAlerts.id, input.currentAlertId)))
+      .orderBy(desc(panicAlerts.createdAt))
+      .limit(1)
+
+    if (isWithinThrottleWindow(poprzedni?.createdAt ?? null, new Date())) {
+      console.info(
+        `[panic] SMS pominięty: poprzedni alarm w tym projekcie był mniej niż ${PANIC_SMS_THROTTLE_MINUTES} min temu`
+      )
+      return
+    }
+
+    await sendPanicSmsToTeam({
+      text: buildPanicSmsText({
+        portalName: input.portalName,
+        message: input.message,
+        who: input.who,
+      }),
+      portalId: input.portalId,
+    })
+  } catch (e) {
+    console.error('[panic] nie udało się wysłać SMS-a alarmowego:', e)
+  }
 }
 
 /**
@@ -85,7 +98,10 @@ async function createAlarmTask(input: {
   message: string
   // `name` bywa nullem: zaproszenie mogło pójść bez imienia (patrz Reporter).
   session: { userId: string; email: string; name: string | null }
-}) {
+  /** Alarm, do którego dopiszemy id zadania. */
+  alertId: string
+}): Promise<string | null> {
+  const dyzurny = DUTY_ASSIGNEE_ID()
   try {
     const lists = await db
       .select()
@@ -93,7 +109,7 @@ async function createAlarmTask(input: {
       .where(eq(portalLists.portalId, input.portalId))
       .orderBy(portalLists.sortOrder)
     const targetListId = (lists.find(l => l.isDefault) ?? lists[0])?.clickupListId
-    if (!targetListId) return
+    if (!targetListId) return null
 
     // Pierwsza linia zgłoszenia jako nazwa. Klient w panice pisze ciągiem, więc
     // bez ucięcia nazwa zadania byłaby akapitem. Pełna treść jest w opisie.
@@ -116,7 +132,17 @@ async function createAlarmTask(input: {
       priority: 1,
       tags: [AWARIA_TAG],
       status: 'do zrobienia',
+      // Osoba dyżurna od razu przy tworzeniu. Zadanie bez właściciela czeka na
+      // to, aż ktoś je zobaczy, a alarm nie ma czasu na „ktoś to weźmie".
+      ...(dyzurny ? { assignees: [dyzurny] } : {}),
     })
+
+    // Id zadania w naszej tabeli, bo bez niego eskalacja po 25 minutach nie ma
+    // czego zapytać o przypisanych.
+    await db
+      .update(panicAlerts)
+      .set({ clickupTaskId: task.id })
+      .where(eq(panicAlerts.id, input.alertId))
 
     await invalidateFolderTasks(input.folderId)
 
@@ -125,10 +151,20 @@ async function createAlarmTask(input: {
       actor: input.session,
       action: EVENT_TASK_CREATED,
       resourceId: task.id,
-      meta: { source: 'panic', taskName: task.name, url: task.url ?? null, priority: 1, awaria: true },
+      meta: {
+        source: 'panic',
+        taskName: task.name,
+        url: task.url ?? null,
+        priority: 1,
+        awaria: true,
+        assignee: dyzurny,
+      },
     })
+
+    return task.id
   } catch (e) {
     console.error('[panic] nie udało się założyć zadania w ClickUpie:', e)
+    return null
   }
 }
 
@@ -168,7 +204,7 @@ export async function POST(request: NextRequest) {
   const who = reporterLabel({ name: session.name, email: session.email })
 
   // Discord notification
-  await sendDiscord(
+  await sendPanicDiscord(
     `🚨 **ALARM od klienta ${portal.name}!**\n\n` +
     `> ${message.trim()}\n\n` +
     `**Zgłasza:** ${who}\n\n` +
@@ -176,29 +212,26 @@ export async function POST(request: NextRequest) {
   )
 
   // Email notification
-  const emailSubject = `🚨 ALARM: ${portal.name} — ${message.trim().slice(0, 60)}`
-  const emailBody = `
-    <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-      <div style="background:#ef4444;color:white;padding:20px;border-radius:8px 8px 0 0">
-        <h1 style="margin:0;font-size:24px">🚨 ALARM od klienta</h1>
-        <p style="margin:8px 0 0;opacity:0.9">${esc(portal.name)}</p>
-      </div>
-      <div style="border:1px solid #e5e7eb;border-top:0;padding:24px;border-radius:0 0 8px 8px">
-        <p style="font-size:16px;color:#111827;margin-top:0">${esc(message.trim())}</p>
-        <p style="font-size:14px;color:#374151;margin:0">
-          <strong>Zgłasza:</strong> ${esc(who)}
-        </p>
-        <a href="${esc(ackUrl)}" style="display:inline-block;background:#ef4444;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px">
-          Zajmuję się tym →
-        </a>
-        <p style="color:#6b7280;font-size:12px;margin-top:24px">
-          Ten link potwierdza że reagujesz na alarm. Po kliknięciu klient zobaczy że ktoś się tym zajmuje.
-        </p>
-      </div>
-    </div>
-  `
+  await sendPanicEmails({
+    subject: `🚨 ALARM: ${portal.name} — ${message.trim().slice(0, 60)}`,
+    html: panicEmailHtml({
+      title: '🚨 ALARM od klienta',
+      portalName: portal.name,
+      message: message.trim(),
+      who,
+      button: { url: ackUrl, label: 'Zajmuję się tym →' },
+      footer: 'Ten link potwierdza że reagujesz na alarm. Po kliknięciu klient zobaczy że ktoś się tym zajmuje.',
+    }),
+    portalId: portal.id,
+  })
 
-  await sendEmails(emailSubject, emailBody, portal.id)
+  await sendPanicSms({
+    portalId: portal.id,
+    portalName: portal.name,
+    message: message.trim(),
+    who,
+    currentAlertId: alert.id,
+  })
 
   await createAlarmTask({
     portalId: portal.id,
@@ -207,6 +240,7 @@ export async function POST(request: NextRequest) {
     folderId: portal.clickupFolderId,
     message: message.trim(),
     session: { userId: session.userId, email: session.email, name: session.name },
+    alertId: alert.id,
   })
 
   return NextResponse.json({ ok: true, alertId: alert.id })

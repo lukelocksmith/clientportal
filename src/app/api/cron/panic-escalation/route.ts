@@ -10,9 +10,7 @@ import {
   ESCALATION_STEPS_MINUTES,
   buildEscalationDiscordText,
   buildEscalationSmsText,
-  clickupTaskUrl,
   isHandledTask,
-  minutesSince,
   selectDueAlerts,
 } from '@/lib/panicEscalation'
 import { panicEmailHtml, sendPanicDiscord, sendPanicEmails, sendPanicSms } from '@/lib/panicNotify'
@@ -112,8 +110,15 @@ async function handle(request: NextRequest) {
         .set({ escalationCount: alert.escalationCount + 1, escalatedAt: now })
         .where(eq(panicAlerts.id, alert.id))
 
-      const minuty = minutesSince(alert.createdAt, now)
-      const taskUrl = clickupTaskUrl(alert.clickupTaskId)
+      // Liczone NA MIEJSCU, a nie przez `minutesSince` i `clickupTaskUrl`
+      // z lib/panicEscalation. Powód jest przykry i wart zapamiętania:
+      // minifikator produkcyjny wtapiał te jednolinijkowce w tę pętlę i
+      // produkował przypisania do NIEZADEKLAROWANYCH zmiennych, co w trybie
+      // ścisłym kończyło się `ReferenceError: now is not defined` przy każdym
+      // przebiegu, który miał realny alarm do eskalacji (14.08.2026). Lokalnie
+      // i w testach wszystko przechodziło, bo tam kod nie jest minifikowany.
+      const minuty = Math.max(0, Math.floor((now.getTime() - alert.createdAt.getTime()) / 60_000))
+      const taskUrl = alert.clickupTaskId ? `https://app.clickup.com/t/${alert.clickupTaskId}` : null
       const who = reporterLabel({ name: alert.userName, email: alert.userEmail ?? '' })
 
       await sendPanicSms({

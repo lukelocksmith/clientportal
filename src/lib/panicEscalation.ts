@@ -11,11 +11,67 @@ import type { ClickUpAssignee, ClickUpTask } from './types'
 import { toGsmSafe } from './sms'
 
 /**
- * Po ilu minutach od wciśnięcia alarmu idzie kolejne powiadomienie.
- * Dwa kroki, potem cisza: trzeci SMS o tej samej sprawie przestaje być
- * sygnałem, a zaczyna być szumem, który się wycisza.
+ * Po ilu minutach od zgłoszenia idzie kolejne przypomnienie.
+ *
+ * Drabina zagęszcza się przy 60 minucie, potem robi dwie godzinne przerwy, a
+ * na koniec znów przyspiesza przed czwartą godziną, bo to jest umówiony czas
+ * na reakcję. Po ostatnim kroku portal milknie: jeśli przez cztery godziny
+ * nikt sprawy nie tknął, kolejny SMS niczego nie zmieni, a zacznie być
+ * ignorowany jak alarm samochodowy.
  */
-export const ESCALATION_STEPS_MINUTES = [25, 50] as const
+export const ESCALATION_STEPS_DAY = [25, 50, 60, 65, 120, 180, 210, 240] as const
+
+/**
+ * To samo w nocy, z zachowaniem minimum PÓŁ GODZINY przerwy między
+ * przypomnieniami. Pierwsze idzie tak samo szybko, bo awaria o trzeciej w nocy
+ * jest awarią, ale seria co pięć minut budziłaby trzy osoby bez pożytku.
+ */
+export const ESCALATION_STEPS_NIGHT = [25, 55, 120, 180, 210, 240] as const
+
+/** Zachowane dla zgodności: dzienna drabina jest tą domyślną. */
+export const ESCALATION_STEPS_MINUTES = ESCALATION_STEPS_DAY
+
+/** Noc zaczyna się o 22:00 i kończy o 7:00 czasu warszawskiego. */
+export const NIGHT_FROM_HOUR = 22
+export const NIGHT_TO_HOUR = 7
+
+/**
+ * Czy w danej chwili jest noc w Warszawie.
+ *
+ * Godzinę liczymy w strefie `Europe/Warsaw`, a nie z lokalnego zegara serwera,
+ * bo kontener chodzi w UTC i o 23:30 czasu polskiego widziałby 21:30, czyli
+ * jeszcze dzień. Latem różnica wynosi dwie godziny, zimą jedną, więc własne
+ * przeliczanie byłoby błędem czekającym na zmianę czasu.
+ */
+export function isNightInWarsaw(at: Date): boolean {
+  const godzina = Number(
+    new Intl.DateTimeFormat('pl-PL', {
+      timeZone: 'Europe/Warsaw',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).format(at)
+  )
+  return godzina >= NIGHT_FROM_HOUR || godzina < NIGHT_TO_HOUR
+}
+
+/**
+ * Czy wypada kolejne przypomnienie.
+ *
+ * Argumenty są POZYCYJNE i są liczbami, świadomie. Wcześniejsza wersja
+ * przyjmowała obiekt i minifikator produkcyjny, wtapiając ją w trasę,
+ * produkował odwołanie do nieistniejącej zmiennej (`ReferenceError: now is not
+ * defined`, 14.08.2026). Prosty podpis nie daje mu okazji.
+ */
+export function escalationDueAtIndex(
+  createdAtMs: number,
+  index: number,
+  nowMs: number,
+  atNight: boolean
+): boolean {
+  const drabina = atNight ? ESCALATION_STEPS_NIGHT : ESCALATION_STEPS_DAY
+  if (index < 0 || index >= drabina.length) return false
+  return nowMs - createdAtMs >= drabina[index] * 60_000
+}
 
 /**
  * Statusy, które znaczą „nikt tego jeszcze nie ruszył". Zadanie alarmowe

@@ -22,6 +22,10 @@ import {
   buildEscalationDiscordText,
   selectDueAlerts,
   ESCALATION_STEPS_MINUTES,
+  ESCALATION_STEPS_DAY,
+  ESCALATION_STEPS_NIGHT,
+  escalationDueAtIndex,
+  isNightInWarsaw,
 } from './panicEscalation'
 
 /** Paulina w workspace klientow. Osoba przypisywana automatycznie. */
@@ -116,12 +120,27 @@ describe('isEscalationDue — kiedy wypada kolejne powiadomienie', () => {
     assert.strictEqual(isEscalationDue({ createdAt: start, escalationCount: 1, now: po(50) }), true)
   })
 
-  it('po dwoch eskalacjach zapada cisza, nawet po godzinach', () => {
-    assert.strictEqual(isEscalationDue({ createdAt: start, escalationCount: 2, now: po(600) }), false)
+  it('trzecie przypomnienie wypada w 60 minucie, czwarte w 65', () => {
+    assert.strictEqual(isEscalationDue({ createdAt: start, escalationCount: 2, now: po(60) }), true)
+    assert.strictEqual(isEscalationDue({ createdAt: start, escalationCount: 3, now: po(64) }), false)
+    assert.strictEqual(isEscalationDue({ createdAt: start, escalationCount: 3, now: po(65) }), true)
   })
 
-  it('sa dokladnie dwa kroki: 25 i 50 minut', () => {
-    assert.deepEqual([...ESCALATION_STEPS_MINUTES], [25, 50])
+  it('po wyczerpaniu calej drabiny zapada cisza, nawet po dobie', () => {
+    assert.strictEqual(isEscalationDue({ createdAt: start, escalationCount: 8, now: po(1440) }), false)
+  })
+
+  it('drabina dzienna: 25, 50, 60, 65, 120, 180, 210, 240 minut', () => {
+    assert.deepEqual([...ESCALATION_STEPS_DAY], [25, 50, 60, 65, 120, 180, 210, 240])
+  })
+
+  it('drabina nocna rzadsza, z minimum pol godziny przerwy: 25, 55, 120, 180, 210, 240', () => {
+    assert.deepEqual([...ESCALATION_STEPS_NIGHT], [25, 55, 120, 180, 210, 240])
+  })
+
+  it('obie drabiny koncza sie na czwartej godzinie, czyli na umowionym czasie reakcji', () => {
+    assert.strictEqual(ESCALATION_STEPS_DAY[ESCALATION_STEPS_DAY.length - 1], 240)
+    assert.strictEqual(ESCALATION_STEPS_NIGHT[ESCALATION_STEPS_NIGHT.length - 1], 240)
   })
 })
 
@@ -133,9 +152,9 @@ describe('selectDueAlerts', () => {
     const alerts = [
       { id: 'swiezy', createdAt: minut(5), escalationCount: 0 },
       { id: 'pierwsza-eskalacja', createdAt: minut(26), escalationCount: 0 },
-      { id: 'czeka-na-druga', createdAt: minut(30), escalationCount: 1 },
+      { id: 'czeka-na-druga', createdAt: minut(45), escalationCount: 1 },
       { id: 'druga-eskalacja', createdAt: minut(51), escalationCount: 1 },
-      { id: 'wyczerpany', createdAt: minut(300), escalationCount: 2 },
+      { id: 'wyczerpany', createdAt: minut(300), escalationCount: 8 },
     ]
 
     assert.deepEqual(
@@ -297,5 +316,53 @@ describe('buildHandoverDiscordText', () => {
     assert.match(t, /Filip Gorny/)
     assert.match(t, /w trakcie/)
     assert.match(t, /869x/)
+  })
+})
+
+describe('isNightInWarsaw — pora liczona w strefie polskiej, nie z zegara serwera', () => {
+  it('23:30 czasu polskiego to noc, mimo ze serwer w UTC widzi 21:30', () => {
+    assert.strictEqual(isNightInWarsaw(new Date('2026-08-14T21:30:00Z')), true)
+  })
+
+  it('6:30 rano to jeszcze noc', () => {
+    assert.strictEqual(isNightInWarsaw(new Date('2026-08-14T04:30:00Z')), true)
+  })
+
+  it('9:00 rano to dzien', () => {
+    assert.strictEqual(isNightInWarsaw(new Date('2026-08-14T07:00:00Z')), false)
+  })
+
+  it('21:00 czasu polskiego to jeszcze dzien', () => {
+    assert.strictEqual(isNightInWarsaw(new Date('2026-08-14T19:00:00Z')), false)
+  })
+
+  it('zima granica jest ta sama, mimo innej roznicy do UTC', () => {
+    // 22:30 czasu polskiego w styczniu to 21:30 UTC (roznica godzina, nie dwie).
+    assert.strictEqual(isNightInWarsaw(new Date('2026-01-15T21:30:00Z')), true)
+    assert.strictEqual(isNightInWarsaw(new Date('2026-01-15T20:30:00Z')), false)
+  })
+})
+
+describe('escalationDueAtIndex', () => {
+  const start = new Date('2026-08-14T10:00:00Z').getTime()
+  const po = (minuty: number) => start + minuty * 60_000
+
+  it('dzien: czwarte przypomnienie wypada w 65 minucie', () => {
+    assert.strictEqual(escalationDueAtIndex(start, 3, po(64), false), false)
+    assert.strictEqual(escalationDueAtIndex(start, 3, po(65), false), true)
+  })
+
+  it('noc: drugie przypomnienie dopiero w 55 minucie, nie w 50', () => {
+    assert.strictEqual(escalationDueAtIndex(start, 1, po(50), true), false)
+    assert.strictEqual(escalationDueAtIndex(start, 1, po(55), true), true)
+  })
+
+  it('po ostatnim kroku drabiny zapada cisza', () => {
+    assert.strictEqual(escalationDueAtIndex(start, 8, po(600), false), false)
+    assert.strictEqual(escalationDueAtIndex(start, 6, po(600), true), false)
+  })
+
+  it('ujemny indeks nie wysadza funkcji', () => {
+    assert.strictEqual(escalationDueAtIndex(start, -1, po(600), false), false)
   })
 })

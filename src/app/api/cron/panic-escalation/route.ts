@@ -7,7 +7,10 @@ import { verifyToken } from '@/lib/apiAuth'
 import { recordCronRun } from '@/lib/cronRuns'
 import { dutyAssigneeId } from '@/lib/panicDuty'
 import {
-  ESCALATION_STEPS_MINUTES,
+  ESCALATION_STEPS_DAY,
+  ESCALATION_STEPS_NIGHT,
+  escalationDueAtIndex,
+  isNightInWarsaw,
   buildEscalationDiscordText,
   buildEscalationSmsText,
   buildHandoverDiscordText,
@@ -94,11 +97,13 @@ async function handle(request: NextRequest) {
      *
      * Stąd zapis bez skrótów i bez obiektów pośrednich.
      */
-    const czyWypadaEskalacja = (alert: { escalationCount: number; createdAt: Date }) => {
-      const krokMinuty = ESCALATION_STEPS_MINUTES[alert.escalationCount]
-      if (krokMinuty === undefined) return false
-      return now.getTime() - alert.createdAt.getTime() >= krokMinuty * 60_000
-    }
+    // Drabinę wybieramy według pory TERAZ, nie w chwili zgłoszenia: alarm
+    // z 21:50 przechodzący w noc ma dalej być przypominany po nocnemu.
+    const noc = isNightInWarsaw(now)
+    const nowMs = now.getTime()
+
+    const czyWypadaEskalacja = (alert: { escalationCount: number; createdAt: Date }) =>
+      escalationDueAtIndex(alert.createdAt.getTime(), alert.escalationCount, nowMs, noc)
 
     /**
      * Sprawdzamy zadanie, gdy wypada eskalacja ALBO gdy alarm ma zadanie, które
@@ -106,7 +111,7 @@ async function handle(request: NextRequest) {
      * po pierwszym progu, żeby nie odpytywać ClickUpa o sprawę zgłoszoną minutę
      * temu, którą i tak nikt nie zdążył ruszyć.
      */
-    const pierwszyProg = ESCALATION_STEPS_MINUTES[0] * 60_000
+    const pierwszyProg = (noc ? ESCALATION_STEPS_NIGHT : ESCALATION_STEPS_DAY)[0] * 60_000
     const doSprawdzenia = kandydaci.filter(
       alert =>
         czyWypadaEskalacja(alert) ||
@@ -244,7 +249,9 @@ async function handle(request: NextRequest) {
           lead: `Minęło ${minuty} minut od zgłoszenia, a poza osobą dyżurną nikt nie jest przypisany i zadanie nie ruszyło.`,
           taskUrl,
           ...(taskUrl ? { button: { url: taskUrl, label: 'Otwórz zadanie w ClickUpie →' } } : {}),
-          footer: 'To jest ponowne powiadomienie wysłane automatycznie. Kolejne pójdzie po 50 minutach od zgłoszenia, potem portal zamilknie.',
+              footer: noc
+            ? 'Powiadomienie automatyczne. W nocy portal przypomina rzadziej, ostatni raz cztery godziny po zgłoszeniu.'
+            : 'Powiadomienie automatyczne. Kolejne przypomnienia idą według drabiny do czwartej godziny od zgłoszenia, potem portal milknie.',
         }),
         portalId: alert.portalId,
       })
@@ -257,7 +264,7 @@ async function handle(request: NextRequest) {
       job: 'panic-escalation',
       ok: true,
       itemsProcessed: eskalowane,
-      detail: `sprawdzono ${doSprawdzenia.length}, eskalowano ${eskalowane}`,
+      detail: `sprawdzono ${doSprawdzenia.length}, eskalowano ${eskalowane}${noc ? ' (noc)' : ''}`,
       startedAt,
     })
 

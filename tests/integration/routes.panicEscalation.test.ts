@@ -204,8 +204,8 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
     assert.strictEqual(smsCalls().length, poPierwszym, 'stempel handled_at zdusil powtorke')
   })
 
-  it('przejeta sprawa wypada z kolejki, wiec druga eskalacja po 50 min juz nie przyjdzie', async () => {
-    const id = await alarmSprzed({ minutTemu: 51, escalationCount: 1 })
+  it('przejeta sprawa wypada z kolejki, wiec kolejne przypomnienia juz nie przyjda', async () => {
+    const id = await alarmSprzed({ minutTemu: 56, escalationCount: 1 })
     clickup.getTask.mockResolvedValue(task([FILIP], 'w trakcie'))
 
     await escalationGET(cronReq())
@@ -239,18 +239,20 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
     assert.strictEqual((await stan(id)).escalationCount, 1)
   })
 
-  it('po 50 minutach idzie druga i ostatnia eskalacja', async () => {
-    const id = await alarmSprzed({ minutTemu: 51, escalationCount: 1 })
+  // Progi dobrane tak, zeby byly przekroczone w OBU drabinach (dziennej i
+  // nocnej), inaczej wynik testu zalezalby od godziny jego uruchomienia.
+  it('po drugim progu idzie kolejna eskalacja', async () => {
+    const id = await alarmSprzed({ minutTemu: 56, escalationCount: 1 })
     clickup.getTask.mockResolvedValue(task([PAULINA], 'do zrobienia'))
 
     await escalationGET(cronReq())
 
     assert.strictEqual(smsCalls().length, 1)
-    assert.strictEqual((await stan(id)).escalationCount, 2)
+    assert.strictEqual((await stan(id)).escalationCount, 2, 'licznik podniesiony o jeden')
   })
 
   it('alarm po WYCZERPANYCH eskalacjach nadal melduje przejecie, bo wtedy jest ono najwazniejsze', async () => {
-    const id = await alarmSprzed({ minutTemu: 120, escalationCount: 2 })
+    const id = await alarmSprzed({ minutTemu: 300, escalationCount: 8 })
     clickup.getTask.mockResolvedValue(task([FILIP], 'w trakcie'))
 
     await escalationGET(cronReq())
@@ -263,8 +265,8 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
     assert.match(sms.textMessage.text, /PRZEJETE/)
   })
 
-  it('po dwoch eskalacjach i BEZ przejecia portal milknie, nawet po godzinach', async () => {
-    const id = await alarmSprzed({ minutTemu: 300, escalationCount: 2 })
+  it('po wyczerpaniu drabiny i BEZ przejecia portal milknie, nawet po godzinach', async () => {
+    const id = await alarmSprzed({ minutTemu: 300, escalationCount: 8 })
     clickup.getTask.mockResolvedValue(task([PAULINA], 'do zrobienia'))
 
     const res = await escalationGET(cronReq())
@@ -276,7 +278,7 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
     assert.strictEqual(smsCalls().length, 0)
     assert.strictEqual(discordCalls().length, 0)
     assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
-    assert.strictEqual((await stan(id)).escalationCount, 2)
+    assert.strictEqual((await stan(id)).escalationCount, 8, 'licznik stoi, drabina wyczerpana')
   })
 
   it('brak zadania w ClickUpie tez jest powodem do eskalacji, i mowi o tym wprost', async () => {

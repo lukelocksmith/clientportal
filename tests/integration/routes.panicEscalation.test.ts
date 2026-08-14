@@ -249,14 +249,34 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
     assert.strictEqual((await stan(id)).escalationCount, 2)
   })
 
-  it('po dwoch eskalacjach portal milknie, nawet po godzinach', async () => {
-    await alarmSprzed({ minutTemu: 300, escalationCount: 2 })
+  it('alarm po WYCZERPANYCH eskalacjach nadal melduje przejecie, bo wtedy jest ono najwazniejsze', async () => {
+    const id = await alarmSprzed({ minutTemu: 120, escalationCount: 2 })
+    clickup.getTask.mockResolvedValue(task([FILIP], 'w trakcie'))
+
+    await escalationGET(cronReq())
+
+    const po = await stan(id)
+    assert.ok(po.handledAt, 'przejecie ostemplowane mimo wyczerpanych eskalacji')
+    assert.strictEqual(po.handledBy, 'Filip Gorny')
+    assert.strictEqual(smsCalls().length, 1, 'poszlo powiadomienie o przejeciu')
+    const sms = JSON.parse(String((smsCalls()[0][1] as RequestInit).body))
+    assert.match(sms.textMessage.text, /PRZEJETE/)
+  })
+
+  it('po dwoch eskalacjach i BEZ przejecia portal milknie, nawet po godzinach', async () => {
+    const id = await alarmSprzed({ minutTemu: 300, escalationCount: 2 })
     clickup.getTask.mockResolvedValue(task([PAULINA], 'do zrobienia'))
 
     const res = await escalationGET(cronReq())
+    const body = await res.json()
 
-    assert.strictEqual((await res.json()).checked, 0)
+    // Zadanie JEST sprawdzane (po to, by wychwycic ewentualne przejecie),
+    // ale zadne powiadomienie nie wychodzi i licznik stoi.
+    assert.strictEqual(body.escalated, 0)
     assert.strictEqual(smsCalls().length, 0)
+    assert.strictEqual(discordCalls().length, 0)
+    assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
+    assert.strictEqual((await stan(id)).escalationCount, 2)
   })
 
   it('brak zadania w ClickUpie tez jest powodem do eskalacji, i mowi o tym wprost', async () => {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { and, eq, gte, isNull, lt } from 'drizzle-orm'
+import { and, eq, gte, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { panicAlerts, portals } from '@/lib/db/schema'
 import { getTask } from '@/lib/clickup'
@@ -51,7 +51,6 @@ async function handle(request: NextRequest) {
   const startedAt = new Date()
   const now = startedAt
   const duty = dutyAssigneeId()
-  const maxKrokow = ESCALATION_STEPS_MINUTES.length
 
   try {
     const kandydaci = await db
@@ -71,13 +70,17 @@ async function handle(request: NextRequest) {
       .innerJoin(portals, eq(portals.id, panicAlerts.portalId))
       .where(
         and(
-          lt(panicAlerts.escalationCount, maxKrokow),
           // Sprawy przejęte wypadają z kolejki na dobre: powiadomienie o
           // przejęciu poszło raz, więcej nie ma o czym przypominać.
           isNull(panicAlerts.handledAt),
           gte(panicAlerts.createdAt, new Date(now.getTime() - LOOKBACK_HOURS * 3_600_000))
         )
       )
+      // ŚWIADOMIE bez warunku na licznik eskalacji. Alarm, przy którym oba
+      // przypomnienia już poszły, nadal ma prawo doczekać się informacji „ktoś
+      // to wziął": to właśnie wtedy jest ona najbardziej potrzebna, bo sprawa
+      // wisiała ponad godzinę. Licznik decyduje wyłącznie o KOLEJNYM
+      // przypomnieniu, nie o tym, czy w ogóle patrzymy na zadanie.
 
     /**
      * Wybór alarmów do eskalacji liczony TUTAJ, bez wołania `selectDueAlerts`.
@@ -91,11 +94,24 @@ async function handle(request: NextRequest) {
      *
      * Stąd zapis bez skrótów i bez obiektów pośrednich.
      */
-    const doSprawdzenia = kandydaci.filter(alert => {
+    const czyWypadaEskalacja = (alert: { escalationCount: number; createdAt: Date }) => {
       const krokMinuty = ESCALATION_STEPS_MINUTES[alert.escalationCount]
       if (krokMinuty === undefined) return false
       return now.getTime() - alert.createdAt.getTime() >= krokMinuty * 60_000
-    })
+    }
+
+    /**
+     * Sprawdzamy zadanie, gdy wypada eskalacja ALBO gdy alarm ma zadanie, które
+     * ktoś mógł w międzyczasie przejąć. Drugi warunek zaczyna działać dopiero
+     * po pierwszym progu, żeby nie odpytywać ClickUpa o sprawę zgłoszoną minutę
+     * temu, którą i tak nikt nie zdążył ruszyć.
+     */
+    const pierwszyProg = ESCALATION_STEPS_MINUTES[0] * 60_000
+    const doSprawdzenia = kandydaci.filter(
+      alert =>
+        czyWypadaEskalacja(alert) ||
+        (alert.clickupTaskId !== null && now.getTime() - alert.createdAt.getTime() >= pierwszyProg)
+    )
 
     const wyniki: Array<{ alertId: string; escalated: boolean; reason: string }> = []
 
@@ -177,6 +193,13 @@ async function handle(request: NextRequest) {
         })
 
         wyniki.push({ alertId: alert.id, escalated: false, reason: powod })
+        continue
+      }
+
+      // Sprawa nieprzejęta, ale kolejne przypomnienie jeszcze nie wypada:
+      // sprawdziliśmy zadanie wyłącznie po to, żeby wychwycić przejęcie.
+      if (!czyWypadaEskalacja(alert)) {
+        wyniki.push({ alertId: alert.id, escalated: false, reason: `czeka: ${powod}` })
         continue
       }
 

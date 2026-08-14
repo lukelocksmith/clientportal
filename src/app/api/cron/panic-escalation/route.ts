@@ -11,7 +11,6 @@ import {
   buildEscalationDiscordText,
   buildEscalationSmsText,
   isHandledTask,
-  selectDueAlerts,
 } from '@/lib/panicEscalation'
 import { panicEmailHtml, sendPanicDiscord, sendPanicEmails, sendPanicSms } from '@/lib/panicNotify'
 import { reporterLabel } from '@/lib/reporter'
@@ -73,7 +72,23 @@ async function handle(request: NextRequest) {
         )
       )
 
-    const doSprawdzenia = selectDueAlerts(kandydaci, now)
+    /**
+     * Wybór alarmów do eskalacji liczony TUTAJ, bez wołania `selectDueAlerts`.
+     *
+     * Powód jest konkretny i potwierdzony skompilowanym kodem z produkcji
+     * (14.08.2026): minifikator wtapiał tę funkcję razem z zagnieżdżonym
+     * `isEscalationDue({ ..., now })` i w SKRÓCONYM ZAPISIE właściwości
+     * zostawiał starą nazwę zmiennej, którą wcześniej sam przemianował. Każdy
+     * przebieg z realnym alarmem kończył się wtedy `ReferenceError: now is not
+     * defined`. Testy tego nie widzą, bo nie są minifikowane.
+     *
+     * Stąd zapis bez skrótów i bez obiektów pośrednich.
+     */
+    const doSprawdzenia = kandydaci.filter(alert => {
+      const krokMinuty = ESCALATION_STEPS_MINUTES[alert.escalationCount]
+      if (krokMinuty === undefined) return false
+      return now.getTime() - alert.createdAt.getTime() >= krokMinuty * 60_000
+    })
 
     const wyniki: Array<{ alertId: string; escalated: boolean; reason: string }> = []
 

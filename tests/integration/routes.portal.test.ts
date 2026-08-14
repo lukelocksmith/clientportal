@@ -199,6 +199,8 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
     beforeAll(async () => {
       portalC = await createTestPortal('rp-sms')
       userC = await createTestUser(portalC.id, `user-${portalC.slug}@example.com`)
+      // Bez listy nie ma gdzie zalozyc zadania, wiec nie byloby tez linku w SMS-ie.
+      await createTestList({ portalId: portalC.id, clickupListId: 'lista-sms', isDefault: true })
     })
 
     afterAll(async () => {
@@ -241,6 +243,35 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
       assert.deepEqual(body.phoneNumbers, ['+48555111222'])
       assert.match(body.textMessage.text, /ALARM/)
       assert.match(body.textMessage.text, /strona nie dziala/)
+      // Link do zadania jest sednem kolejnosci "najpierw ClickUp, potem alarm".
+      assert.match(body.textMessage.text, /app\.clickup\.com\/t\/alarm-task/)
+    })
+
+    it('zadanie w ClickUpie powstaje PRZED wyslaniem SMS-a, inaczej nie byloby linku', async () => {
+      await loginAs(userC)
+
+      await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'kolejnosc' }))
+
+      const czasZadania = clickup.createTask.mock.invocationCallOrder[0]
+      const czasSms = fetchMock.mock.invocationCallOrder.find((_, i) =>
+        String(fetchMock.mock.calls[i][0]).includes('/api/3rdparty/v1/messages')
+      )
+      assert.ok(czasZadania && czasSms && czasZadania < czasSms, 'ClickUp musi byc wolany przed bramka SMS')
+    })
+
+    it('padniety ClickUp NIE ucisza alarmu, SMS idzie z informacja o braku zadania', async () => {
+      await loginAs(userC)
+      clickup.createTask.mockRejectedValue(new Error('ClickUp nie odpowiada'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const res = await panicPOST(jsonReq('/api/panic', { slug: portalC.slug, message: 'clickup padl' }))
+
+      assert.strictEqual(res.status, 200)
+      const wyslane = fetchMock.mock.calls.filter(c => String(c[0]).includes('/api/3rdparty/v1/messages'))
+      assert.strictEqual(wyslane.length, 2, 'SMS-y poszly mimo padnietego ClickUpa')
+      const body = JSON.parse(String((wyslane[0][1] as RequestInit).body))
+      assert.match(body.textMessage.text, /NIE powstalo/)
+      errorSpy.mockRestore()
     })
 
     it('zapisuje kazda probe do rejestru sms_log, zeby dalo sie sprawdzic czy dotarl', async () => {

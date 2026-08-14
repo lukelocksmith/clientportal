@@ -128,11 +128,20 @@ export function buildPanicSmsText(input: {
   portalName: string
   message: string
   who: string
+  /**
+   * Adres zadania w ClickUpie. Od 2026-08-14 zadanie powstaje PRZED wysyłką,
+   * właśnie po to, żeby ten link się tu zmieścił. Null oznacza, że ClickUp nie
+   * odpowiedział w wyznaczonym czasie: SMS wtedy i tak idzie, ale mówi wprost,
+   * że zadania nie ma, zamiast milczeć o tym.
+   */
+  taskUrl?: string | null
 }): string {
   const portal = truncate(toGsmSafe(input.portalName), 40)
   const who = truncate(toGsmSafe(input.who), 30)
   const prefix = `ALARM ${portal}: `
-  const suffix = ` | zglasza ${who} | szczegoly w mailu`
+  const suffix = input.taskUrl
+    ? ` | ${truncate(toGsmSafe(input.who), 20)} | ${input.taskUrl}`
+    : ` | zglasza ${who} | zadanie w ClickUpie NIE powstalo`
 
   const budget = SINGLE_SEGMENT_CHARS - prefix.length - suffix.length
   const message = truncate(toGsmSafe(input.message), Math.max(budget, 0))

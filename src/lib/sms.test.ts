@@ -181,6 +181,22 @@ describe('buildPanicSmsText', () => {
     assert.doesNotMatch(text, /[^\x20-\x7E]/, 'zostal znak, ktory przelaczy SMS na UCS-2')
   })
 
+  it('z linkiem do zadania: link jest w tresci i przezywa ucinanie', () => {
+    const text = buildPanicSmsText({
+      ...base,
+      message: 'x'.repeat(400),
+      taskUrl: 'https://app.clickup.com/t/869eeqyxj',
+    })
+    assert.match(text, /https:\/\/app\.clickup\.com\/t\/869eeqyxj$/)
+    assert.ok(text.length <= 160, `dlugosc ${text.length}`)
+  })
+
+  it('bez zadania mowi wprost, ze nie powstalo, zamiast milczec', () => {
+    // Cisza w tym miejscu bylaby najgorsza: zespol zakladalby, ze zadanie jest
+    // na tablicy, a nie byloby go tam wcale.
+    assert.match(buildPanicSmsText({ ...base, taskUrl: null }), /NIE powstalo/)
+  })
+
   it('sklada tresc alarmu w jedna linie, bo wieloliniowy SMS czyta sie gorzej', () => {
     const text = buildPanicSmsText({ ...base, message: 'pierwsza linia\ndruga linia' })
     assert.doesNotMatch(text, /\n/)

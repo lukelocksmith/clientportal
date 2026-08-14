@@ -18,6 +18,13 @@ import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { AWARIA_TAG } from '@/lib/utils'
 
 /**
+ * Ile czekamy na ClickUpa, zanim wyślemy alarm bez linku do zadania.
+ * Osiem sekund: tyle, żeby zdążył przy normalnej pracy, i na tyle mało,
+ * żeby klient w panice nie patrzył w kręcące się kółko.
+ */
+const CLICKUP_TIMEOUT_MS = 8_000
+
+/**
  * SMS do zespołu przez własną bramkę (`sms.important.is`).
  *
  * Trzeci kanał obok maila i Discorda, bo dwa pierwsze wymagają, żeby ktoś
@@ -39,6 +46,8 @@ async function sendPanicSms(input: {
   who: string
   /** Alarm zapisany przed chwilą. Wykluczamy go z pytania o poprzedni. */
   currentAlertId: string
+  /** Adres zadania w ClickUpie, null gdy nie powstało. */
+  taskUrl: string | null
 }) {
   try {
     // Dławik: klient w panice wciska przycisk kilka razy pod rząd, a karta w
@@ -63,6 +72,7 @@ async function sendPanicSms(input: {
         portalName: input.portalName,
         message: input.message,
         who: input.who,
+        taskUrl: input.taskUrl,
       }),
       portalId: input.portalId,
     })
@@ -195,11 +205,38 @@ export async function POST(request: NextRequest) {
   // reakcją jest telefon do konkretnej osoby, a nie „do klienta".
   const who = reporterLabel({ name: session.name, email: session.email })
 
+  /**
+   * ZADANIE POWSTAJE PRZED POWIADOMIENIAMI (zmiana z 2026-08-14).
+   *
+   * Powód: powiadomienie ma nieść LINK do zadania, a nie samą treść zgłoszenia,
+   * żeby dało się przejść do sprawy jednym kliknięciem z telefonu.
+   *
+   * Cena tej kolejności jest jawna: alarm czeka na ClickUpa. Dlatego czeka
+   * NAJWYŻEJ 8 SEKUND. Po tym czasie powiadomienia idą bez linku, z adnotacją,
+   * że zadania nie ma. Awaria ClickUpa nie może uciszyć alarmu ani kazać
+   * klientowi patrzeć w kręcące się kółko.
+   */
+  const taskId = await Promise.race([
+    createAlarmTask({
+      portalId: portal.id,
+      portalName: portal.name,
+      portalSlug: portal.slug,
+      folderId: portal.clickupFolderId,
+      message: message.trim(),
+      session: { userId: session.userId, email: session.email, name: session.name },
+      alertId: alert.id,
+    }),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), CLICKUP_TIMEOUT_MS)),
+  ])
+
+  const taskUrl = taskId ? `https://app.clickup.com/t/${taskId}` : null
+
   // Discord notification
   await sendPanicDiscord(
     `🚨 **ALARM od klienta ${portal.name}!**\n\n` +
     `> ${message.trim()}\n\n` +
-    `**Zgłasza:** ${who}`
+    `**Zgłasza:** ${who}\n\n` +
+    (taskUrl ? `**Zadanie:** ${taskUrl}` : '**Zadanie:** nie powstało w ClickUpie, sprawdź ręcznie')
   )
 
   // Email notification
@@ -210,7 +247,11 @@ export async function POST(request: NextRequest) {
       portalName: portal.name,
       message: message.trim(),
       who,
-      footer: 'Zadanie awaryjne jest już na tablicy z przypisaną osobą dyżurną. Jeśli przez 25 minut nikt inny nie weźmie sprawy, portal przypomni SMS-em.',
+      taskUrl,
+      ...(taskUrl ? { button: { url: taskUrl, label: 'Otwórz zadanie w ClickUpie →' } } : {}),
+      footer: taskUrl
+        ? 'Zadanie jest już na tablicy z przypisaną osobą dyżurną. Jeśli przez 25 minut nikt inny go nie przejmie, portal przypomni SMS-em.'
+        : 'UWAGA: zadanie w ClickUpie NIE powstało, trzeba je założyć ręcznie.',
     }),
     portalId: portal.id,
   })
@@ -221,16 +262,7 @@ export async function POST(request: NextRequest) {
     message: message.trim(),
     who,
     currentAlertId: alert.id,
-  })
-
-  await createAlarmTask({
-    portalId: portal.id,
-    portalName: portal.name,
-    portalSlug: portal.slug,
-    folderId: portal.clickupFolderId,
-    message: message.trim(),
-    session: { userId: session.userId, email: session.email, name: session.name },
-    alertId: alert.id,
+    taskUrl,
   })
 
   return NextResponse.json({ ok: true, alertId: alert.id })

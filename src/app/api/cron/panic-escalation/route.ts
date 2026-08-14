@@ -171,7 +171,16 @@ async function handle(request: NextRequest) {
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
-    await recordCronRun({ job: 'panic-escalation', ok: false, detail: message, startedAt })
+    // Pełny ślad stosu do logu kontenera. Sam komunikat błędu potrafi wskazywać
+    // na zupełnie inne miejsce niż to, które go rzuciło (14.08: „now is not
+    // defined" w trasie, w której `now` jest poprawnie zadeklarowane).
+    console.error('[panic-escalation] przebieg nieudany:', e)
+    await recordCronRun({
+      job: 'panic-escalation',
+      ok: false,
+      detail: `${message} | ${(e instanceof Error && e.stack ? e.stack.split('\n')[1] : '').trim()}`,
+      startedAt,
+    })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

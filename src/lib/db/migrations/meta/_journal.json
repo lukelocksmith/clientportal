@@ -155,6 +155,13 @@
       "when": 1786614488135,
       "tag": "0021_drop_panic_ack",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786741987388,
+      "tag": "0022_panic_handled",
+      "breakpoints": true
     }
   ]
 }

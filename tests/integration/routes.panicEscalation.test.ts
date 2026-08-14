@@ -43,9 +43,10 @@ const cronReq = (token = CRON_SECRET) =>
   new NextRequest(`http://localhost/api/cron/panic-escalation?token=${token}`)
 
 /** Zadanie z ClickUpa w minimalnym ksztalcie, ktorego uzywa eskalacja. */
+const IMIONA: Record<number, string> = { 94729587: 'Paulina', 44435339: 'Filip Gorny' }
 const task = (assignees: number[], status: string) => ({
   id: 'task-1',
-  assignees: assignees.map(id => ({ id })),
+  assignees: assignees.map(id => ({ id, username: IMIONA[id] ?? 'Ktos' })),
   status: { status },
 })
 
@@ -171,15 +172,49 @@ describe.skipIf(!dbUp)('POST /api/cron/panic-escalation', () => {
     assert.ok(po.escalatedAt, 'zapisany moment eskalacji')
   })
 
-  it('ktos inny przypisany ORAZ zadanie w trakcie wycisza eskalacje', async () => {
+  it('ktos inny przypisany ORAZ zadanie w trakcie: zamiast eskalacji leci "przejete"', async () => {
     const id = await alarmSprzed({ minutTemu: 26 })
     clickup.getTask.mockResolvedValue(task([PAULINA, FILIP], 'w trakcie'))
 
     const res = await escalationGET(cronReq())
 
-    assert.strictEqual((await res.json()).escalated, 0)
-    assert.strictEqual(smsCalls().length, 0)
-    assert.strictEqual((await stan(id)).escalationCount, 0)
+    assert.strictEqual((await res.json()).escalated, 0, 'to nie jest eskalacja')
+    const po = await stan(id)
+    assert.strictEqual(po.escalationCount, 0, 'licznik eskalacji nietkniety')
+    assert.ok(po.handledAt, 'sprawa ostemplowana jako przejeta')
+    assert.strictEqual(po.handledBy, 'Filip Gorny', 'zapisane KTO przejal, z ClickUpa')
+
+    // Powiadomienie idzie trzema kanalami, tak jak alarm.
+    assert.strictEqual(smsCalls().length, 1)
+    assert.strictEqual(discordCalls().length, 1)
+    assert.strictEqual(mailer.sendMail.mock.calls.length, 1)
+    const sms = JSON.parse(String((smsCalls()[0][1] as RequestInit).body))
+    assert.match(sms.textMessage.text, /PRZEJETE/)
+    assert.match(sms.textMessage.text, /Filip Gorny/)
+  })
+
+  it('powiadomienie o przejeciu idzie DOKLADNIE RAZ, kolejny przebieg milczy', async () => {
+    await alarmSprzed({ minutTemu: 26 })
+    clickup.getTask.mockResolvedValue(task([PAULINA, FILIP], 'w trakcie'))
+
+    await escalationGET(cronReq())
+    const poPierwszym = smsCalls().length
+    await escalationGET(cronReq())
+
+    assert.strictEqual(smsCalls().length, poPierwszym, 'stempel handled_at zdusil powtorke')
+  })
+
+  it('przejeta sprawa wypada z kolejki, wiec druga eskalacja po 50 min juz nie przyjdzie', async () => {
+    const id = await alarmSprzed({ minutTemu: 51, escalationCount: 1 })
+    clickup.getTask.mockResolvedValue(task([FILIP], 'w trakcie'))
+
+    await escalationGET(cronReq())
+    const poPrzejeciu = smsCalls().length
+    // Symulujemy kolejny przebieg crona po dalszych minutach.
+    await escalationGET(cronReq())
+
+    assert.strictEqual(smsCalls().length, poPrzejeciu)
+    assert.strictEqual((await stan(id)).escalationCount, 1, 'licznik eskalacji sie nie podnosi po przejeciu')
   })
 
   it('sam Filip przypisany, ale zadanie stoi w "do zrobienia" — nadal budzimy', async () => {

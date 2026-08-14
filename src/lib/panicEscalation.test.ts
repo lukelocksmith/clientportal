@@ -11,6 +11,9 @@ import { describe, it } from 'vitest'
 import assert from 'node:assert'
 
 import {
+  whoTookOver,
+  buildHandoverSmsText,
+  buildHandoverDiscordText,
   isTaskHandled,
   isEscalationDue,
   minutesSince,
@@ -232,5 +235,67 @@ describe('buildEscalationDiscordText', () => {
       taskUrl: null,
     })
     assert.match(text, /nie powstało w ClickUpie/)
+  })
+})
+
+describe('whoTookOver — kto przejal sprawe', () => {
+  it('pomija osobe dyzurna, bo ona jest przypisana automatycznie', () => {
+    assert.strictEqual(
+      whoTookOver([{ id: DUTY, username: 'Paulina' }, { id: INNY, username: 'Filip Gorny' }], DUTY),
+      'Filip Gorny'
+    )
+  })
+
+  it('wymienia wszystkich, gdy sprawe wzielo kilka osob', () => {
+    assert.strictEqual(
+      whoTookOver([{ id: INNY, username: 'Filip' }, { id: 999, username: 'Artem' }], DUTY),
+      'Filip, Artem'
+    )
+  })
+
+  it('bez imienia w ClickUpie mowi "ktos z zespolu", zamiast pustego miejsca', () => {
+    assert.strictEqual(whoTookOver([{ id: INNY, username: '' }], DUTY), 'ktoś z zespołu')
+    assert.strictEqual(whoTookOver([], DUTY), 'ktoś z zespołu')
+    assert.strictEqual(whoTookOver(null, DUTY), 'ktoś z zespołu')
+  })
+})
+
+describe('buildHandoverSmsText', () => {
+  const base = { portalName: 'Onyx', who: 'Filip Gorny', minutes: 12, taskUrl: 'https://app.clickup.com/t/869x' }
+
+  it('mowi KTO wzial sprawe i po ilu minutach', () => {
+    const t = buildHandoverSmsText(base)
+    assert.match(t, /PRZEJETE/)
+    assert.match(t, /Filip Gorny/)
+    assert.match(t, /12 min/)
+    assert.match(t, /869x/)
+  })
+
+  it('miesci sie w jednym segmencie', () => {
+    const t = buildHandoverSmsText({ ...base, portalName: 'B'.repeat(60), who: 'I'.repeat(60) })
+    assert.ok(t.length <= 160, `dlugosc ${t.length}`)
+  })
+
+  it('nie przepuszcza znakow spoza GSM-7', () => {
+    const t = buildHandoverSmsText({ ...base, who: 'Paweł Ćwikła', portalName: 'Żółw' })
+    // eslint-disable-next-line no-control-regex
+    assert.doesNotMatch(t, /[^\x20-\x7E]/)
+  })
+})
+
+describe('buildHandoverDiscordText', () => {
+  it('niesie osobe, status zadania i link', () => {
+    const t = buildHandoverDiscordText({
+      portalName: 'Onyx',
+      who: 'Filip Gorny',
+      message: 'strona nie dziala',
+      minutes: 12,
+      status: 'w trakcie',
+      taskUrl: 'https://app.clickup.com/t/869x',
+    })
+    assert.match(t, /przejęty/i)
+    assert.match(t, /Filip Gorny/)
+    assert.match(t, /w trakcie/)
+    assert.match(t, /869x/)
   })
 })

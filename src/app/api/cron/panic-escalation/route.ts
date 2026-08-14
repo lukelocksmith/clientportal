@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { and, eq, gte, lt } from 'drizzle-orm'
+import { and, eq, gte, isNull, lt } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { panicAlerts, portals } from '@/lib/db/schema'
 import { getTask } from '@/lib/clickup'
@@ -10,7 +10,10 @@ import {
   ESCALATION_STEPS_MINUTES,
   buildEscalationDiscordText,
   buildEscalationSmsText,
+  buildHandoverDiscordText,
+  buildHandoverSmsText,
   isHandledTask,
+  whoTookOver,
 } from '@/lib/panicEscalation'
 import { panicEmailHtml, sendPanicDiscord, sendPanicEmails, sendPanicSms } from '@/lib/panicNotify'
 import { reporterLabel } from '@/lib/reporter'
@@ -62,12 +65,16 @@ async function handle(request: NextRequest) {
         clickupTaskId: panicAlerts.clickupTaskId,
         escalationCount: panicAlerts.escalationCount,
         createdAt: panicAlerts.createdAt,
+        handledAt: panicAlerts.handledAt,
       })
       .from(panicAlerts)
       .innerJoin(portals, eq(portals.id, panicAlerts.portalId))
       .where(
         and(
           lt(panicAlerts.escalationCount, maxKrokow),
+          // Sprawy przejęte wypadają z kolejki na dobre: powiadomienie o
+          // przejęciu poszło raz, więcej nie ma o czym przypominać.
+          isNull(panicAlerts.handledAt),
           gte(panicAlerts.createdAt, new Date(now.getTime() - LOOKBACK_HOURS * 3_600_000))
         )
       )
@@ -98,14 +105,18 @@ async function handle(request: NextRequest) {
       // a nie „ktoś się tym zajął".
       let przejete = false
       let powod = 'brak zadania w ClickUpie'
+      let ktoPrzejal = ''
+      let statusZadania = ''
 
       if (alert.clickupTaskId) {
         try {
           const task = await getTask(alert.clickupTaskId)
           przejete = isHandledTask(task, duty)
+          statusZadania = task.status?.status ?? 'brak'
+          ktoPrzejal = whoTookOver(task.assignees, duty)
           powod = przejete
-            ? 'ktoś inny przypisany i zadanie ruszyło'
-            : `przypisani: ${task.assignees?.length ?? 0}, status: ${task.status?.status ?? 'brak'}`
+            ? `przejął: ${ktoPrzejal}`
+            : `przypisani: ${task.assignees?.length ?? 0}, status: ${statusZadania}`
         } catch (e) {
           // Nie wiemy, czy ktoś przejął sprawę. Przy alarmie niewiedza ma
           // budzić, nie uciszać, więc eskalujemy i zapisujemy powód.
@@ -113,7 +124,58 @@ async function handle(request: NextRequest) {
         }
       }
 
+      const minutyOdZgloszenia = Math.max(
+        0,
+        Math.floor((now.getTime() - alert.createdAt.getTime()) / 60_000)
+      )
+      const adresZadania = alert.clickupTaskId
+        ? `https://app.clickup.com/t/${alert.clickupTaskId}`
+        : null
+
       if (przejete) {
+        // Stempel PRZED wysyłką, tak jak licznik eskalacji: dwa przebiegi pod
+        // rząd nie mogą powiadomić o tym samym przejęciu dwa razy.
+        await db
+          .update(panicAlerts)
+          .set({ handledAt: now, handledBy: ktoPrzejal })
+          .where(eq(panicAlerts.id, alert.id))
+
+        await sendPanicSms({
+          text: buildHandoverSmsText({
+            portalName: alert.portalName,
+            who: ktoPrzejal,
+            minutes: minutyOdZgloszenia,
+            taskUrl: adresZadania,
+          }),
+          portalId: alert.portalId,
+        })
+
+        await sendPanicDiscord(
+          buildHandoverDiscordText({
+            portalName: alert.portalName,
+            who: ktoPrzejal,
+            message: alert.message,
+            minutes: minutyOdZgloszenia,
+            status: statusZadania,
+            taskUrl: adresZadania,
+          })
+        )
+
+        await sendPanicEmails({
+          subject: `✅ Alarm przejęty: ${alert.portalName} — ${ktoPrzejal}`,
+          html: panicEmailHtml({
+            title: '✅ Alarm przejęty',
+            portalName: alert.portalName,
+            message: alert.message,
+            who: reporterLabel({ name: alert.userName, email: alert.userEmail ?? '' }),
+            lead: `Sprawę przejął ${ktoPrzejal}, ${minutyOdZgloszenia} minut po zgłoszeniu. Zadanie ma status „${statusZadania}".`,
+            taskUrl: adresZadania,
+            ...(adresZadania ? { button: { url: adresZadania, label: 'Otwórz zadanie w ClickUpie →' } } : {}),
+            footer: 'Portal nie będzie już przypominał o tym alarmie.',
+          }),
+          portalId: alert.portalId,
+        })
+
         wyniki.push({ alertId: alert.id, escalated: false, reason: powod })
         continue
       }
@@ -125,15 +187,8 @@ async function handle(request: NextRequest) {
         .set({ escalationCount: alert.escalationCount + 1, escalatedAt: now })
         .where(eq(panicAlerts.id, alert.id))
 
-      // Liczone NA MIEJSCU, a nie przez `minutesSince` i `clickupTaskUrl`
-      // z lib/panicEscalation. Powód jest przykry i wart zapamiętania:
-      // minifikator produkcyjny wtapiał te jednolinijkowce w tę pętlę i
-      // produkował przypisania do NIEZADEKLAROWANYCH zmiennych, co w trybie
-      // ścisłym kończyło się `ReferenceError: now is not defined` przy każdym
-      // przebiegu, który miał realny alarm do eskalacji (14.08.2026). Lokalnie
-      // i w testach wszystko przechodziło, bo tam kod nie jest minifikowany.
-      const minuty = Math.max(0, Math.floor((now.getTime() - alert.createdAt.getTime()) / 60_000))
-      const taskUrl = alert.clickupTaskId ? `https://app.clickup.com/t/${alert.clickupTaskId}` : null
+      const minuty = minutyOdZgloszenia
+      const taskUrl = adresZadania
       const who = reporterLabel({ name: alert.userName, email: alert.userEmail ?? '' })
 
       await sendPanicSms({

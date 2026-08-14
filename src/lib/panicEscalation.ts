@@ -152,3 +152,52 @@ export function isHandledTask(task: ClickUpTask, dutyAssigneeId: number | null):
     dutyAssigneeId,
   })
 }
+
+/**
+ * Kto przejął sprawę. Imię bierzemy z ClickUpa, a nie z naszej listy zespołu,
+ * bo sprawę może wziąć ktoś spoza TEAM_MEMBERS i wtedy „ktoś" byłoby gorsze
+ * od prawdziwego nazwiska. Pomijamy osobę dyżurną, bo ona jest przypisana
+ * automatycznie przy każdym alarmie i nie niesie informacji.
+ */
+export function whoTookOver(
+  assignees: Array<{ id: number; username?: string }> | null | undefined,
+  dutyAssigneeId: number | null
+): string {
+  const inni = (assignees ?? []).filter(a => a.id !== dutyAssigneeId)
+  const imiona = inni.map(a => (a.username ?? '').trim()).filter(n => n.length > 0)
+  if (imiona.length === 0) return 'ktoś z zespołu'
+  return imiona.join(', ')
+}
+
+/** SMS o przejęciu sprawy. Krótszy niż alarmowy, bo to dobra wiadomość. */
+export function buildHandoverSmsText(input: {
+  portalName: string
+  who: string
+  minutes: number
+  taskUrl: string | null
+}): string {
+  const MAX = 160
+  const portal = toGsmSafe(input.portalName).slice(0, 30)
+  const kto = toGsmSafe(input.who).slice(0, 40)
+  const ogon = input.taskUrl ? ` | ${input.taskUrl}` : ''
+  return `PRZEJETE ${portal}: sprawe wzial ${kto}, po ${input.minutes} min${ogon}`.slice(0, MAX)
+}
+
+/** Wpis na Discordzie o przejęciu sprawy. */
+export function buildHandoverDiscordText(input: {
+  portalName: string
+  who: string
+  message: string
+  minutes: number
+  status: string
+  taskUrl: string | null
+}): string {
+  return (
+    `✅ **Alarm przejęty — ${input.portalName}**\n\n` +
+    `> ${input.message}\n\n` +
+    `**Zajmuje się:** ${input.who}\n` +
+    `**Status zadania:** ${input.status}\n` +
+    `**Czas od zgłoszenia:** ${input.minutes} min\n\n` +
+    (input.taskUrl ? `**Zadanie:** ${input.taskUrl}` : '')
+  )
+}

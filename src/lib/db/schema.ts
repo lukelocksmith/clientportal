@@ -252,6 +252,16 @@ export const panicAlerts = pgTable('panic_alerts', {
    * budziłaby zespół przy każdym przebiegu.
    */
   escalationCount: integer('escalation_count').notNull().default(0),
+  /**
+   * Kiedy sprawa została przejęta i przez kogo (imię z ClickUpa, nie z naszej
+   * listy zespołu, żeby ktoś spoza TEAM_MEMBERS też był widoczny z nazwiska).
+   *
+   * Stempel pełni dwie role: nośnika informacji dla powiadomienia „przejęte"
+   * ORAZ blokady, żeby to powiadomienie poszło DOKŁADNIE RAZ i żeby alarm
+   * wypadł z kolejki eskalacji na dobre.
+   */
+  handledAt: timestamp('handled_at'),
+  handledBy: text('handled_by'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

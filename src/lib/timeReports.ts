@@ -152,8 +152,33 @@ export function parsePeriodKey(kind: PeriodKind, key: string, now: Date = new Da
   if (month < 1 || month > 12) return null
   const start = startOfMonth(new TZDate(Number(m[1]), month - 1, 1, TZ))
   const period = monthFrom(start)
-  if (period.startMs >= currentPeriodStart('miesiac', now).getTime()) return null
+  const currentStartMs = currentPeriodStart('miesiac', now).getTime()
+  // Bieżący miesiąc, w odróżnieniu od bieżącego tygodnia, klient MA prawo
+  // zobaczyć — to właśnie ten "podgląd na żywo" z weekly WDF 18.08. Przyszłość
+  // (miesiąc jeszcze nie zaczęty) zostaje odrzucona jak dotąd.
+  if (period.startMs === currentStartMs) return currentMonthToDate(now)
+  if (period.startMs > currentStartMs) return null
   return period
+}
+
+/**
+ * Bieżący miesiąc, od 1. dnia do TERAZ. Odpowiednik `currentWeekToDate` dla
+ * miesiąca — patrz komentarz tam po uzasadnienie strefy czasowej i `endMs`.
+ *
+ * W odróżnieniu od tygodnia, dla miesiąca CELOWO wystawiamy to również na
+ * zakładce Raporty (nie tylko na Dashboardzie): klient poprosił o śledzenie
+ * godzin na bieżąco w skali miesiąca, żeby móc pilnować budżetu w trakcie,
+ * a nie dopiero po zamknięciu okresu.
+ */
+export function currentMonthToDate(now: Date = new Date()): Period {
+  const start = startOfMonth(inWarsaw(now))
+  return {
+    kind: 'miesiac',
+    key: format(start, 'yyyy-MM'),
+    label: `${format(start, 'LLLL yyyy', { locale: pl })} (w trakcie)`,
+    startMs: start.getTime(),
+    endMs: now.getTime(),
+  }
 }
 
 /**
@@ -165,7 +190,12 @@ export function shiftPeriod(period: Period, delta: number, now: Date = new Date(
   const shifted = period.kind === 'tydzien' ? subWeeks(start, -delta) : subMonths(start, -delta)
   const next =
     period.kind === 'tydzien' ? weekFrom(startOfISOWeek(shifted)) : monthFrom(startOfMonth(shifted))
-  if (next.startMs >= currentPeriodStart(period.kind, now).getTime()) return null
+  const currentStartMs = currentPeriodStart(period.kind, now).getTime()
+  // Tak samo jak w parsePeriodKey: strzałka "nowszy" ma domykać łańcuch AŻ do
+  // bieżącego miesiąca (na żywo), nie zatrzymywać się tuż przed nim. Tydzień
+  // zostaje bez zmian — tam bieżący okres nadal jest nieosiągalny strzałką.
+  if (period.kind === 'miesiac' && next.startMs === currentStartMs) return currentMonthToDate(now)
+  if (next.startMs >= currentStartMs) return null
   return next
 }
 

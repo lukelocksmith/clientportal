@@ -38,6 +38,7 @@ vi.mock('next/headers', () => ({
 
 import { NextRequest } from 'next/server'
 import { POST as portalsPOST, PATCH as portalsPATCH } from '@/app/api/admin/portals/route'
+import { GET as portalTagsGET } from '@/app/api/admin/portals/tags/route'
 import { GET as linksGET, PUT as linksPUT } from '@/app/api/admin/portal-links/route'
 import { GET as eventsGET } from '@/app/api/admin/portal-events/route'
 import { GET as mailLogGET } from '@/app/api/admin/mail-log/route'
@@ -118,6 +119,7 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
           body: JSON.stringify({ name: 'X', slug: 'x', clickupFolderId: '1', lists: [] }),
         })
       )],
+      ['GET /admin/portals/tags', () => portalTagsGET(req('/api/admin/portals/tags?spaceId=1'))],
     ]
 
     for (const [nazwa, wywolaj] of trasy) {
@@ -130,6 +132,12 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
       await foldersGET(req('/api/admin/clickup/folders'))
 
       // Odmowa po zapytaniu do ClickUpa i tak zjadalaby limit wspolnego tokenu.
+      assert.strictEqual(fetchMock.mock.calls.length, 0)
+    })
+
+    it('GET /admin/portals/tags bez uprawnien NIE woła ClickUpa', async () => {
+      await portalTagsGET(req('/api/admin/portals/tags?spaceId=1'))
+
       assert.strictEqual(fetchMock.mock.calls.length, 0)
     })
   })
@@ -329,6 +337,26 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
       assert.strictEqual(res.status, 404)
     })
 
+    it('autoTags zapisuje sie jako tekst po przecinku, deduplikowany', async () => {
+      const res = await portalsPATCH(
+        wyslij('/api/admin/portals', 'PATCH', { slug: portalA.slug, autoTags: ['asana', 'portal', 'asana'] })
+      )
+      const { portal } = await res.json()
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(portal.autoTags, 'asana,portal')
+      assert.strictEqual(portal.brandColor, '#c8a24a', 'kolor nietkniety przy okazji')
+    })
+
+    it('pusta tablica autoTags czysci pole (null, nie pusty string)', async () => {
+      await portalsPATCH(wyslij('/api/admin/portals', 'PATCH', { slug: portalA.slug, autoTags: ['asana'] }))
+
+      const res = await portalsPATCH(wyslij('/api/admin/portals', 'PATCH', { slug: portalA.slug, autoTags: [] }))
+      const { portal } = await res.json()
+
+      assert.strictEqual(portal.autoTags, null)
+    })
+
     it('statusControlsEnabled da sie wlaczyc i wylaczyc, bez wplywu na inne pola', async () => {
       const wlacz = await portalsPATCH(
         wyslij('/api/admin/portals', 'PATCH', { slug: portalA.slug, statusControlsEnabled: true })
@@ -526,6 +554,41 @@ describe.skipIf(!dbUp)('reszta panelu admina na prawdziwej bazie', () => {
         { params: Promise.resolve({ userId: brak }) }
       )
       assert.strictEqual(res.status, 404)
+    })
+  })
+
+  /**
+   * TAGI PRZESTRZENI. Zrodlo checkboxow autoTags w panelu — admin ma wybierac
+   * z tagow, ktore NAPRAWDE istnieja w ClickUpie, zeby nie dalo sie zapisac
+   * literowki, ktorej ClickUp i tak cicho nie zastosuje przy tworzeniu zadania.
+   */
+  describe.skipIf(!maToken)('GET /api/admin/portals/tags', () => {
+    it('bez ?spaceId -> 400', async () => {
+      const res = await portalTagsGET(zTokenem('/api/admin/portals/tags'))
+      assert.strictEqual(res.status, 400)
+    })
+
+    it('sprowadza odpowiedz ClickUpa do samych nazw tagow', async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({
+          tags: [{ name: 'asana', tag_fg: '#fff', tag_bg: '#000' }, { name: 'portal' }],
+        }))
+      )
+
+      const res = await portalTagsGET(zTokenem('/api/admin/portals/tags?spaceId=90100136256'))
+      const { tags } = await res.json()
+
+      assert.strictEqual(res.status, 200)
+      assert.deepStrictEqual(tags, ['asana', 'portal'])
+      assert.match(fetchMock.mock.calls[0][0] as string, /space\/90100136256\/tag/)
+    })
+
+    it('ClickUp nie odpowiada -> 502, nie 500 bez wyjasnienia', async () => {
+      fetchMock.mockRejectedValue(new Error('siec padla'))
+
+      const res = await portalTagsGET(zTokenem('/api/admin/portals/tags?spaceId=90100136256'))
+
+      assert.strictEqual(res.status, 502)
     })
   })
 })

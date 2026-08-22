@@ -7,7 +7,7 @@
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert/strict'
-import { listPeriods, parsePeriodKey, shiftPeriod } from '@/lib/timeReports'
+import { currentMonthToDate, listPeriods, parsePeriodKey, shiftPeriod } from '@/lib/timeReports'
 
 describe('timeReports', () => {
   it('przypadki brzegowe', () => {
@@ -83,8 +83,20 @@ describe('timeReports', () => {
       assert.equal(parsePeriodKey('tydzien', 'bzdura', ref), null)
       assert.equal(parsePeriodKey('tydzien', '2026-W00', ref), null)
       assert.equal(parsePeriodKey('miesiac', '2026-06', ref)?.key, '2026-06')
-      assert.equal(parsePeriodKey('miesiac', '2026-07', ref), null, 'bieżący miesiąc odrzucony')
+      // Bieżący MIESIĄC, w odróżnieniu od tygodnia, jest dozwolony — na żywo,
+      // z endMs przyciętym do `ref`, nie do końca miesiąca.
+      assert.equal(parsePeriodKey('miesiac', '2026-07', ref)?.endMs, ref.getTime())
+      assert.equal(parsePeriodKey('miesiac', '2026-08', ref), null, 'przyszły miesiąc odrzucony')
       assert.equal(parsePeriodKey('miesiac', '2026-13', ref), null)
+    }
+
+    {
+      // currentMonthToDate: od 1. dnia miesiąca do `ref`, nie do końca miesiąca.
+      const live = currentMonthToDate(ref)
+      assert.equal(live.key, '2026-07')
+      assert.equal(live.label, 'lipiec 2026 (w trakcie)')
+      assert.equal(live.startMs, 1782856800000) // 1 lipca 2026 00:00 CEST
+      assert.equal(live.endMs, ref.getTime())
     }
 
     {
@@ -97,7 +109,13 @@ describe('timeReports', () => {
       assert.equal(shiftPeriod(older, 1, ref)?.key, '2026-W21')
       const lastMonth = listPeriods('miesiac', 1, ref)[0]
       assert.equal(shiftPeriod(lastMonth, -1, ref)?.key, '2026-05')
-      assert.equal(shiftPeriod(lastMonth, 1, ref), null)
+      // +1 od ostatniego zamkniętego miesiąca domyka łańcuch AŻ do bieżącego,
+      // na żywo — w odróżnieniu od tygodnia, gdzie to samo dalej zwraca null.
+      const shiftedToLive = shiftPeriod(lastMonth, 1, ref)
+      assert.equal(shiftedToLive?.key, '2026-07')
+      assert.equal(shiftedToLive?.endMs, ref.getTime())
+      // Za bieżącym miesiącem nic już nie ma.
+      assert.equal(shiftPeriod(shiftedToLive!, 1, ref), null)
     }
   })
 })

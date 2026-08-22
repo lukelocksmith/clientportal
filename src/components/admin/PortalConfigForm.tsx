@@ -6,7 +6,9 @@ import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TEAM_MEMBERS, parseContactMemberIds } from '@/lib/team'
+import { parseAutoTags } from '@/lib/autoTags'
 import { ProjectLinksForm } from './ProjectLinksForm'
+import { AutoTagsPicker } from './AutoTagsPicker'
 
 /**
  * Konfiguracja projektu: marka (logo, kolor) i kontakt opiekuna.
@@ -25,6 +27,8 @@ interface Props {
     logoUrl: string | null; brandColor: string | null
     contactMemberIds: string | null
     contactName: string | null; contactEmail: string | null; contactPhone: string | null
+    clickupSpaceId: string
+    autoTags: string | null
   }
   onSaved: (changes: Partial<Props['portal']>) => void
 }
@@ -42,6 +46,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const [cName, setCName] = useState(portal.contactName ?? '')
   const [cEmail, setCEmail] = useState(portal.contactEmail ?? '')
   const [cPhone, setCPhone] = useState(portal.contactPhone ?? '')
+  const [autoTags, setAutoTags] = useState<string[]>(() => parseAutoTags(portal.autoTags))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -63,8 +68,13 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const membersDirty =
     savedMembers.length !== members.length || savedMembers.some(id => !members.includes(id))
 
+  const savedAutoTags = parseAutoTags(portal.autoTags)
+  const autoTagsDirty =
+    savedAutoTags.length !== autoTags.length || savedAutoTags.some(t => !autoTags.includes(t))
+
   const dirty =
     membersDirty ||
+    autoTagsDirty ||
     (portal.brandColor ?? '') !== color ||
     (portal.logoUrl ?? '') !== logo ||
     (portal.contactName ?? '') !== cName ||
@@ -115,6 +125,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         contactName: cName.trim() === '' ? null : cName.trim(),
         contactEmail: cEmail.trim() === '' ? null : cEmail.trim(),
         contactPhone: cPhone.trim() === '' ? null : cPhone.trim(),
+        autoTags,
       }
       const res = await fetch('/api/admin/portals', {
         method: 'PATCH',
@@ -139,6 +150,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         contactName: data.portal?.contactName ?? null,
         contactEmail: data.portal?.contactEmail ?? null,
         contactPhone: data.portal?.contactPhone ?? null,
+        autoTags: data.portal?.autoTags ?? null,
       })
       setSaved(true)
     } catch {
@@ -351,6 +363,21 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
           {saved && !dirty ? 'Zapisane' : 'Zapisz'}
         </Button>
+      </div>
+
+      {/* Tagi doklejane do zadań z AI-chatu (np. pod automatyzację ClickUp →
+          Asana). Lista checkboxów pochodzi z realnych tagów przestrzeni
+          klienta, nie z wpisywanego tekstu — patrz komentarz w schema.ts. */}
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Tagi automatyczne dla zadań z AI-chatu
+        </p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Każde nowe zadanie zgłoszone przez AI-chat w portalu dostanie te tagi w ClickUpie.
+        </p>
+        <div className="mt-2">
+          <AutoTagsPicker spaceId={portal.clickupSpaceId} selected={autoTags} onChange={setAutoTags} />
+        </div>
       </div>
 
       {/* Linki projektu. Osobny zapis, bo podmieniaja caly zestaw wierszy,

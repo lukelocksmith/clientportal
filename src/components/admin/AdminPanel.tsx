@@ -26,6 +26,9 @@ type Portal = {
   logoUrl: string | null; brandColor: string | null
   contactMemberIds: string | null
   contactName: string | null; contactEmail: string | null; contactPhone: string | null
+  /** Przestrzeń ClickUp tego portalu, do pobrania listy tagów dla autoTags. */
+  clickupSpaceId: string
+  autoTags: string | null
 } & PortalFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {

@@ -1,0 +1,1 @@
+ALTER TABLE "portals" ADD COLUMN "auto_tags" text;

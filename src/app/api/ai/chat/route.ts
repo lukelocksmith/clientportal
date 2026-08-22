@@ -13,7 +13,8 @@ import { computeCost } from '@/lib/aiPricing'
 import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
-import { AWARIA_TAG, isAwaria } from '@/lib/utils'
+import { isAwaria } from '@/lib/utils'
+import { buildAiChatTags } from '@/lib/autoTags'
 import {
   buildNewTaskPrompt,
   taskInputSchema,
@@ -108,12 +109,13 @@ export async function POST(request: NextRequest) {
         }),
         priority: priority ?? null,
         due_date: due_date ?? null,
-        // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii.
-        // Model dostaje tu swobodne pole tekstowe, a tagi w ClickUpie są
-        // wspólne dla całej przestrzeni klientów: bez tego filtra halucynacja
-        // albo podpowiedź z rozmowy klienta zakładałaby zespołowi śmieci
-        // w słowniku tagów.
-        tags: awaria ? [AWARIA_TAG] : undefined,
+        // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii,
+        // doklejony do tagów skonfigurowanych dla portalu (np. "asana", pod
+        // istniejącą automatyzację ClickUp → Asana). Model dostaje tu swobodne
+        // pole tekstowe, a tagi w ClickUpie są wspólne dla całej przestrzeni
+        // klientów: bez tego filtra halucynacja albo podpowiedź z rozmowy
+        // klienta zakładałaby zespołowi śmieci w słowniku tagów.
+        tags: buildAiChatTags(portal.autoTags, awaria),
         // Client-submitted tasks land in "do zrobienia" (to-do), not the default backlog,
         // so the team sees incoming requests instead of them being buried.
         status: 'do zrobienia',

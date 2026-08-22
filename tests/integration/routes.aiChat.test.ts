@@ -2,7 +2,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, aiUsage } from '@/lib/db/schema'
+import { auditLog, aiUsage, portals } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -256,6 +256,45 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       await t.execute({ name: 'Strona lezy', description: 'nic nie dziala', tags: [AWARIA_TAG] })
 
       assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, [AWARIA_TAG])
+    })
+
+    it('tagi skonfigurowane dla portalu (autoTags) doklejaja sie do kazdego zadania z czatu', async () => {
+      await db.update(portals).set({ autoTags: 'asana,portal' }).where(eq(portals.id, portalA.id))
+      try {
+        await zaloguj()
+        const t = await narzedzie(portalA.slug)
+
+        await t.execute({ name: 'X', description: 'y' })
+
+        assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['asana', 'portal'])
+      } finally {
+        await db.update(portals).set({ autoTags: null }).where(eq(portals.id, portalA.id))
+      }
+    })
+
+    it('autoTags i tag awarii wspolistnieja, bez duplikatow', async () => {
+      await db.update(portals).set({ autoTags: 'asana,awaria' }).where(eq(portals.id, portalA.id))
+      try {
+        await zaloguj()
+        const t = await narzedzie(portalA.slug)
+
+        await t.execute({ name: 'Strona lezy', description: 'y', tags: [AWARIA_TAG] })
+
+        // "awaria" jest i w konfiguracji portalu, i w tagach od modelu — ma
+        // wejsc do ClickUpa raz, nie dwa razy.
+        assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['asana', 'awaria'])
+      } finally {
+        await db.update(portals).set({ autoTags: null }).where(eq(portals.id, portalA.id))
+      }
+    })
+
+    it('bez autoTags i bez awarii nie wysyla pola tags wcale', async () => {
+      await zaloguj()
+      const t = await narzedzie(portalA.slug)
+
+      await t.execute({ name: 'X', description: 'y' })
+
+      assert.strictEqual(clickup.createTask.mock.calls[0][1].tags, undefined)
     })
 
     it('utworzenie zadania uniewaznia bufor tablicy i zapisuje zdarzenie', async () => {

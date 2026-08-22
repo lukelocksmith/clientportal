@@ -8,6 +8,7 @@ import { ensureAdminUser } from '@/lib/adminUser'
 import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { serializeContactMemberIds, TEAM_MEMBERS } from '@/lib/team'
+import { serializeAutoTags } from '@/lib/autoTags'
 
 export async function GET(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -24,6 +25,11 @@ export async function GET(request: NextRequest) {
       dashboardEnabled: portals.dashboardEnabled,
       sitepingEnabled: portals.sitepingEnabled,
       statusControlsEnabled: portals.statusControlsEnabled,
+      estimateReportEnabled: portals.estimateReportEnabled,
+      // Potrzebne w adminie do pobrania listy tagów tej przestrzeni ClickUp
+      // dla checkboxów autoTags (patrz /api/admin/portals/tags).
+      clickupSpaceId: portals.clickupSpaceId,
+      autoTags: portals.autoTags,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
@@ -48,6 +54,7 @@ const UpdatePortalSchema = z
     dashboardEnabled: z.boolean().optional(),
     sitepingEnabled: z.boolean().optional(),
     statusControlsEnabled: z.boolean().optional(),
+    estimateReportEnabled: z.boolean().optional(),
     /**
      * Domeny, z których endpoint SitePing przyjmuje zgłoszenia — SAME NAZWY
      * HOSTÓW po przecinku (`wdf.important.is,wodadlafirmy.pl`), bez schematu
@@ -129,6 +136,18 @@ const UpdatePortalSchema = z
         { message: 'Nieznany członek zespołu' }
       )
       .transform(v => (v === undefined ? undefined : serializeContactMemberIds(v))),
+    /**
+     * Tagi ClickUp doklejane do zadań z AI-chatu (patrz autoTags w schema.ts).
+     * Bez allowlisty jak przy contactMemberIds: zestaw tagów przestrzeni jest
+     * per klient i zmienny, checkboxy w PortalConfigForm pokazują tylko to,
+     * co realnie istnieje w ClickUpie (getSpaceTags), więc dowolny string tu
+     * i tak by ClickUp cicho zignorował przy tworzeniu zadania.
+     */
+    autoTags: z
+      .array(z.string().max(60))
+      .max(20)
+      .optional()
+      .transform(v => (v === undefined ? undefined : serializeAutoTags(v))),
     contactName: z
       .string()
       .max(120)
@@ -210,6 +229,11 @@ export async function PATCH(request: NextRequest) {
       dashboardEnabled: portals.dashboardEnabled,
       sitepingEnabled: portals.sitepingEnabled,
       statusControlsEnabled: portals.statusControlsEnabled,
+      estimateReportEnabled: portals.estimateReportEnabled,
+      // Potrzebne w adminie do pobrania listy tagów tej przestrzeni ClickUp
+      // dla checkboxów autoTags (patrz /api/admin/portals/tags).
+      clickupSpaceId: portals.clickupSpaceId,
+      autoTags: portals.autoTags,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,

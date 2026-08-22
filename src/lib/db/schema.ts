@@ -70,6 +70,22 @@ export const portals = pgTable('portals', {
    */
   statusControlsEnabled: boolean('status_controls_enabled').notNull().default(false),
   /**
+   * Widget "pozostała estymacja" na zakładce Raporty: suma time_estimate minus
+   * time_spent dla zadań w do zrobienia/w trakcie/zablokowane. Osobna flaga od
+   * reportsEnabled (patrz komentarz wyżej), bo klienci majacy juz wlaczony
+   * raport czasu pracy nie maja automatycznie dostac tego widgetu.
+   */
+  estimateReportEnabled: boolean('estimate_report_enabled').notNull().default(false),
+  /**
+   * Tagi ClickUp doklejane automatycznie do zadan zalozonych przez AI-chat w
+   * portalu (np. "asana", zeby zadzialala istniejaca automatyzacja ClickUp →
+   * Asana po tagu). Tekst z tagami po przecinku, parsowany przez
+   * lib/autoTags.ts. Null/pusty = brak dodatkowych tagow (zachowanie
+   * sprzed tej funkcji). Admin wybiera z rzeczywistych tagow przestrzeni
+   * (getSpaceTags), wiec tu nie ma dowolnego tekstu — patrz PortalConfigForm.
+   */
+  autoTags: text('auto_tags'),
+  /**
    * Domeny, z ktorych /api/siteping/[slug] przyjmuje zgloszenia — SAME NAZWY
    * HOSTOW po przecinku (np. "wdf.important.is,wodadlafirmy.pl"), bez schematu
    * i bez sciezki. Klient moze miec staging i produkcje jako dwie realne,

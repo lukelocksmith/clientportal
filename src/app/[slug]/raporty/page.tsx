@@ -1,16 +1,20 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getTimeEntries } from '@/lib/clickup'
+import { getCachedTasksForScope } from '@/lib/clickupCache'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { filterTimeEntriesToScope } from '@/lib/portalScope'
 import {
   buildReport,
+  currentMonthToDate,
   listPeriods,
   parsePeriodKey,
   shiftPeriod,
   type TimeReport,
 } from '@/lib/timeReports'
+import { buildEstimateReport, type EstimateReport } from '@/lib/estimateReport'
 import { ReportView } from '@/components/reports/ReportView'
+import { EstimateReportView } from '@/components/reports/EstimateReportView'
 import { PortalHeader } from '@/components/PortalHeader'
 import { isTabEnabled } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
@@ -47,7 +51,10 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
   const raw = await searchParams
   const { typ: kind, okres } = searchSchema.parse({ typ: first(raw.typ), okres: first(raw.okres) })
 
-  const periods = listPeriods(kind, 12)
+  // Miesiąc, w odróżnieniu od tygodnia, doklejamy bieżący (jeszcze trwający)
+  // na start listy — patrz komentarz przy currentMonthToDate. Bez `okres`
+  // w URL-u ten właśnie okres staje się domyślnym widokiem zakładki.
+  const periods = kind === 'miesiac' ? [currentMonthToDate(), ...listPeriods(kind, 12)] : listPeriods(kind, 12)
   const period = (okres ? parsePeriodKey(kind, okres) : null) ?? periods[0]
 
   let report: TimeReport | null = null
@@ -65,6 +72,19 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
     console.error('[raporty] ClickUp nie odpowiedział:', error)
   }
 
+  // Za flagą, osobną od reportsEnabled: klienci majacy juz wlaczony raport
+  // czasu pracy nie maja automatycznie dostac tego widgetu (patrz schema.ts).
+  let estimateReport: EstimateReport | null = null
+  if (portal.estimateReportEnabled) {
+    try {
+      const scope = await getPortalScope(portal.id)
+      const tasks = await getCachedTasksForScope(portal.clickupFolderId, scope)
+      estimateReport = buildEstimateReport(tasks)
+    } catch (error) {
+      console.error('[raporty] Nie udało się policzyć pozostałej estymacji:', error)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <PortalHeader
@@ -74,6 +94,7 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
         flags={flags}
         branding={branding}
       />
+      {estimateReport && <EstimateReportView report={estimateReport} />}
       <ReportView
         branding={branding}
         slug={slug}

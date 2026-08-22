@@ -1,0 +1,1 @@
+ALTER TABLE "portals" ADD COLUMN "estimate_report_enabled" boolean DEFAULT false NOT NULL;

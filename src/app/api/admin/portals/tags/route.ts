@@ -4,7 +4,7 @@ import { isAdminRequest } from '@/lib/admin-auth'
 import { getSpaceTags } from '@/lib/clickup'
 
 /**
- * Tagi dostępne w przestrzeni ClickUp klienta — źródło checkboxów w
+ * Tagi dostępne w przestrzeni ClickUp klienta — źródło multiselectu w
  * PortalConfigForm przy wyborze `autoTags`. Admin wybiera z tego, co
  * NAPRAWDĘ istnieje w ClickUpie, żeby nie dało się zapisać literówki, której
  * ClickUp i tak by cicho nie zastosował (patrz komentarz w lib/clickup.ts).

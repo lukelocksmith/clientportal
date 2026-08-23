@@ -6,7 +6,7 @@ import { AWARIA_TAG } from './utils'
  * `contactMemberIds` — powód ten sam: jedna kolumna tekstowa zamiast osobnej
  * tabeli dla listy, która nie ma własnego porządku ani metadanych.
  *
- * Admin wybiera z realnych tagów przestrzeni ClickUp (checkboxy w
+ * Admin wybiera z realnych tagów przestrzeni ClickUp (multiselect w
  * PortalConfigForm, źródło: getSpaceTags), więc ten moduł nie waliduje
  * istnienia tagu — tylko parsuje/serializuje to, co już przeszło przez wybór.
  */

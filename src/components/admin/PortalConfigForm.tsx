@@ -350,24 +350,11 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
             className={`${field} w-40 ${phoneInvalid ? 'border-destructive' : ''}`}
           />
         </label>
-
-        {/* Domyślne disabled:opacity-50 na czerwieni daje róż, który czyta się
-            jak zepsuty przycisk. Wyłączony ma być szary, czyli wyraźnie nieaktywny. */}
-        <Button
-          type="button"
-          size="xs"
-          onClick={save}
-          disabled={saving || !dirty || invalid}
-          className="disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-        >
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
-          {saved && !dirty ? 'Zapisane' : 'Zapisz'}
-        </Button>
       </div>
 
       {/* Tagi doklejane do zadań z AI-chatu (np. pod automatyzację ClickUp →
-          Asana). Lista checkboxów pochodzi z realnych tagów przestrzeni
-          klienta, nie z wpisywanego tekstu — patrz komentarz w schema.ts. */}
+          Asana). Multiselect wybiera z realnych tagów przestrzeni klienta,
+          nie z wpisywanego tekstu — patrz komentarz w schema.ts. */}
       <div className="mt-3 border-t border-border/60 pt-3">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
           Tagi automatyczne dla zadań z AI-chatu
@@ -378,6 +365,30 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         <div className="mt-2">
           <AutoTagsPicker spaceId={portal.clickupSpaceId} selected={autoTags} onChange={setAutoTags} />
         </div>
+      </div>
+
+      {/* Jeden zapis na całą konfigurację powyżej: marka, kontakt i tagi lecą
+          jednym PATCH-em. Przycisk stoi w stopce, a nie w rzędzie kontaktu, bo
+          tam wyglądał na zapis samego kontaktu i zapalał się po wyborze tagu
+          dwie sekcje niżej. Napis obok mówi, że jest co zapisywać. */}
+      <div className="mt-3 flex items-center gap-2.5 border-t border-border/60 pt-3">
+        {/* Domyślne disabled:opacity-50 na czerwieni daje róż, który czyta się
+            jak zepsuty przycisk. Wyłączony ma być szary, czyli wyraźnie nieaktywny. */}
+        <Button
+          type="button"
+          size="xs"
+          onClick={save}
+          disabled={saving || !dirty || invalid}
+          className="disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+        >
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
+          {saved && !dirty ? 'Zapisane' : 'Zapisz konfigurację'}
+        </Button>
+        {dirty && !saving && (
+          <span className="text-xs text-muted-foreground">
+            Niezapisane zmiany: marka, kontakt i tagi.
+          </span>
+        )}
       </div>
 
       {/* Linki projektu. Osobny zapis, bo podmieniaja caly zestaw wierszy,

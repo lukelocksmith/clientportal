@@ -1,7 +1,8 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { CheckCircle2, Loader2, Lightbulb, Paperclip, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useImageAttachments } from '@/components/shared/useImageAttachments'
 
 const MIN_LENGTH = 10
 
@@ -21,34 +22,9 @@ export function IdeaForm({ slug }: { slug: string }) {
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; url: string }>>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { pending: pendingFiles, addFiles, removeFile, clearFiles, fileInputRef, handlePaste } = useImageAttachments()
 
   const tooShort = text.trim().length > 0 && text.trim().length < MIN_LENGTH
-
-  function addFiles(list: FileList | File[] | null) {
-    if (!list) return
-    const imgs = Array.from(list).filter(f => f.type.startsWith('image/'))
-    if (!imgs.length) return
-    setPendingFiles(prev => [...prev, ...imgs.map(f => ({ file: f, url: URL.createObjectURL(f) }))].slice(0, 5))
-  }
-
-  function removeFile(idx: number) {
-    setPendingFiles(prev => {
-      const next = [...prev]
-      const [gone] = next.splice(idx, 1)
-      if (gone) URL.revokeObjectURL(gone.url)
-      return next
-    })
-  }
-
-  function handlePaste(e: React.ClipboardEvent) {
-    const imgs = Array.from(e.clipboardData?.items ?? [])
-      .filter(i => i.type.startsWith('image/'))
-      .map(i => i.getAsFile())
-      .filter((f): f is File => !!f)
-    if (imgs.length) { e.preventDefault(); addFiles(imgs) }
-  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -66,8 +42,7 @@ export function IdeaForm({ slug }: { slug: string }) {
         setError(data?.error ?? 'Nie udało się wysłać. Spróbuj ponownie.')
         return
       }
-      pendingFiles.forEach(p => URL.revokeObjectURL(p.url))
-      setPendingFiles([])
+      clearFiles()
       setDone(true)
     } catch {
       setError('Brak połączenia. Spróbuj ponownie.')

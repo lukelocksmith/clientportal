@@ -223,7 +223,7 @@ describe('buildEscalationSmsText', () => {
 
   it('nie przepuszcza znakow spoza GSM-7', () => {
     const text = buildEscalationSmsText({ ...base, portalName: 'Żółw', message: '🚨 strona padła' })
-    // eslint-disable-next-line no-control-regex
+     
     assert.doesNotMatch(text, /[^\x20-\x7E]/)
   })
 })
@@ -297,7 +297,7 @@ describe('buildHandoverSmsText', () => {
 
   it('nie przepuszcza znakow spoza GSM-7', () => {
     const t = buildHandoverSmsText({ ...base, who: 'Paweł Ćwikła', portalName: 'Żółw' })
-    // eslint-disable-next-line no-control-regex
+     
     assert.doesNotMatch(t, /[^\x20-\x7E]/)
   })
 })

@@ -177,7 +177,7 @@ describe('buildPanicSmsText', () => {
       who: 'Paweł Ćwikła',
       message: '🚨 strona padła',
     })
-    // eslint-disable-next-line no-control-regex
+     
     assert.doesNotMatch(text, /[^\x20-\x7E]/, 'zostal znak, ktory przelaczy SMS na UCS-2')
   })
 

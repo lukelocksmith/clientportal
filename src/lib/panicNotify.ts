@@ -38,11 +38,14 @@ function emailRecipients(): string[] {
 export async function sendPanicDiscord(content: string): Promise<void> {
   const webhook = process.env.PANIC_DISCORD_WEBHOOK_URL
   if (!webhook) return
+  // Błąd jest łykany (best-effort), ale nie po cichu: padnięty Discord przy
+  // alarmie bez żadnego śladu w logach wyglądałby potem na kanał, który
+  // „nigdy nic nie dostaje", a nie na kanał, który akurat padł.
   await fetch(webhook, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
-  }).catch(() => {})
+  }).catch(e => console.error('[panicNotify] Discord nie przyjął powiadomienia:', e))
 }
 
 /**

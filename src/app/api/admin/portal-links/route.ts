@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { eq } from 'drizzle-orm'
 import { isAdminRequest } from '@/lib/admin-auth'
-import { db } from '@/lib/db'
-import { portals } from '@/lib/db/schema'
+import { requireAdminPortal } from '@/lib/adminPortal'
 import { MAX_LINKS_PER_PORTAL, MAX_LABEL_LENGTH } from '@/lib/projectLinks'
 import { getProjectLinks, replaceProjectLinks } from '@/lib/projectLinksStore'
 
@@ -35,10 +33,10 @@ export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get('slug')
   if (!slug) return NextResponse.json({ error: 'Podaj slug' }, { status: 400 })
 
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
+  const gate = await requireAdminPortal(slug)
+  if (!gate.ok) return gate.response
 
-  return NextResponse.json({ links: await getProjectLinks(portal.id) })
+  return NextResponse.json({ links: await getProjectLinks(gate.portal.id) })
 }
 
 export async function PUT(request: NextRequest) {
@@ -51,13 +49,9 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const [portal] = await db
-    .select()
-    .from(portals)
-    .where(eq(portals.slug, parsed.data.slug))
-    .limit(1)
-  if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
+  const gate = await requireAdminPortal(parsed.data.slug)
+  if (!gate.ok) return gate.response
 
-  const saved = await replaceProjectLinks(portal.id, parsed.data.links)
-  return NextResponse.json({ ok: true, saved, links: await getProjectLinks(portal.id) })
+  const saved = await replaceProjectLinks(gate.portal.id, parsed.data.links)
+  return NextResponse.json({ ok: true, saved, links: await getProjectLinks(gate.portal.id) })
 }

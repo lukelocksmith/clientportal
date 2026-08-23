@@ -1,6 +1,6 @@
 import { db } from './db'
 import { taskTimeSnapshots } from './db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { ClickUpTask } from './types'
 
 /**
@@ -51,21 +51,31 @@ export function mergeTrackedTime(tasks: ClickUpTask[], snapshots: Map<string, nu
  * portal into task_time_snapshots. Upserts one row per (portal, task).
  * Returns the number of tasks captured.
  */
+/**
+ * Freeze the current ClickUp time_spent for every task (incl. subtasks) of a
+ * portal into task_time_snapshots. Upserts rows in batches of (portal, task).
+ * Returns the number of tasks captured.
+ */
 export async function writeSnapshots(portalId: string, tasks: ClickUpTask[]): Promise<number> {
   const flat = flattenTasks(tasks)
   if (flat.length === 0) return 0
 
-  for (const t of flat) {
+  // Zbiorczy upsert porcjami po 200, nie pętla round-tripów per zadanie:
+  // przy dużym folderze pojedyncze uperty dawały setki zapytań, a awaria w
+  // połowie zostawiała tydzień zamrożony tylko częściowo. Porcja 200 trzyma
+  // liczbę parametrów zapytania poniżej limitu Postgresa.
+  for (let i = 0; i < flat.length; i += 200) {
+    const chunk = flat.slice(i, i + 200).map(t => ({
+      portalId,
+      clickupTaskId: t.id,
+      timeSpentMs: t.time_spent ?? 0,
+    }))
     await db
       .insert(taskTimeSnapshots)
-      .values({
-        portalId,
-        clickupTaskId: t.id,
-        timeSpentMs: t.time_spent ?? 0,
-      })
+      .values(chunk)
       .onConflictDoUpdate({
         target: [taskTimeSnapshots.portalId, taskTimeSnapshots.clickupTaskId],
-        set: { timeSpentMs: t.time_spent ?? 0, snapshotAt: new Date() },
+        set: { timeSpentMs: sql`excluded.time_spent_ms`, snapshotAt: new Date() },
       })
   }
   return flat.length

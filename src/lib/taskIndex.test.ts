@@ -265,6 +265,36 @@ describe('indexSingleTask — mapowanie pol', () => {
     assert.strictEqual(insertCalls.length, 0)
     errSpy.mockRestore()
   })
+
+  it('zadanie z listy SPOZA zakresu portalu nie wchodzi do indeksu i znika z niego', async () => {
+    // Webhook ustala portal po folderze; scope moze zawezac listy. Zadanie na
+    // liscie 'list-other' nie moze trafic do Historii klienta.
+    clickup.getTask.mockResolvedValue(
+      clickUpTask({ list: { id: 'list-other', name: 'SEO (niewidoczna)' } })
+    )
+    portalScopeStore.getPortalScope.mockResolvedValue(['list-in'])
+
+    const ok = await indexSingleTask('portal-1', 't-1')
+
+    assert.strictEqual(ok, false)
+    // Nic nie zapisujemy...
+    assert.strictEqual(insertCalls.length, 0)
+    // ...i nic nie doczytujemy: komentarzy dla odrzuconego zadania nie pobieramy.
+    assert.strictEqual(clickup.getTaskComments.mock.calls.length, 0)
+    // ...a istniejacy wiersz (przeniesienie na liste spoza zakresu) wypada.
+    assert.strictEqual(deleteCalls.length, 1)
+  })
+
+  it('pusty zakres (caly folder) przepuszcza zadanie jak dotychczas', async () => {
+    clickup.getTask.mockResolvedValue(clickUpTask())
+    clickup.getTaskComments.mockResolvedValue([])
+
+    const ok = await indexSingleTask('portal-1', 't-1')
+
+    assert.strictEqual(ok, true)
+    assert.strictEqual(insertCalls.length, 1)
+    assert.strictEqual(deleteCalls.length, 0)
+  })
 })
 
 // ---------------------------------------------------------------------------

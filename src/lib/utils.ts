@@ -142,6 +142,23 @@ export const STATUS_COLUMNS = [
 ] as const
 
 /**
+ * Status początkowy zadań zakładanych PRZEZ portal (formularz zgłoszeniowy,
+ * przycisk alarmu, czat AI). Zadanie klienta ma od razu trafić na widok zespołu,
+ * więc ląduje w "do zrobienia", a nie w backlogu.
+ *
+ * Stała zamiast literału w trasach: przemianowanie tej kolumny w ClickUpie
+ * (a już raz się stało, patrz historia wyżej) wymaga dotknięcia JEDNEGO miejsca.
+ */
+export const TASK_STATUS_INITIAL = STATUS_COLUMNS[1]
+
+/**
+ * Status zamknięcia. Rozstrzyga o kolumnie "zamknięte" kanbana, o rodzaju
+ * powiadomienia (`closed` vs `status`) i o tym, które zadania liczą się jako
+ * zakończone w raportach. Jedna definicja dla całej aplikacji.
+ */
+export const TASK_STATUS_CLOSED = STATUS_COLUMNS[6]
+
+/**
  * Kolory odwzorowują 1:1 statusy przestrzeni ClickUp, żeby klient widział na
  * kanbanie to samo, co zespół widzi w ClickUpie.
  */

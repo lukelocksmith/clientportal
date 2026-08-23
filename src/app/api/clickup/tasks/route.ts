@@ -1,4 +1,6 @@
+import { readJson } from '@/lib/apiJson'
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { db } from '@/lib/db'
 import { portalLists } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
@@ -42,17 +44,30 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/clickup/tasks — create task
+
+/**
+ * Schemat tworzenia zadania z formularza. Do tej pory pola szły z ciała bez
+ * typów i limitów, w kontraście do PATCH obok, który ma `patchSchema.strict()`.
+ * Limity są spójne z limitem opisu w PATCH (10k znaków).
+ */
+const createTaskSchema = z.object({
+  slug: z.string().min(1).max(100),
+  name: z.string().min(1).max(500),
+  description: z.string().max(10000).optional(),
+  priority: z.number().int().min(1).max(4).nullable().optional(),
+  due_date: z.number().int().nullable().optional(),
+})
+
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const { slug, name, description, priority, due_date } = body
+  const parsed = createTaskSchema.safeParse(await readJson(request))
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Missing required fields', details: parsed.error.flatten() }, { status: 400 })
+  }
+  const { slug, name, description, priority, due_date } = parsed.data
 
   const gate = await requirePortalApi(slug)
   if (!gate.ok) return gate.response
   const { session, portal } = gate
-
-  if (!name) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-  }
 
   // Get default list for this portal
   const list = await db

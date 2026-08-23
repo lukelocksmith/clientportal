@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { AlertTriangle, Send, CheckCircle2 } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, Send, CheckCircle2, XCircle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,7 @@ interface Props {
   slug: string
 }
 
-type State = 'idle' | 'open' | 'sending' | 'sent'
+type State = 'idle' | 'open' | 'sending' | 'sent' | 'error'
 
 /**
  * Alarm dla agencji.
@@ -33,11 +33,15 @@ type State = 'idle' | 'open' | 'sending' | 'sent'
  * Token motywu to #ef4444 w jasnym i #dc2626 w ciemnym, oba jednoznacznie
  * czerwone, a wariant daje jedno miejsce na kolor alarmu i spójność z
  * pozostałymi akcjami niszczącymi w aplikacji.
+ *
+ * Stan `error` istnieje po tym, jak wysyłka mogła się cicho nie powieść:
+ * klient klikał drugi raz bez informacji, czy cokolwiek poszło. Treść
+ * wiadomości zostaje w polu, więc ponowna wysyłka nie wymaga przepisywania.
  */
 export function PanicButton({ slug }: Props) {
   const [state, setState] = useState<State>('idle')
   const [message, setMessage] = useState('')
-  const [alertId, setAlertId] = useState<string | null>(null)
+
 
   async function handleSend() {
     if (!message.trim()) return
@@ -49,21 +53,20 @@ export function PanicButton({ slug }: Props) {
         body: JSON.stringify({ slug, message }),
       })
       if (res.ok) {
-        const data = await res.json()
-        setAlertId(data.alertId)
+        await res.json()
         setState('sent')
       } else {
-        setState('open')
+        setState('error')
       }
     } catch {
-      setState('open')
+      setState('error')
     }
   }
 
   function reset() {
     setState('idle')
     setMessage('')
-    setAlertId(null)
+
   }
 
   const sending = state === 'sending'
@@ -96,14 +99,19 @@ export function PanicButton({ slug }: Props) {
               <AlertTriangle className="h-5 w-5" />
               Alarm dla agencji
             </DialogTitle>
-            {state !== 'sent' && (
+            {state !== 'sent' && state !== 'error' && (
               <DialogDescription>
                 Opisz krótko, co się dzieje. Powiadomimy zespół natychmiast.
               </DialogDescription>
             )}
+            {state === 'error' && (
+              <DialogDescription className="text-destructive">
+                Nie udało się wysłać zgłoszenia. Sprawdź połączenie i spróbuj ponownie.
+              </DialogDescription>
+            )}
           </DialogHeader>
 
-          {state !== 'sent' && (
+          {state !== 'sent' && state !== 'error' && (
             <>
               <textarea
                 value={message}
@@ -127,6 +135,25 @@ export function PanicButton({ slug }: Props) {
                 </Button>
               </DialogFooter>
             </>
+          )}
+
+          {state === 'error' && (
+            <div className="flex flex-col items-center gap-4 py-4 text-center">
+              <XCircle className="h-10 w-10 text-destructive" aria-hidden="true" />
+              <p className="font-semibold text-foreground">Zgłoszenie nie zostało wysłane.</p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Treść wiadomości została zachowana. Możesz spróbować ponownie albo zadzwonić do nas.
+              </p>
+              <DialogFooter className="w-full sm:justify-between">
+                <Button variant="outline" onClick={reset}>
+                  Zamknij
+                </Button>
+                <Button variant="destructive" onClick={handleSend} disabled={!message.trim()}>
+                  <Send className="h-4 w-4" />
+                  Wyślij ponownie
+                </Button>
+              </DialogFooter>
+            </div>
           )}
 
           {state === 'sent' && (

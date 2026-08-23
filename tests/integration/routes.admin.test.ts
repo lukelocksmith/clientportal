@@ -160,10 +160,10 @@ describe.skipIf(!dbUp)('trasy admina na prawdziwej bazie', () => {
   })
 
   describe('POST /api/admin/login', () => {
-    it('bez danych -> 401 i zadnego ciasteczka', async () => {
+    it('bez danych -> 400 (blad zadania, nie uwierzytelnienia) i zadnego ciasteczka', async () => {
       const res = await adminLoginPOST(post('/api/admin/login', {}))
 
-      assert.strictEqual(res.status, 401)
+      assert.strictEqual(res.status, 400)
       assert.strictEqual(cookieJar.has('admin_session'), false)
     })
 

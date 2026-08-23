@@ -57,16 +57,20 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
   const periods = kind === 'miesiac' ? [currentMonthToDate(), ...listPeriods(kind, 12)] : listPeriods(kind, 12)
   const period = (okres ? parsePeriodKey(kind, okres) : null) ?? periods[0]
 
+  // Oba niezależne pobrania lecą równolegle: sekwencyjne await sumowały
+  // latencję ClickUpa na czas renderowania zakładki.
   let report: TimeReport | null = null
   try {
     // folderId pochodzi z bazy, nie z URL-a. To granica między klientami.
-    const entries = await getTimeEntries(portal.clickupFolderId, period.startMs, period.endMs)
     // ClickUp filtruje wpisy czasu tylko po FOLDERZE, wiec zawezenie do list
     // portalu robimy u siebie. Bez tego raport zawieral godziny z list, ktorych
     // do portalu nie wybralismy, a to jest liczba, ktora klient porownuje
     // z faktura. `task_location.list_id` przychodzi razem z wpisem, wiec nie
     // potrzebujemy dodatkowych wywolan.
-    const scope = await getPortalScope(portal.id)
+    const [entries, scope] = await Promise.all([
+      getTimeEntries(portal.clickupFolderId, period.startMs, period.endMs),
+      getPortalScope(portal.id),
+    ])
     report = buildReport(period, filterTimeEntriesToScope(entries, scope))
   } catch (error) {
     console.error('[raporty] ClickUp nie odpowiedział:', error)
@@ -74,6 +78,8 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
 
   // Za flagą, osobną od reportsEnabled: klienci majacy juz wlaczony raport
   // czasu pracy nie maja automatycznie dostac tego widgetu (patrz schema.ts).
+  // Scope tu jest wejściem do pobrania zadań, więc te dwa awaity muszą zostać
+  // sekwencyjne; oba idą z cache'u/bazy, nie z ClickUpa.
   let estimateReport: EstimateReport | null = null
   if (portal.estimateReportEnabled) {
     try {

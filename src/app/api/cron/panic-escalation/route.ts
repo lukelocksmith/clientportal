@@ -5,6 +5,7 @@ import { panicAlerts, portals } from '@/lib/db/schema'
 import { getTask } from '@/lib/clickup'
 import { verifyToken } from '@/lib/apiAuth'
 import { recordCronRun } from '@/lib/cronRuns'
+import { acquireCronLock } from '@/lib/cronLock'
 import { dutyAssigneeId } from '@/lib/panicDuty'
 import {
   ESCALATION_STEPS_DAY,
@@ -51,6 +52,26 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Dubel przebiegu = podwójny SMS budzący ludzi w nocy. Blokada (patrz
+  // cronLock.ts) sprawia, że równoległe wywołanie wychodzi bez pracy.
+  const lock = await acquireCronLock('panic-escalation')
+  if (lock.kind === 'busy') {
+    return NextResponse.json({
+      ranAt: new Date().toISOString(),
+      skipped: 'inny przebieg panic-escalation trwa',
+    })
+  }
+  if (lock.kind === 'acquired') {
+    try {
+      return await runEscalation()
+    } finally {
+      await lock.release()
+    }
+  }
+  return runEscalation()
+}
+
+async function runEscalation(): Promise<NextResponse> {
   const startedAt = new Date()
   const now = startedAt
   const duty = dutyAssigneeId()
@@ -156,10 +177,20 @@ async function handle(request: NextRequest) {
       if (przejete) {
         // Stempel PRZED wysyłką, tak jak licznik eskalacji: dwa przebiegi pod
         // rząd nie mogą powiadomić o tym samym przejęciu dwa razy.
-        await db
+        //
+        // Warunek `handledAt IS NULL` to blokada optymistyczna: zwrócenie
+        // pustego wiersza znaczy, że równoległy przebieg właśnie odnotował
+        // przejęcie i posłał powiadomienie. Wtedy ten przebieg milczy.
+        const [odnotowane] = await db
           .update(panicAlerts)
           .set({ handledAt: now, handledBy: ktoPrzejal })
-          .where(eq(panicAlerts.id, alert.id))
+          .where(and(eq(panicAlerts.id, alert.id), isNull(panicAlerts.handledAt)))
+          .returning({ id: panicAlerts.id })
+
+        if (!odnotowane) {
+          wyniki.push({ alertId: alert.id, escalated: false, reason: 'przejęcie odnotował równoległy przebieg' })
+          continue
+        }
 
         await sendPanicSms({
           text: buildHandoverSmsText({
@@ -208,12 +239,26 @@ async function handle(request: NextRequest) {
         continue
       }
 
-      // Licznik PRZED wysyłką. Cron wołany dwa razy pod rząd (ponowienie,
-      // zdublowany wpis w crontabie) nie może wysłać tego samego dwa razy.
-      await db
+      // Licznik PRZED wysyłką, z blokadą optymistyczną na odczytanej wartości.
+      // Cron wołany dwa razy pod rząd (ponowienie, zdublowany wpis w
+      // crontabie) nie może wysłać tego samego dwa razy: update trafia tylko,
+      // gdy licznik ma NADAL wartość z odczytu. Pusty wynik = ktoś ubiegł
+      // ten przebieg i już posłał przypomnienie, więc tu milczymy.
+      const [podniesiony] = await db
         .update(panicAlerts)
         .set({ escalationCount: alert.escalationCount + 1, escalatedAt: now })
-        .where(eq(panicAlerts.id, alert.id))
+        .where(
+          and(
+            eq(panicAlerts.id, alert.id),
+            eq(panicAlerts.escalationCount, alert.escalationCount)
+          )
+        )
+        .returning({ id: panicAlerts.id })
+
+      if (!podniesiony) {
+        wyniki.push({ alertId: alert.id, escalated: false, reason: 'eskalację wykonał równoległy przebieg' })
+        continue
+      }
 
       const minuty = minutyOdZgloszenia
       const taskUrl = adresZadania

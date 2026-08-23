@@ -1,3 +1,4 @@
+import { readJson } from '@/lib/apiJson'
 import { NextRequest, NextResponse } from 'next/server'
 import { getTaskComments, addComment } from '@/lib/clickup'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
@@ -38,9 +39,14 @@ export async function POST(
   const { session } = gate
 
   const { taskId } = await params
-  const { text } = await request.json()
+  const body = await readJson(request)
+  const text = typeof body === 'object' && body !== null && 'text' in body
+    ? (body as { text?: unknown }).text
+    : undefined
 
-  if (!text?.trim()) return NextResponse.json({ error: 'Empty comment' }, { status: 400 })
+  if (typeof text !== 'string' || !text.trim()) {
+    return NextResponse.json({ error: 'Empty comment' }, { status: 400 })
+  }
 
   const scope = await requireTaskInPortal(taskId, gate.portal)
   if (!scope.ok) return scope.response

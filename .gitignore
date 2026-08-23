@@ -43,6 +43,7 @@ next-env.d.ts
 # Katalogi robocze narzedzi, nie kod projektu.
 .claude/
 .playwright-mcp/
+.playwright-cli/
 .remember/
 
 # Bundle widgetu SitePing: generowany artefakt zaleznosci (prebuild),

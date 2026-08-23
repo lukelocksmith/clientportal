@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto'
 import type { NextRequest } from 'next/server'
 
 /** Constant-time string compare that tolerates length mismatch. */
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a)
   const bb = Buffer.from(b)
   if (ba.length !== bb.length) return false

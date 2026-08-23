@@ -1,17 +1,19 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { isAdminRequest } from '@/lib/admin-auth'
-
-const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN
-const SPACE_ID = process.env.CLICKUP_SPACE_ID ?? '90100136256'
+import { getFoldersInSpace } from '@/lib/clickup'
+import { DEFAULT_SPACE_ID } from '@/lib/clickupSpace'
 
 export async function GET(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const res = await fetch(`https://api.clickup.com/api/v2/space/${SPACE_ID}/folder?archived=false`, {
-    headers: { Authorization: CLICKUP_TOKEN! },
-    next: { revalidate: 60 },
-  })
-  const data = await res.json()
-  const folders = (data.folders ?? []).map((f: { id: string; name: string }) => ({ id: f.id, name: f.name }))
-  return NextResponse.json({ folders })
+  // Przez wspólnego klienta ClickUpa: timeout, ponowienia i czytelny błąd
+  // zamiast cichej pustej listy w panelu przy awarii API.
+  try {
+    const folders = await getFoldersInSpace(DEFAULT_SPACE_ID())
+    return NextResponse.json({ folders })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.error('[admin/folders] nie udało się pobrać folderów:', message)
+    return NextResponse.json({ error: 'Nie udało się pobrać folderów z ClickUpa' }, { status: 502 })
+  }
 }

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
 import { isAdminRequest } from '@/lib/admin-auth'
-import { db } from '@/lib/db'
-import { portals } from '@/lib/db/schema'
+import { requireAdminPortal } from '@/lib/adminPortal'
 import { listCronRuns, getLastSuccessfulRun, CRON_JOB_LABELS, type CronJob } from '@/lib/cronRuns'
 import { listStatusHistory } from '@/lib/statusHistory'
 
@@ -27,8 +25,8 @@ export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get('slug')
   if (!slug) return NextResponse.json({ error: 'Podaj slug' }, { status: 400 })
 
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
+  const gate = await requireAdminPortal(slug)
+  if (!gate.ok) return gate.response
 
   const rawJob = request.nextUrl.searchParams.get('job')
   const job = JOBS.includes(rawJob as CronJob) ? (rawJob as CronJob) : undefined
@@ -37,9 +35,9 @@ export async function GET(request: NextRequest) {
   // jeden widok w panelu, a trzy osobne pobrania z przegladarki znaczylyby trzy
   // stany wczytywania i trzy mozliwe bledy w jednym okienku.
   const [runs, statusy, ...lastOk] = await Promise.all([
-    listCronRuns({ portalId: portal.id, job, limit: 100 }),
-    listStatusHistory({ portalId: portal.id, limit: 100 }),
-    ...JOBS.map(j => getLastSuccessfulRun(j, portal.id)),
+    listCronRuns({ portalId: gate.portal.id, job, limit: 100 }),
+    listStatusHistory({ portalId: gate.portal.id, limit: 100 }),
+    ...JOBS.map(j => getLastSuccessfulRun(j, gate.portal.id)),
   ])
 
   return NextResponse.json({

@@ -4,6 +4,7 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { Send, Loader2, Bot, X, Plus, Paperclip } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { useImageAttachments } from '@/components/shared/useImageAttachments'
 
 interface ChatWindowProps {
   slug: string
@@ -75,34 +76,9 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
   }, [needFallback, regenerate, clearError])
 
   // Pending screenshots to attach to the ClickUp task once it's created.
-  const [pending, setPending] = useState<Array<{ file: File; url: string }>>([])
+  const { pending, addFiles, removeFile, clearFiles, fileInputRef, handlePaste } = useImageAttachments()
   const [attachNote, setAttachNote] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const attachedRef = useRef<Set<string>>(new Set())
-
-  function addFiles(list: FileList | File[] | null) {
-    if (!list) return
-    const imgs = Array.from(list).filter(f => f.type.startsWith('image/'))
-    if (!imgs.length) return
-    setPending(prev => [...prev, ...imgs.map(f => ({ file: f, url: URL.createObjectURL(f) }))].slice(0, 5))
-  }
-
-  function removeFile(idx: number) {
-    setPending(prev => {
-      const next = [...prev]
-      const [gone] = next.splice(idx, 1)
-      if (gone) URL.revokeObjectURL(gone.url)
-      return next
-    })
-  }
-
-  function handlePaste(e: React.ClipboardEvent) {
-    const imgs = Array.from(e.clipboardData?.items ?? [])
-      .filter(i => i.type.startsWith('image/'))
-      .map(i => i.getAsFile())
-      .filter((f): f is File => !!f)
-    if (imgs.length) { e.preventDefault(); addFiles(imgs) }
-  }
 
   async function uploadAttachments(taskId: string, files: File[]) {
     const fd = new FormData()
@@ -113,7 +89,7 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
       const okCount = data?.attachments?.filter((a: { ok?: boolean }) => a.ok).length ?? 0
       if (okCount > 0) {
         setAttachNote(`📎 Dołączono ${okCount} ${okCount === 1 ? 'zrzut' : 'zrzuty'} do zadania`)
-        setPending([])
+        clearFiles()
       } else {
         setAttachNote('Nie udało się dołączyć zrzutów — spróbuj ponownie w zadaniu')
       }
@@ -186,6 +162,7 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
           </div>
           <button
             onClick={onClose}
+            aria-label="Zamknij czat"
             className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
           >
             <X className="h-4 w-4" />
@@ -302,6 +279,7 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading || pending.length >= 5}
+              aria-label="Dołącz zrzut ekranu"
               title="Dołącz zrzut ekranu"
               className="inline-flex items-center justify-center rounded-xl border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 h-9 w-9 flex-shrink-0 transition-colors"
             >
@@ -318,6 +296,7 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
             />
             <button
               type="submit"
+              aria-label="Wyślij wiadomość"
               disabled={isLoading || !input.trim()}
               className="inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none h-9 w-9 flex-shrink-0 transition-colors"
             >

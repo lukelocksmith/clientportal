@@ -7,8 +7,12 @@ import { getPortalScope } from '@/lib/portalScopeStore'
 import { writeSnapshots } from '@/lib/timeSnapshots'
 import { verifyToken } from '@/lib/apiAuth'
 import { recordCronRun } from '@/lib/cronRuns'
+import { acquireCronLock } from '@/lib/cronLock'
 
 export const dynamic = 'force-dynamic'
+// Pętla po listach dużego folderu potrafi przekroczyć domyślny limit platformy,
+// tak samo jak task-index (który ma 300 s od incydentu z uciętym przebiegiem).
+export const maxDuration = 300
 
 /**
  * Freezes the current ClickUp tracked time (time_spent) for every active
@@ -23,6 +27,24 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const lock = await acquireCronLock('time-snapshot')
+  if (lock.kind === 'busy') {
+    return NextResponse.json({
+      ranAt: new Date().toISOString(),
+      skipped: 'inny przebieg time-snapshot trwa',
+    })
+  }
+  if (lock.kind === 'acquired') {
+    try {
+      return await runSnapshot(request)
+    } finally {
+      await lock.release()
+    }
+  }
+  return runSnapshot(request)
+}
+
+async function runSnapshot(request: NextRequest): Promise<NextResponse> {
   const onlySlug = request.nextUrl.searchParams.get('slug')
 
   const rows = await db

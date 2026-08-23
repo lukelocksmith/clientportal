@@ -3,7 +3,8 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
 import { createOpenAI } from '@ai-sdk/openai'
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { db } from '@/lib/db'
 import { portalLists, aiUsage } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
@@ -13,7 +14,7 @@ import { computeCost } from '@/lib/aiPricing'
 import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
-import { isAwaria } from '@/lib/utils'
+import { isAwaria, TASK_STATUS_INITIAL } from '@/lib/utils'
 import { buildAiChatTags } from '@/lib/autoTags'
 import {
   buildNewTaskPrompt,
@@ -23,6 +24,33 @@ import {
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
+
+/**
+ * Jedyna trasa klienta bez schematu do tej pory, a zarazem najdroższa w
+ * skutkach: bez walidacji popsuty JSON dawał goły 500, a nieograniczona liczba
+ * i rozmiar wiadomości otwierały koszt tokenu od strony wejścia. Limity są
+ * hojne wobec realnej rozmowy (60 wiadomości, 200 KB surowego ciała), ale
+ * zamykają drogę nadużyciu.
+ */
+const chatRequestSchema = z.looseObject({
+  messages: z
+    .array(
+      // Bez wymagania `id`: identyfikator generuje klient i serwer go nie
+      // czyta, a twarde wymaganie łamałoby kontrakt istniejących wywołań.
+      z.looseObject({
+        role: z.enum(['system', 'user', 'assistant']),
+        parts: z.array(z.unknown()),
+      })
+    )
+    .min(1)
+    .max(60),
+  slug: z.string().min(1).max(100),
+  mode: z.string().optional(),
+  fallback: z.boolean().optional(),
+})
+
+/** Surowe ciało powyżej tego rozmiaru odrzucamy przed parsowaniem. */
+const MAX_BODY_CHARS = 200_000
 
 function getModel(fallback = false) {
   // Fallback: if the primary (Gemini) fails, the client retries with fallback=true
@@ -47,12 +75,23 @@ function getModel(fallback = false) {
 
 
 export async function POST(request: NextRequest) {
-  const { messages: uiMessages, slug, mode, fallback } = await request.json() as {
-    messages: UIMessage[]
-    slug: string
-    mode?: string
-    fallback?: boolean
+  const raw = await request.text()
+  if (raw.length > MAX_BODY_CHARS) {
+    return NextResponse.json({ error: 'Rozmowa jest zbyt długa. Otwórz nową.' }, { status: 413 })
   }
+
+  let body: unknown
+  try {
+    body = JSON.parse(raw)
+  } catch {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+
+  const parsed = chatRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+  const { messages: uiMessages, slug, mode, fallback } = parsed.data
 
   // Only new-task mode is active — other modes are disabled
   if (mode !== 'new-task') {
@@ -63,7 +102,10 @@ export async function POST(request: NextRequest) {
   if (!gate.ok) return gate.response
   const { session, portal } = gate
 
-  const messages = await convertToModelMessages(uiMessages)
+  // Schemat gwarantuje szkielet wiadomości (id, role, parts); pełny typ
+  // UIMessage przywraca cast, a `convertToModelMessages` i tak odrzuca treść,
+  // której nie umie zinterpretować.
+  const messages = await convertToModelMessages(uiMessages as unknown as UIMessage[])
 
   const lists = await db
     .select()
@@ -116,9 +158,10 @@ export async function POST(request: NextRequest) {
         // klientów: bez tego filtra halucynacja albo podpowiedź z rozmowy
         // klienta zakładałaby zespołowi śmieci w słowniku tagów.
         tags: buildAiChatTags(portal.autoTags, awaria),
-        // Client-submitted tasks land in "do zrobienia" (to-do), not the default backlog,
-        // so the team sees incoming requests instead of them being buried.
-        status: 'do zrobienia',
+        // Client-submitted tasks land in the initial column ("do zrobienia"),
+        // not the default backlog, so the team sees incoming requests instead
+        // of them being buried.
+        status: TASK_STATUS_INITIAL,
       })
 
       // Bez tego klient zglosilby zadanie przez asystenta, odswiezyl strone

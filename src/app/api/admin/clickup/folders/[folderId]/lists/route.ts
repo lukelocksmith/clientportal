@@ -1,17 +1,19 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { isAdminRequest } from '@/lib/admin-auth'
-
-const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN
+import { getFolderLists } from '@/lib/clickup'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ folderId: string }> }) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { folderId } = await params
-  const res = await fetch(`https://api.clickup.com/api/v2/folder/${folderId}/list?archived=false`, {
-    headers: { Authorization: CLICKUP_TOKEN! },
-    next: { revalidate: 60 },
-  })
-  const data = await res.json()
-  const lists = (data.lists ?? []).map((l: { id: string; name: string }) => ({ id: l.id, name: l.name }))
-  return NextResponse.json({ lists })
+  // Przez wspólnego klienta ClickUpa: timeout, ponowienia i czytelny błąd
+  // zamiast cichej pustej listy w panelu przy awarii API.
+  try {
+    const lists = await getFolderLists(folderId)
+    return NextResponse.json({ lists })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.error(`[admin/folders] nie udało się pobrać list folderu ${folderId}:`, message)
+    return NextResponse.json({ error: 'Nie udało się pobrać list z ClickUpa' }, { status: 502 })
+  }
 }

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { eq, and, desc, like } from 'drizzle-orm'
+import { and, desc, eq, like } from 'drizzle-orm'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
-import { portals, auditLog } from '@/lib/db/schema'
+import { auditLog } from '@/lib/db/schema'
+import { requireAdminPortal } from '@/lib/adminPortal'
 import { EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { getSpaceTags } from '@/lib/clickup'
 import {
@@ -48,8 +49,9 @@ export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get('slug')
   if (!slug) return NextResponse.json({ error: 'Podaj slug' }, { status: 400 })
 
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
+  const gate = await requireAdminPortal(slug)
+  if (!gate.ok) return gate.response
+  const portal = gate.portal
 
   const domeny = parseSiteDomains(portal.siteDomains)
 

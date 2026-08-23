@@ -102,7 +102,7 @@ export function toGsmSafe(text: string): string {
     .replace(/[łŁøØđĐ]/g, c => HAND_MAPPED[c] ?? c)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    // eslint-disable-next-line no-control-regex
+     
     .replace(/[^\x20-\x7E]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

@@ -26,6 +26,7 @@ import {
 } from 'date-fns'
 import { pl } from 'date-fns/locale'
 import type { ClickUpTimeEntry } from './types'
+import { TASK_STATUS_CLOSED } from './utils'
 
 const TZ = 'Europe/Warsaw'
 
@@ -258,7 +259,7 @@ const OVERHEAD_LABEL =
  * oznaczona "weryfikacja" czytałaby się jak coś, co jeszcze czeka na
  * sprawdzenie. Praca organizacyjna za taki okres jest wykonana i domknięta.
  */
-const OVERHEAD_STATUS = 'zamknięte'
+const OVERHEAD_STATUS = TASK_STATUS_CLOSED
 
 /**
  * Narzut obcinany W DÓŁ do pełnych minut, nie zaokrąglany.

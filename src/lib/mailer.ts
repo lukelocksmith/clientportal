@@ -49,6 +49,12 @@ export async function sendMail(options: {
       // 465 to SMTPS (szyfrowanie od pierwszego bajtu), 587 to STARTTLS.
       secure: port === 465,
       auth: { user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS! },
+      // Timeouty na każdym etapie połączenia. Bez nich wiszący SMTP wydłużał
+      // odpowiedź trasy, która wysyła synchronicznie (np. /api/panic czeka na
+      // maile przed odpowiedzią do klienta w panice).
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     })
 
     const info = await transport.sendMail({

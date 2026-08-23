@@ -7,6 +7,7 @@ import { getProjectLinks } from '@/lib/projectLinksStore'
 import { getPortalForSession } from '@/lib/portalSession'
 import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { getTimeEntries } from '@/lib/clickup'
+import type { ClickUpTimeEntry } from '@/lib/types'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { filterTimeEntriesToScope } from '@/lib/portalScope'
 import { buildReport, currentWeekToDate, listPeriods } from '@/lib/timeReports'
@@ -71,7 +72,6 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
   let prevWeekLabel: string | null = null
   if (isTabEnabled(flags, 'raporty')) {
     try {
-      const scope = await getPortalScope(portal.id)
       const week = currentWeekToDate()
       // Poprzedni tydzień bierzemy z `listPeriods`, a nie liczymy sami: ta
       // funkcja zaczyna od ostatniego ZAMKNIĘTEGO okresu, czyli zwraca dokładnie
@@ -80,11 +80,13 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
       const prev = listPeriods('tydzien', 1)[0]
       prevWeekLabel = prev?.label ?? null
 
-      const [entries, prevEntries] = await Promise.all([
+      // Trzy pobrania są niezależne, więc lecą równolegle.
+      const [scope, entries, prevEntries] = await Promise.all([
+        getPortalScope(portal.id),
         getTimeEntries(portal.clickupFolderId, week.startMs, week.endMs),
         prev
           ? getTimeEntries(portal.clickupFolderId, prev.startMs, prev.endMs)
-          : Promise.resolve([]),
+          : Promise.resolve([] as ClickUpTimeEntry[]),
       ])
 
       weekMs = buildReport(week, filterTimeEntriesToScope(entries, scope)).totalMs

@@ -1,3 +1,4 @@
+import { readJson } from '@/lib/apiJson'
 import { NextRequest, NextResponse } from 'next/server'
 import { updateComment, deleteComment } from '@/lib/clickup'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
@@ -39,8 +40,13 @@ export async function PUT(
   { params }: { params: Promise<{ taskId: string; commentId: string }> }
 ) {
   const { taskId, commentId } = await params
-  const { text } = await request.json()
-  if (!text?.trim()) return NextResponse.json({ error: 'Empty comment' }, { status: 400 })
+  const body = await readJson(request)
+  const text = typeof body === 'object' && body !== null && 'text' in body
+    ? (body as { text?: unknown }).text
+    : undefined
+  if (typeof text !== 'string' || !text.trim()) {
+    return NextResponse.json({ error: 'Empty comment' }, { status: 400 })
+  }
 
   const gate = await authorize(request, taskId, commentId)
   if (!gate.ok) return gate.response

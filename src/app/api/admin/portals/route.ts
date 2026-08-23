@@ -1,3 +1,4 @@
+import { readJson } from '@/lib/apiJson'
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
@@ -5,6 +6,7 @@ import { portals, portalLists } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { ensureAdminUser } from '@/lib/adminUser'
+import { DEFAULT_CLICKUP_SPACE_ID } from '@/lib/clickupSpace'
 import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { serializeContactMemberIds, TEAM_MEMBERS } from '@/lib/team'
@@ -194,7 +196,7 @@ const UpdatePortalSchema = z
 export async function PATCH(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const parsed = UpdatePortalSchema.safeParse(await request.json())
+  const parsed = UpdatePortalSchema.safeParse(await readJson(request))
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
@@ -264,11 +266,11 @@ const CreatePortalSchema = z.object({
 export async function POST(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await request.json()
+  const body = await readJson(request) as Record<string, unknown> | null
 
   // Auto-extract folder ID from ClickUp URL if provided
-  if (body.clickupFolderUrl && !body.clickupFolderId) {
-    const match = body.clickupFolderUrl.match(/\/f\/(\d+)/)
+  if (body?.clickupFolderUrl && !body.clickupFolderId) {
+    const match = String(body.clickupFolderUrl).match(/\/f\/(\d+)/)
     if (match) body.clickupFolderId = match[1]
   }
 
@@ -279,29 +281,38 @@ export async function POST(request: NextRequest) {
 
   const { name, slug, clickupFolderId, clickupSpaceId, lists } = parsed.data
 
-  const [portal] = await db
-    .insert(portals)
-    .values({ name, slug, clickupFolderId, clickupSpaceId: clickupSpaceId ?? '90100136256' })
-    .onConflictDoNothing()
-    .returning()
+  // Całość w jednej transakcji: portal bez list (awaria w pętli insertów) to
+  // projekt, w którym każde zgłoszenie pada z "No default list", a admin bez
+  // konta nie wejdzie obejściem. Wszystko albo nic.
+  const portal = await db.transaction(async tx => {
+    const [created] = await tx
+      .insert(portals)
+      .values({ name, slug, clickupFolderId, clickupSpaceId: clickupSpaceId ?? DEFAULT_CLICKUP_SPACE_ID })
+      .onConflictDoNothing()
+      .returning()
+
+    if (!created) return null
+
+    await tx.insert(portalLists).values(
+      lists.map((l, i) => ({
+        portalId: created.id,
+        clickupListId: l.clickupListId,
+        displayName: l.displayName,
+        isDefault: i === 0 ? true : l.isDefault,
+        sortOrder: i,
+      }))
+    )
+
+    // Admin ma konto w każdym projekcie od momentu jego powstania, nie dopiero
+    // po pierwszym ręcznym logowaniu. Przez tx, żeby powstało W transakcji.
+    await ensureAdminUser(created.id, tx)
+
+    return created
+  })
 
   if (!portal) {
     return NextResponse.json({ error: 'Portal z tym slugiem już istnieje' }, { status: 409 })
   }
-
-  for (let i = 0; i < lists.length; i++) {
-    await db.insert(portalLists).values({
-      portalId: portal.id,
-      clickupListId: lists[i].clickupListId,
-      displayName: lists[i].displayName,
-      isDefault: i === 0 ? true : lists[i].isDefault,
-      sortOrder: i,
-    })
-  }
-
-  // Admin ma konto w każdym projekcie od momentu jego powstania, nie dopiero
-  // po pierwszym ręcznym logowaniu.
-  await ensureAdminUser(portal.id)
 
   return NextResponse.json({ portal }, { status: 201 })
 }

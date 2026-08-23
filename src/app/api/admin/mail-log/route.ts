@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { and, desc, eq, or, isNull } from 'drizzle-orm'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
-import { portals, mailLog } from '@/lib/db/schema'
+import { mailLog } from '@/lib/db/schema'
+import { requireAdminPortal } from '@/lib/adminPortal'
 
 /**
  * Rejestr wysłanych maili, do panelu admina.
@@ -24,14 +25,14 @@ export async function GET(request: NextRequest) {
   const slug = request.nextUrl.searchParams.get('slug')
   if (!slug) return NextResponse.json({ error: 'Podaj slug' }, { status: 400 })
 
-  const [portal] = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
-  if (!portal) return NextResponse.json({ error: 'Portal nie istnieje' }, { status: 404 })
+  const gate = await requireAdminPortal(slug)
+  if (!gate.ok) return gate.response
 
   // Filtr po odbiorcy: „czy TEN adres cokolwiek od nas dostał". To pierwsze
   // pytanie, jakie się zadaje, gdy klient mówi, że maila nie ma.
   const recipient = request.nextUrl.searchParams.get('recipient')
 
-  const filters = [or(eq(mailLog.portalId, portal.id), isNull(mailLog.portalId))]
+  const filters = [or(eq(mailLog.portalId, gate.portal.id), isNull(mailLog.portalId))]
   if (recipient) filters.push(eq(mailLog.recipient, recipient))
 
   const rows = await db

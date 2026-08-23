@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { db } from '@/lib/db'
 import { panicAlerts, portalLists } from '@/lib/db/schema'
 import { and, desc, eq, ne } from 'drizzle-orm'
@@ -15,7 +16,7 @@ import { buildPanicSmsText, isWithinThrottleWindow, PANIC_SMS_THROTTLE_MINUTES }
 import { DUTY_ASSIGNEE_ID } from '@/lib/panicDuty'
 import { createTask } from '@/lib/clickup'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
-import { AWARIA_TAG } from '@/lib/utils'
+import { AWARIA_TAG, TASK_STATUS_INITIAL } from '@/lib/utils'
 
 /**
  * Ile czekamy na ClickUpa, zanim wyślemy alarm bez linku do zadania.
@@ -23,6 +24,16 @@ import { AWARIA_TAG } from '@/lib/utils'
  * żeby klient w panice nie patrzył w kręcące się kółko.
  */
 const CLICKUP_TIMEOUT_MS = 8_000
+
+/**
+ * Walidacja wejścia. Górna granica treści istnieje, bo wiadomość leci do bazy,
+ * maila, Discorda i SMS-a: bez limitu przejęte konto mogłoby wygenerować koszt
+ * SMS-owy dowolnej wielkości. 2000 znaków to kilkukrotność realnego zgłoszenia.
+ */
+const panicSchema = z.object({
+  slug: z.string().min(1).max(100),
+  message: z.string().min(1).max(2000),
+})
 
 /**
  * SMS do zespołu przez własną bramkę (`sms.important.is`).
@@ -138,7 +149,7 @@ async function createAlarmTask(input: {
       ),
       priority: 1,
       tags: [AWARIA_TAG],
-      status: 'do zrobienia',
+      status: TASK_STATUS_INITIAL,
       // Osoba dyżurna od razu przy tworzeniu. Zadanie bez właściciela czeka na
       // to, aż ktoś je zobaczy, a alarm nie ma czasu na „ktoś to weźmie".
       ...(dyzurny ? { assignees: [dyzurny] } : {}),
@@ -176,12 +187,17 @@ async function createAlarmTask(input: {
 }
 
 export async function POST(request: NextRequest) {
-  const { slug, message } = await request.json()
+  const raw = await request.json().catch(() => null)
+  const parsed = panicSchema.safeParse(raw)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Message required (max 2000 znaków)' }, { status: 400 })
+  }
+  const { slug, message } = parsed.data
   const gate = await requirePortalApi(slug)
   if (!gate.ok) return gate.response
   const { session, portal } = gate
 
-  if (!message?.trim()) {
+  if (!message.trim()) {
     return NextResponse.json({ error: 'Message required' }, { status: 400 })
   }
 
@@ -232,38 +248,42 @@ export async function POST(request: NextRequest) {
   const taskUrl = taskId ? `https://app.clickup.com/t/${taskId}` : null
 
   // Discord notification
-  await sendPanicDiscord(
+  // Trzy kanały powiadomień są niezależne i best-effort, więc lecą równolegle:
+  // sekwencyjny await sumowałby latencje Discorda, SMTP i bramki SMS na czasie
+  // reakcji klienta. allSettled, bo porażka jednego kanału nie może zatrzymać
+  // pozostałych ani odpowiedzi do klienta.
+  const discordText =
     `🚨 **ALARM od klienta ${portal.name}!**\n\n` +
     `> ${message.trim()}\n\n` +
     `**Zgłasza:** ${who}\n\n` +
     (taskUrl ? `**Zadanie:** ${taskUrl}` : '**Zadanie:** nie powstało w ClickUpie, sprawdź ręcznie')
-  )
 
-  // Email notification
-  await sendPanicEmails({
-    subject: `🚨 ALARM: ${portal.name} — ${message.trim().slice(0, 60)}`,
-    html: panicEmailHtml({
-      title: '🚨 ALARM od klienta',
+  await Promise.allSettled([
+    sendPanicDiscord(discordText),
+    sendPanicEmails({
+      subject: `🚨 ALARM: ${portal.name} — ${message.trim().slice(0, 60)}`,
+      html: panicEmailHtml({
+        title: '🚨 ALARM od klienta',
+        portalName: portal.name,
+        message: message.trim(),
+        who,
+        taskUrl,
+        ...(taskUrl ? { button: { url: taskUrl, label: 'Otwórz zadanie w ClickUpie →' } } : {}),
+        footer: taskUrl
+          ? 'Zadanie jest już na tablicy z przypisaną osobą dyżurną. Jeśli przez 25 minut nikt inny go nie przejmie, portal przypomni SMS-em.'
+          : 'UWAGA: zadanie w ClickUpie NIE powstało, trzeba je założyć ręcznie.',
+      }),
+      portalId: portal.id,
+    }),
+    sendPanicSms({
+      portalId: portal.id,
       portalName: portal.name,
       message: message.trim(),
       who,
+      currentAlertId: alert.id,
       taskUrl,
-      ...(taskUrl ? { button: { url: taskUrl, label: 'Otwórz zadanie w ClickUpie →' } } : {}),
-      footer: taskUrl
-        ? 'Zadanie jest już na tablicy z przypisaną osobą dyżurną. Jeśli przez 25 minut nikt inny go nie przejmie, portal przypomni SMS-em.'
-        : 'UWAGA: zadanie w ClickUpie NIE powstało, trzeba je założyć ręcznie.',
     }),
-    portalId: portal.id,
-  })
-
-  await sendPanicSms({
-    portalId: portal.id,
-    portalName: portal.name,
-    message: message.trim(),
-    who,
-    currentAlertId: alert.id,
-    taskUrl,
-  })
+  ])
 
   return NextResponse.json({ ok: true, alertId: alert.id })
 }

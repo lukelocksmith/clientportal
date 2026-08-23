@@ -5,6 +5,7 @@ import { portals } from '@/lib/db/schema'
 import { verifyToken } from '@/lib/apiAuth'
 import { syncPortalIndex, type SyncResult } from '@/lib/taskIndex'
 import { recordCronRun } from '@/lib/cronRuns'
+import { acquireCronLock } from '@/lib/cronLock'
 
 export const dynamic = 'force-dynamic'
 // Przebieg treści woła ClickUpa z przerwami, więc trwa dziesiątki sekund.
@@ -39,6 +40,24 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const lock = await acquireCronLock('task-index')
+  if (lock.kind === 'busy') {
+    return NextResponse.json({
+      ranAt: new Date().toISOString(),
+      skipped: 'inny przebieg task-index trwa',
+    })
+  }
+  if (lock.kind === 'acquired') {
+    try {
+      return await runIndex(request)
+    } finally {
+      await lock.release()
+    }
+  }
+  return runIndex(request)
+}
+
+async function runIndex(request: NextRequest): Promise<NextResponse> {
   const params = request.nextUrl.searchParams
   const onlySlug = params.get('slug')
   const budgetRaw = Number(params.get('budget'))

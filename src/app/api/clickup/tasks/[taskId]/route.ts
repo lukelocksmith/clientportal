@@ -1,3 +1,4 @@
+import { readJson } from '@/lib/apiJson'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
@@ -66,7 +67,7 @@ export async function PATCH(
 
   const { taskId } = await params
 
-  const parsed = patchSchema.safeParse(await request.json())
+  const parsed = patchSchema.safeParse(await readJson(request))
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid fields', details: parsed.error.flatten() }, { status: 400 })
   }

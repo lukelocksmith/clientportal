@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { MarkdownLite } from './MarkdownLite'
+import { useImageAttachments } from '@/components/shared/useImageAttachments'
 
 interface TaskDrawerProps {
   task: ClickUpTask
@@ -37,8 +38,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
   const [editText, setEditText] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   /** Obrazy wybrane/wklejone, jeszcze nie wyslane razem z komentarzem. */
-  const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; url: string }>>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { pending: pendingFiles, addFiles, removeFile, clearFiles, fileInputRef, handlePaste: handleImagePaste } = useImageAttachments()
   const [attachments, setAttachments] = useState<ClickUpAttachment[]>([])
   /** Null oznacza „nie wiemy", czyli zadanie założone przez nas. Patrz niżej. */
   const [reporter, setReporter] = useState<{
@@ -47,16 +47,25 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
     isAgency: boolean
   } | null>(null)
   const [changingStatus, setChangingStatus] = useState(false)
+  /** Rozróżnia „brak komentarzy" od „nie udało się pobrać": pierwsze to stan świata, drugie to awaria. */
+  const [commentsError, setCommentsError] = useState(false)
+  /** Zmiana wartości wymusza ponowne pobranie (przycisk retry przy błędzie). */
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     async function loadComments() {
       setLoadingComments(true)
-      const res = await fetch(
-        `/api/clickup/tasks/${task.id}/comments?slug=${encodeURIComponent(slug)}`
-      )
-      if (res.ok) {
+      setCommentsError(false)
+      try {
+        const res = await fetch(
+          `/api/clickup/tasks/${task.id}/comments?slug=${encodeURIComponent(slug)}`
+        )
+        if (!res.ok) throw new Error(`comments fetch failed: ${res.status}`)
         const data = await res.json()
         setComments(data.comments ?? [])
+      } catch {
+        setComments([])
+        setCommentsError(true)
       }
       setLoadingComments(false)
     }
@@ -74,31 +83,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
     }
     loadComments()
     loadAttachments()
-  }, [task.id, slug])
-
-  function addCommentFiles(list: FileList | File[] | null) {
-    if (!list) return
-    const imgs = Array.from(list).filter(f => f.type.startsWith('image/'))
-    if (!imgs.length) return
-    setPendingFiles(prev => [...prev, ...imgs.map(f => ({ file: f, url: URL.createObjectURL(f) }))].slice(0, 5))
-  }
-
-  function removePendingFile(idx: number) {
-    setPendingFiles(prev => {
-      const next = [...prev]
-      const [gone] = next.splice(idx, 1)
-      if (gone) URL.revokeObjectURL(gone.url)
-      return next
-    })
-  }
-
-  function handleCommentPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const imgs = Array.from(e.clipboardData?.items ?? [])
-      .filter(i => i.type.startsWith('image/'))
-      .map(i => i.getAsFile())
-      .filter((f): f is File => !!f)
-    if (imgs.length) { e.preventDefault(); addCommentFiles(imgs) }
-  }
+  }, [task.id, slug, refreshKey])
 
   async function handleSendComment(e: React.FormEvent) {
     e.preventDefault()
@@ -158,8 +143,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
       // najstarszy. Te dwie rzeczy muszą się zgadzać, inaczej wątek kłamie.
       if (data.comment) setComments(prev => [...prev, data.comment])
       setNewComment('')
-      pendingFiles.forEach(p => URL.revokeObjectURL(p.url))
-      setPendingFiles([])
+      clearFiles()
       // Nowy komentarz jest teraz na dole, więc przy dłuższym wątku powstaje
       // poza ekranem. Bez tego wysłanie wygląda, jakby nic się nie stało.
       requestAnimationFrame(() => {
@@ -552,6 +536,17 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Ładowanie...
               </div>
+            ) : commentsError ? (
+              <div className="py-2">
+                <p className="text-sm text-destructive">Nie udało się pobrać komentarzy.</p>
+                <button
+                  type="button"
+                  onClick={() => setRefreshKey(k => k + 1)}
+                  className="text-xs font-medium text-primary hover:underline mt-1"
+                >
+                  Spróbuj ponownie
+                </button>
+              </div>
             ) : comments.length === 0 ? (
               <p className="text-sm text-muted-foreground py-2">Brak komentarzy</p>
             ) : (
@@ -651,7 +646,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                   <img src={p.url} alt={p.file.name} className="h-full w-full object-cover block" />
                   <button
                     type="button"
-                    onClick={() => removePendingFile(i)}
+                    onClick={() => removeFile(i)}
                     aria-label="Usuń obraz"
                     className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white flex items-center justify-center"
                   >
@@ -668,7 +663,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
               accept="image/*"
               multiple
               className="hidden"
-              onChange={e => { addCommentFiles(e.target.files); e.target.value = '' }}
+              onChange={e => { addFiles(e.target.files); e.target.value = '' }}
             />
             <button
               type="button"
@@ -684,7 +679,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
               value={newComment}
               onChange={e => setNewComment(e.target.value)}
               onKeyDown={handleCommentKeyDown}
-              onPaste={handleCommentPaste}
+              onPaste={handleImagePaste}
               placeholder="Dodaj komentarz..."
               rows={1}
               className="flex-1 py-2"

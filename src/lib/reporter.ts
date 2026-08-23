@@ -35,6 +35,14 @@ const SOURCE_LABELS: Record<ReportSource, string> = {
 }
 
 /**
+ * Identyfikator aktora sesji admina. Sesja admina dostaje `userId: 'admin'`
+ * (lib/auth.ts), więc to jest jedyny wyznacznik. Stała zamiast literału
+ * rozsianego po trasach: przemianowanie tego wartości wymaga dotknięcia
+ * JEDNEGO miejsca.
+ */
+export const ADMIN_ACTOR_ID = 'admin'
+
+/**
  * E-mail konta obejściowego admina. Sesja admina dostaje `userId: 'admin'`
  * i ten adres (lib/auth.ts), więc jest to jedyny wyznacznik.
  */
@@ -50,12 +58,12 @@ export const ADMIN_ACTOR_EMAIL = 'admin@important.is'
  * był, wiadomo z `user_email`.
  */
 export function normalizeActorId(userId: string | null | undefined): string | null {
-  if (!userId || userId === 'admin') return null
+  if (!userId || userId === ADMIN_ACTOR_ID) return null
   return userId
 }
 
 export function isAdminActor(actor: { userId?: string | null; email?: string | null }): boolean {
-  return actor.userId === 'admin' || actor.email === ADMIN_ACTOR_EMAIL
+  return actor.userId === ADMIN_ACTOR_ID || actor.email === ADMIN_ACTOR_EMAIL
 }
 
 /**

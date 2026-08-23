@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from './db'
 import { taskStatusHistory } from './db/schema'
 
@@ -43,6 +43,34 @@ export type StatusChange = {
  */
 export async function recordStatusChange(change: StatusChange): Promise<boolean> {
   try {
+    const changedAt = change.changedAt ?? new Date()
+
+    // Idempotencja po stronie webhooka. ClickUp doręcza zdarzenia AT-LEAST-ONCE,
+    // więc ta sama zmiana statusu potrafi przyjść dwa razy; bez sprawdzenia
+    // Historia dostawała duplikat wiersza przy każdej ponowie. Kluczem jest
+    // pięciorak (portal, zadanie, z, na, czas wg źródła) — dokładnie to, co
+    // identyfikuje jedną fizyczną zmianę. Sprawdzenie PRZED insertem zamyka
+    // okno na tyle, na ile trzeba: ponowienia ClickUpa przychodzą po sekundach,
+    // nie w tej samej milisekundzie, a pełny unikalny indeks wymagałby
+    // migracji czyszczącej duplikaty na produkcji.
+    const duplikat = await db
+      .select({ id: taskStatusHistory.id })
+      .from(taskStatusHistory)
+      .where(
+        and(
+          eq(taskStatusHistory.portalId, change.portalId),
+          eq(taskStatusHistory.clickupTaskId, change.clickupTaskId),
+          change.fromStatus === null
+            ? isNull(taskStatusHistory.fromStatus)
+            : eq(taskStatusHistory.fromStatus, change.fromStatus),
+          eq(taskStatusHistory.toStatus, change.toStatus),
+          eq(taskStatusHistory.changedAt, changedAt),
+          eq(taskStatusHistory.source, change.source)
+        )
+      )
+      .limit(1)
+    if (duplikat.length > 0) return true
+
     await db.insert(taskStatusHistory).values({
       portalId: change.portalId,
       clickupTaskId: change.clickupTaskId,
@@ -52,7 +80,7 @@ export async function recordStatusChange(change: StatusChange): Promise<boolean>
       source: change.source,
       actorUserId: change.actorUserId ?? null,
       actorLabel: change.actorLabel ?? null,
-      changedAt: change.changedAt ?? new Date(),
+      changedAt,
     })
     return true
   } catch (e) {

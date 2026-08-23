@@ -4,36 +4,70 @@ import { taskBelongsToPortal } from './portalScope'
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 const TOKEN = process.env.CLICKUP_API_TOKEN!
 
+/**
+ * Twardy limit jednego żądania do ClickUpa. Bez AbortSignal zawieszone
+ * połączenie wisiało bez końca: kanban klienta czekał, a cron dobijał do
+ * maxDuration. 30 s to wielokrotność normalnej odpowiedzi i mieści się z
+ * zapasem w budżecie cronów.
+ */
+const REQUEST_TIMEOUT_MS = 30_000
+
 /** Górna granica czekania po 429. Dłużej i tak lepiej zwrócić błąd. */
 const RATE_LIMIT_MAX_WAIT_MS = 65_000
+
+/** Błędy serwera i sieci ponawiamy raz; błędy naszych żądań (4xx) nie. */
+function isRetryable(status: number): boolean {
+  return status >= 500 || status === 408
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 async function clickupFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  // Jedna próba ponowienia po 429. ClickUp daje 100 zapytań na minutę na token
-  // (Free/Unlimited/Business), a tym samym tokenem chodzi i portal klienta,
+  // Jedna próba ponowienia po 429 oraz po chwilowej awarii ClickUpa (5xx,
+  // zerwane połączenie). ClickUp daje 100 zapytań na minutę na token (Free/
+  // Unlimited/Business), a tym samym tokenem chodzi i portal klienta,
   // i synchronizacja indeksu. Bez tego 429 z backfillu mógłby wylądować na
-  // żądaniu klienta i wyglądać jak awaria portalu.
+  // żądaniu klienta i wyglądać jak awaria portalu, a pojedynczy 502 przewracał
+  // cały przebieg crona dla wszystkich portali.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(`${CLICKUP_API}${path}`, {
-      ...options,
-      headers: {
-        Authorization: TOKEN,
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
-    })
+    let res: Response
+    try {
+      res = await fetch(`${CLICKUP_API}${path}`, {
+        ...options,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: {
+          Authorization: TOKEN,
+          'Content-Type': 'application/json',
+          ...options?.headers,
+        },
+      })
+    } catch (e) {
+      // AbortSignal.timeout sygnalizuje przekroczenie jako TimeoutError; błąd
+      // sieci (ECONNRESET itp.) przychodzi jako zwykły TypeError. Oba są
+      // przejściowe, więc podlegają tej samej jednej próbie ponowienia.
+      if (attempt === 0) {
+        console.warn(`[clickup] błąd sieci/timeout na ${path}, ponawiam raz`)
+        await sleep(2_000)
+        continue
+      }
+      throw e instanceof Error ? e : new Error(String(e))
+    }
 
-    if (res.status === 429 && attempt === 0) {
-      // X-RateLimit-Reset to znacznik czasu w sekundach, nie liczba sekund.
-      const reset = Number(res.headers.get('x-ratelimit-reset'))
-      const waitMs = Number.isFinite(reset) && reset > 0
-        ? Math.min(Math.max(reset * 1000 - Date.now(), 1_000), RATE_LIMIT_MAX_WAIT_MS)
-        : 5_000
-      console.warn(`[clickup] 429 na ${path}, czekam ${Math.round(waitMs / 1000)}s i ponawiam`)
-      await sleep(waitMs)
+    if ((res.status === 429 || isRetryable(res.status)) && attempt === 0) {
+      if (res.status === 429) {
+        // X-RateLimit-Reset to znacznik czasu w sekundach, nie liczba sekund.
+        const reset = Number(res.headers.get('x-ratelimit-reset'))
+        const waitMs = Number.isFinite(reset) && reset > 0
+          ? Math.min(Math.max(reset * 1000 - Date.now(), 1_000), RATE_LIMIT_MAX_WAIT_MS)
+          : 5_000
+        console.warn(`[clickup] 429 na ${path}, czekam ${Math.round(waitMs / 1000)}s i ponawiam`)
+        await sleep(waitMs)
+      } else {
+        console.warn(`[clickup] ${res.status} na ${path}, ponawiam raz`)
+        await sleep(2_000)
+      }
       continue
     }
 
@@ -416,7 +450,20 @@ export async function getFolderLists(
   const data = await clickupFetch<{ lists: Array<{ id: string; name: string }> }>(
     `/folder/${folderId}/list`
   )
-  return data.lists ?? []
+  // Odpowiedz ClickUpa niesie duzo wiecej pol (task_count, statuses); do
+  // panelu ida tylko te dwa.
+  return (data.lists ?? []).map(l => ({ id: l.id, name: l.name }))
+}
+
+/** Foldery w przestrzeni, dla wyboru folderu klienta w panelu admina.
+ *  Odpowiedź ClickUpa niesie dużo więcej pól; do panelu idą tylko id i nazwa. */
+export async function getFoldersInSpace(
+  spaceId: string
+): Promise<Array<{ id: string; name: string }>> {
+  const data = await clickupFetch<{ folders: Array<{ id: string; name: string }> }>(
+    `/space/${spaceId}/folder?archived=false`
+  )
+  return (data.folders ?? []).map(f => ({ id: f.id, name: f.name }))
 }
 
 // Security: verify taskId belongs to this folder before any mutation

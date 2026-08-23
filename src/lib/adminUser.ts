@@ -15,15 +15,23 @@ const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? 'admin@important.is').toLowerCas
  * Ten indeks warto kiedyś dodać, ale to migracja wymagająca sprawdzenia
  * duplikatów na produkcji, więc nie wchodzi tą samą zmianą.
  *
+ * `exec` pozwala puścić insert wewnątrz transakcji wołającego (drizzle `tx`),
+ * żeby konto admina powstało RAZEM z portalem albo wcale. Domyślnie globalny
+ * `db`; uwaga, że wtedy wywołanie w trakcie otwartej transakcji zobaczy portal
+ * dopiero po jej commit i FK może się wysypać.
+ *
  * Zwraca id konta albo null, gdy `ADMIN_PASSWORD_HASH` nie jest ustawiony.
  * Bez hasha nie da się utworzyć konta, którym można się zalogować, a konto
  * z pustym hasłem byłoby dziurą.
  */
-export async function ensureAdminUser(portalId: string): Promise<string | null> {
+export async function ensureAdminUser(
+  portalId: string,
+  exec: Pick<typeof db, 'select' | 'insert' | 'update' | 'delete'> = db
+): Promise<string | null> {
   const hash = process.env.ADMIN_PASSWORD_HASH
   if (!hash) return null
 
-  const existing = await db
+  const existing = await exec
     .select({ id: portalUsers.id })
     .from(portalUsers)
     .where(and(eq(portalUsers.portalId, portalId), eq(portalUsers.email, ADMIN_EMAIL)))
@@ -31,7 +39,7 @@ export async function ensureAdminUser(portalId: string): Promise<string | null> 
 
   if (existing[0]) return existing[0].id
 
-  const [created] = await db
+  const [created] = await exec
     .insert(portalUsers)
     .values({
       portalId,

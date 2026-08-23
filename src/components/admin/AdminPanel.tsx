@@ -15,6 +15,7 @@ import { ProjectEvents } from '@/components/admin/ProjectEvents'
 import { ProjectSyncLog } from '@/components/admin/ProjectSyncLog'
 import { ProjectMailLog } from '@/components/admin/ProjectMailLog'
 import { plural, USERS } from '@/lib/plural'
+import { DEFAULT_CLICKUP_SPACE_ID } from '@/lib/clickupSpace'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -68,7 +69,7 @@ export default function AdminPanel() {
   const [inviteResult, setInviteResult] = useState<{ userId: string; ok: boolean; text: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [portalForm, setPortalForm] = useState({
-    name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256',
+    name: '', slug: '', clickupFolderId: '', clickupSpaceId: DEFAULT_CLICKUP_SPACE_ID,
     listId: '', listName: '',
   })
   const [portalFormError, setPortalFormError] = useState('')
@@ -82,7 +83,7 @@ export default function AdminPanel() {
     setFoldersLoading(true)
     setFolders([])
     setAvailableLists([])
-    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256', listId: '', listName: '' })
+    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: DEFAULT_CLICKUP_SPACE_ID, listId: '', listName: '' })
     setPortalFormError('')
     const res = await fetch('/api/admin/clickup/folders')
     if (res.ok) setFolders(await res.json().then((d: { folders: Array<{ id: string; name: string }> }) => d.folders))
@@ -217,7 +218,7 @@ export default function AdminPanel() {
       return
     }
     setShowCreatePortal(false)
-    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: '90100136256', listId: '', listName: '' })
+    setPortalForm({ name: '', slug: '', clickupFolderId: '', clickupSpaceId: DEFAULT_CLICKUP_SPACE_ID, listId: '', listName: '' })
     load()
   }
 

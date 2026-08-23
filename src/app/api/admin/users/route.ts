@@ -5,11 +5,8 @@ import { portals, portalUsers } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
-import { render } from '@react-email/render'
-import { createInvite, unusablePasswordHash, INVITE_TTL_HOURS } from '@/lib/invites'
-import { sendMail, isMailConfigured } from '@/lib/mailer'
-import { resolveBranding } from '@/lib/branding'
-import { AccessEmail } from '@/emails/AccessEmail'
+import { unusablePasswordHash } from '@/lib/invites'
+import { sendInviteEmail } from '@/lib/inviteEmail'
 
 const createSchema = z.object({
   // Provide either portalId (uuid) or slug — slug is friendlier for AI/curl use.
@@ -86,45 +83,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { token, expiresAt } = await createInvite(user.id, portal[0].id)
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-  const inviteUrl = `${appUrl}/${portal[0].slug}/zaproszenie/${token}`
-
-  const branding = resolveBranding(portal[0])
-  const email$ = AccessEmail({
-    kind: 'invite',
-    portalName: portal[0].name,
-    recipientName: name,
-    actionUrl: inviteUrl,
-    expiresInHours: INVITE_TTL_HOURS,
-    brandColor: branding.brandColor,
-    brandForeground: branding.brandForeground,
-  })
-  const html = await render(email$)
-  const text = await render(email$, { plainText: true })
-
-  const result = await sendMail({
-    to: email,
-    subject: `Twój dostęp do portalu ${portal[0].name}`,
-    html,
-    text,
-    kind: 'invite',
-    portalId: portal[0].id,
+  const invite = await sendInviteEmail({
+    userId: user.id,
+    userEmail: email,
+    userName: name,
+    portal: portal[0],
   })
 
   return NextResponse.json(
     {
       user: { id: user.id, email: user.email, name: user.name },
-      invite: {
-        sent: result.sent,
-        expiresAt,
-        // Link wracamy WYŁĄCZNIE gdy mail nie poszedł, żeby admin miał co
-        // przekazać ręcznie. Przy udanej wysyłce nie ma powodu, by token
-        // krążył poza mailem.
-        url: result.sent ? null : inviteUrl,
-        reason: result.sent ? null : result.reason,
-        mailConfigured: isMailConfigured(),
-      },
+      invite,
     },
     { status: 201 }
   )

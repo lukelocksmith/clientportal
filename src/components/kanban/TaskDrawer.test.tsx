@@ -123,13 +123,17 @@ describe('wczytywanie watku', () => {
     assert.ok(screen.getByText(/Komentarze \(2\)/))
   })
 
-  it('padniete pobranie NIE zostawia szuflady w stanie ladowania', async () => {
+  it('padniete pobranie NIE zostawia szuflady w stanie ladowania ani NIE klamie „Brak komentarzy"', async () => {
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) })
     render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
 
-    // Wczesniej w innym miejscu tej aplikacji brak obslugi odrzucenia zostawial
+    // Wcześniej w innym miejscu tej aplikacji brak obslugi odrzucenia zostawial
     // ekran na „Ladowanie..." NA ZAWSZE. Tutaj musi skonczyc sie komunikatem.
-    assert.ok(await screen.findByText('Brak komentarzy'))
+    //
+    // Komunikat mowi wprost o bledzie (nie „Brak komentarzy"), bo padniety
+    // fetch to awaria, a nie pusty watek. Retry jest dostepny od reki.
+    assert.ok(await screen.findByText('Nie udało się pobrać komentarzy.'))
+    assert.ok(screen.getByRole('button', { name: 'Spróbuj ponownie' }))
   })
 })
 

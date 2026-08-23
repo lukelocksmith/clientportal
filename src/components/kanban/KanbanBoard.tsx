@@ -1,10 +1,11 @@
 'use client'
-import { useState, useEffect, useCallback, useOptimistic } from 'react'
+import { useState, useEffect } from 'react'
 import {
   DndContext,
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
+  KeyboardSensor,
   PointerSensor,
   TouchSensor,
   useSensor,
@@ -13,7 +14,7 @@ import {
 } from '@dnd-kit/core'
 import { useSearchParams } from 'next/navigation'
 import type { ClickUpTask, KanbanColumn } from '@/lib/types'
-import { getStatusColor, STATUS_COLUMNS } from '@/lib/utils'
+import { getStatusColor, STATUS_COLUMNS, TASK_STATUS_CLOSED } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
@@ -65,7 +66,7 @@ function findTaskInTree(tasks: ClickUpTask[], id: string): ClickUpTask | null {
   return null
 }
 
-const CLOSED_STATUS = 'zamknięte'
+const CLOSED_STATUS = TASK_STATUS_CLOSED
 const CLOSED_COLUMN_LIMIT = 5
 
 export function buildColumns(
@@ -182,14 +183,18 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
   // serwerowa w historia/page.tsx), albo pokazywalby link do widoku, ktorego
   // dane nigdy nie zostaly pobrane (fetch jest za ta sama flaga).
   const closedMoreHref = statusControlsEnabled && flags.historyEnabled
-    ? `/${slug}/historia?status=${encodeURIComponent('zamknięte')}`
+    ? `/${slug}/historia?status=${encodeURIComponent(CLOSED_STATUS)}`
     : null
 
   const columns = buildColumns(tasks, closedMoreHref, statusControlsEnabled)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    // Przeciąganie z klawiatury (Enter/Spacja łapie kartę, strzałki przenoszą).
+    // dnd-kit daje to za darmo, ale sensor trzeba jawnie podłączyć; bez niego
+    // karta ma role="button" i tabIndex, a Enter nic nie robił.
+    useSensor(KeyboardSensor)
   )
 
   function handleDragStart(event: DragStartEvent) {
@@ -250,10 +255,15 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
 
   async function handleRefresh() {
     setRefreshing(true)
-    const res = await fetch(`/api/clickup/tasks?slug=${slug}`)
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/clickup/tasks?slug=${slug}`)
+      if (!res.ok) throw new Error(`refresh failed: ${res.status}`)
       const data = await res.json()
       setTasks(data.tasks)
+    } catch {
+      // Klient kliknął „Odśwież" i kręciło się bez efektu; bez tej informacji
+      // porażka wyglądała jak brak nowych zadań.
+      toast.error('Nie udało się odświeżyć. Spróbuj ponownie.')
     }
     setRefreshing(false)
   }

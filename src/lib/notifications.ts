@@ -11,6 +11,8 @@
  * decyzje.
  */
 
+import { TASK_STATUS_CLOSED } from './utils'
+
 /** Rodzaj zdarzenia. Odpowiada kolumnie `kind` w tabeli notifications. */
 export type NotifyKind = 'comment' | 'status' | 'closed' | 'panic_ack'
 
@@ -116,5 +118,5 @@ export function chooseRecipients(input: ChooseInput): Recipient[] {
  * dwóch powiadomień, tylko jedno, wyraźniejsze.
  */
 export function statusKind(newStatus: string): Extract<NotifyKind, 'status' | 'closed'> {
-  return newStatus.trim().toLowerCase() === 'zamknięte' ? 'closed' : 'status'
+  return newStatus.trim().toLowerCase() === TASK_STATUS_CLOSED ? 'closed' : 'status'
 }

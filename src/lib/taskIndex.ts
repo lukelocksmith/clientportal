@@ -3,7 +3,7 @@ import { db } from './db'
 import { taskIndex } from './db/schema'
 import { getFolderTaskHistory, getTask, getTaskComments } from './clickup'
 import { getPortalScope } from './portalScopeStore'
-import { filterTasksToScope } from './portalScope'
+import { filterTasksToScope, isListInScope } from './portalScope'
 import { publicCommentTexts } from './publicComments'
 import { buildSearchText, escapeLikePattern, normalizeQuery } from './textSearch'
 
@@ -242,7 +242,25 @@ export async function syncPortalIndex(
  */
 export async function indexSingleTask(portalId: string, taskId: string): Promise<boolean> {
   try {
-    const [full, comments] = await Promise.all([getTask(taskId), getTaskComments(taskId)])
+    const full = await getTask(taskId)
+
+    // Granica zakresu, ta sama co w syncPortalIndex. Webhook ustala portal po
+    // folderze, a folder moze zawierac listy SPOZA zakresu portalu (patrz
+    // komentarz przy portalScope.ts): bez tego sprawdzenia zadanie z listy,
+    // ktorej klientowi nie udostepniono, trafialoby do jego Historii i
+    // wyszukiwarki az do nastepnego przebiegu crona.
+    //
+    // Sprawdzamy PRZED doczytaniem komentarzy, zeby nie placic wywolaniami
+    // ClickUpa za zadanie, ktorego i tak nie zaindeksujemy.
+    const scope = await getPortalScope(portalId)
+    if (!isListInScope(full.list?.id, scope)) {
+      // Gdyby zadanie bylo wczesniej w indeksie (przeniesienie na liste spoza
+      // zakresu), musi z niego wypasc — ta sama zasada co dla folderow obcych.
+      await removeTaskFromIndex(portalId, taskId)
+      return false
+    }
+
+    const comments = await getTaskComments(taskId)
     const publicComments = publicCommentTexts(comments)
     const attachmentNames = (full.attachments ?? []).map(a => a.title).filter(Boolean)
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
-import { portalUsers } from '@/lib/db/schema'
+import { portalUsers, sessions } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
@@ -25,7 +25,14 @@ export async function PATCH(
   const updates: Record<string, unknown> = {}
   if (parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive
   if (parsed.data.name !== undefined) updates.name = parsed.data.name
-  if (parsed.data.password) updates.passwordHash = await bcrypt.hash(parsed.data.password, 12)
+  if (parsed.data.password) {
+    updates.passwordHash = await bcrypt.hash(parsed.data.password, 12)
+    // Zmiana hasła unieważnia istniejące sesje. Bez tego reakcja na incydent
+    // („ustawcie mu nowe hasło") nie wylogowywała nikogo: stara sesja żyła
+    // dalej do końca swojej ważności. Deaktywacja konta celowo NIE ubija
+    // sesji — to decyzja o widoczności, nie o uwierzytelnieniu.
+    await db.delete(sessions).where(eq(sessions.userId, userId))
+  }
 
   const [user] = await db
     .update(portalUsers)

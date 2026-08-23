@@ -36,7 +36,10 @@ export async function POST(
       const att = await addTaskAttachment(taskId, new Blob([buf], { type: file.type }), file.name || 'screenshot.png')
       results.push({ name: file.name, ok: true, url: att.url })
     } catch (e) {
-      results.push({ name: file.name, ok: false, error: String(e) })
+      // Szczegóły wyjątku zawierają ciało odpowiedzi ClickUpa, więc do klienta
+      // idzie stała treść, a pełny błąd do logu kontenera.
+      console.error(`[attachments] upload ${file.name} -> zadanie ${taskId} nie powiódł się:`, e)
+      results.push({ name: file.name, ok: false, error: 'Nie udało się wgrać pliku. Spróbuj ponownie.' })
     }
   }
 

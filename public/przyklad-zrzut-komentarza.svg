@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="200" role="img" aria-label="przykladowy zrzut ekranu">
+  <rect width="480" height="200" fill="#e6e8ec"/>
+  <rect x="16" y="16" width="448" height="28" fill="#cfd3da"/>
+  <text x="24" y="110" font-family="sans-serif" font-size="22" fill="#3c4048">przykładowy zrzut ekranu</text>
+  <text x="24" y="140" font-family="sans-serif" font-size="14" fill="#6b7280">plik z public/dev, podgląd działa bez sieci</text>
+</svg>

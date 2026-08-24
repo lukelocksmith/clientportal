@@ -1,3 +1,4 @@
+import type { BlockNode } from './commentBlocks'
 // ClickUp types matching real API response
 export type ClickUpPriority = {
   id: string
@@ -35,15 +36,32 @@ export type ClickUpAttachment = {
 
 export type ClickUpComment = {
   id: string
-  comment: Array<{ text: string }>
+  /**
+   * Surowy zapis z ClickUpa. Istnieje TYLKO po stronie serwera: `blocks` niżej
+   * są z niego zrobione, a do przeglądarki klienta to pole NIE jedzie, bo
+   * zawiera znacznik `[P]` i wzmianki o osobach, czyli dokładnie to, co z
+   * widoku usuwamy (patrz filterPublicComments).
+   */
+  comment?: Array<{ text: string }>
   comment_text: string
-  user: ClickUpAssignee | null
-  resolved: boolean
+  /**
+   * Autor po stronie ClickUpa: imię, nazwisko, PRYWATNY adres e-mail i zdjęcie
+   * członka zespołu. Pole serwerowe. Do klienta jedzie tylko `sender`, czyli
+   * „important.is" albo imię klienta (patrz filterPublicComments).
+   */
+  user?: ClickUpAssignee | null
+  resolved?: boolean
   date: string
   replies?: ClickUpComment[]
   sender?: string  // parsed from [PUBLIC] prefix: client name or 'important.is'
   /** Czy TEN zalogowany dodal ten komentarz z portalu — steruje przyciskami edycji/usuwania. */
   isOwn?: boolean
+  /**
+   * Treść jako drzewo bloków, gotowa do wyświetlenia: formatowanie z ClickUpa,
+   * zdjęty znacznik `[P]`, wzmianki o zadaniach rozwiązane po stronie serwera
+   * (nazwa tylko dla zadań z tego portalu). Dokłada `filterPublicComments`.
+   */
+  blocks?: BlockNode[]
 }
 
 export type ClickUpSubtask = {

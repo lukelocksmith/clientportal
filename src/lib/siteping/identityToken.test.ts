@@ -50,8 +50,15 @@ describe('signIdentityToken / verifyIdentityToken', () => {
   it('podrobiony token nie przechodzi', async () => {
     const { signIdentityToken, verifyIdentityToken } = await modul()
     const token = await signIdentityToken({ name: 'Anna', email: 'anna@onyx.pl', slug: 'onyx' })
-    // Zmiana jednego znaku w podpisie.
-    const zepsuty = token!.slice(0, -1) + (token!.slice(-1) === 'a' ? 'b' : 'a')
+    // Zmiana jednego znaku W SRODKU podpisu, nie na koncu. Podpis HS256 ma 32
+    // bajty, czyli 43 znaki base64url, z ktorych OSTATNI nosi bity wypelnienia
+    // pomijane przy dekodowaniu. Podmiana ostatniego znaku dawala wiec czasem
+    // ten sam podpis po zdekodowaniu i test przechodzil mimo poprawnego kodu:
+    // raz na 64 przebiegi calego zestawu (zlapane 2026-08-24).
+    const [naglowek, tresc, podpis] = token!.split('.')
+    const srodek = Math.floor(podpis.length / 2)
+    const zepsutyPodpis = podpis.slice(0, srodek) + (podpis[srodek] === 'a' ? 'b' : 'a') + podpis.slice(srodek + 1)
+    const zepsuty = `${naglowek}.${tresc}.${zepsutyPodpis}`
     assert.strictEqual(await verifyIdentityToken(zepsuty, 'onyx'), null)
   })
 

@@ -16,6 +16,7 @@ import {
   filterPublicComments,
   publicCommentTexts,
   buildOwnComment,
+  publicCommentBlocks,
 } from '@/lib/publicComments'
 import type { ClickUpComment } from '@/lib/types'
 
@@ -188,5 +189,345 @@ describe('buildOwnComment -> MarkdownLite (zamkniecie petli)', () => {
 
     const html = renderToStaticMarkup(<MarkdownLite text={swiezyKomentarz.comment_text} />)
     assert.ok(html.includes('<strong>super</strong>'))
+  })
+})
+
+describe('publicCommentBlocks', () => {
+  /** Komentarz z prawdziwymi blokami ClickUpa, tak jak przychodzi z API. */
+  function zBlokami(blocks: unknown[], text: string): ClickUpComment {
+    return { id: 'c1', comment: blocks, comment_text: text, date: '0', user: null } as unknown as ClickUpComment
+  }
+
+  it('znacznik [P] nie zostaje w tresci pokazywanej klientowi', () => {
+    const out = publicCommentBlocks(
+      zBlokami([{ text: '[P] Poprawione.' }], '[P] Poprawione.')
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'paragraph', inline: [{ kind: 'text', text: 'Poprawione.' }] }])
+  })
+
+  it('znacznik w osobnej linii nie zostawia pustego akapitu na gorze', () => {
+    const out = publicCommentBlocks(
+      zBlokami(
+        [{ text: '[P]' }, { text: '\n', attributes: { 'block-id': 'b1' } }, { text: 'Tresc' }],
+        '[P]\nTresc'
+      )
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'paragraph', inline: [{ kind: 'text', text: 'Tresc' }] }])
+  })
+
+  it('podpis klienta (Imie) nie zostaje w tresci, bo autor jest w naglowku', () => {
+    const out = publicCommentBlocks(
+      zBlokami([{ text: '[P] (Anna) dziekuje za szybka reakcje' }], '[P] (Anna) dziekuje za szybka reakcje')
+    )
+
+    assert.deepStrictEqual(out, [
+      { kind: 'paragraph', inline: [{ kind: 'text', text: 'dziekuje za szybka reakcje' }] },
+    ])
+  })
+
+  it('nawias w SRODKU zdania zostaje, bo to nie podpis', () => {
+    const out = publicCommentBlocks(
+      zBlokami([{ text: '[P] poprawione (tak jak ustalalismy)' }], '[P] poprawione (tak jak ustalalismy)')
+    )
+
+    assert.deepStrictEqual(out[0], {
+      kind: 'paragraph',
+      inline: [{ kind: 'text', text: 'poprawione (tak jak ustalalismy)' }],
+    })
+  })
+
+  it('znacznik wewnatrz linii zwija sie do jednej spacji, nie zlepia slow', () => {
+    const out = publicCommentBlocks(
+      zBlokami([{ text: 'zrobione [P] sprawdz' }], 'zrobione [P] sprawdz')
+    )
+
+    assert.deepStrictEqual(out[0], {
+      kind: 'paragraph',
+      inline: [{ kind: 'text', text: 'zrobione sprawdz' }],
+    })
+  })
+
+  it('znacznik zdejmuje sie takze z punktu listy', () => {
+    const out = publicCommentBlocks(
+      zBlokami(
+        [{ text: '[P] pierwszy' }, { text: '\n', attributes: { list: { list: 'bullet' } } }],
+        '[P] pierwszy'
+      )
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'bullets', items: [[{ kind: 'text', text: 'pierwszy' }]] }])
+  })
+
+  it('komentarz bez blokow (stary, tylko comment_text) nie gubi tresci', () => {
+    const out = publicCommentBlocks({
+      id: 'c2',
+      comment_text: '[P] Zrobione.',
+      date: '0',
+      user: null,
+    } as unknown as ClickUpComment)
+
+    assert.deepStrictEqual(out, [{ kind: 'paragraph', inline: [{ kind: 'text', text: 'Zrobione.' }] }])
+  })
+
+  it('formatowanie przezywa zdjecie znacznika', () => {
+    const out = publicCommentBlocks(
+      zBlokami(
+        [{ text: '[P] ' }, { text: 'WAZNE', attributes: { bold: true } }],
+        '[P] WAZNE'
+      )
+    )
+
+    assert.deepStrictEqual(out[0], {
+      kind: 'paragraph',
+      inline: [{ kind: 'text', text: 'WAZNE', bold: true }],
+    })
+  })
+})
+
+describe('bloki doczepione do komentarza', () => {
+  it('filterPublicComments dokleja gotowe bloki, ze zdjetym znacznikiem', () => {
+    const wejscie = [
+      {
+        id: 'c1',
+        comment: [
+          { text: '[P] Poprawione w ' },
+          { text: '869enjjkr', type: 'task_mention', task_mention: { task_id: '869enjjkr' } },
+        ],
+        comment_text: '[P] Poprawione w 869enjjkr',
+        date: '0',
+        user: null,
+      },
+    ] as unknown as ClickUpComment[]
+
+    const [wynik] = filterPublicComments(wejscie)
+
+    assert.deepStrictEqual(wynik.blocks, [
+      {
+        kind: 'paragraph',
+        inline: [
+          { kind: 'text', text: 'Poprawione w ' },
+          { kind: 'taskMention', taskId: '869enjjkr' },
+        ],
+      },
+    ])
+  })
+
+  it('komentarz wewnetrzny nie dostaje blokow, bo nie wychodzi wcale', () => {
+    const wynik = filterPublicComments([comment('wewnetrzne: nie placi faktur')])
+
+    assert.strictEqual(wynik.length, 0)
+  })
+
+  it('buildOwnComment ma bloki, zeby swiezy komentarz renderowal sie tak samo', () => {
+    const own = buildOwnComment({ id: 'x1' }, 'Dziekuje za szybka reakcje', 'Anna')
+
+    assert.deepStrictEqual(own.blocks, [
+      { kind: 'paragraph', inline: [{ kind: 'text', text: 'Dziekuje za szybka reakcje' }] },
+    ])
+  })
+
+  it('swiezy komentarz z kilku linii ma kilka akapitow, nie jeden zlepek', () => {
+    const own = buildOwnComment({ id: 'x2' }, 'Pierwsza linia\nDruga linia', 'Anna')
+
+    assert.deepStrictEqual(own.blocks?.length, 2)
+  })
+})
+
+describe('wzmianki o osobach nie docieraja do klienta', () => {
+  /** Komentarz z prawdziwymi blokami ClickUpa. */
+  function zBlokami(blocks: unknown[]): ClickUpComment {
+    return { id: 'c1', comment: blocks, comment_text: '', date: '0', user: null } as unknown as ClickUpComment
+  }
+
+  const wzmianka = (imie = 'Paulina Andrzejewska') => ({
+    type: 'tag',
+    text: `@${imie}`,
+    user: { id: 1, username: imie },
+  })
+
+  it('ZGLOSZENIE: oznaczenie osoby z zespolu w ogole sie nie pokazuje', () => {
+    // Artem oznaczal Pauline, zeby dostala powiadomienie w ClickUpie. To jest
+    // ruch wewnatrz zespolu, nie tresc dla klienta.
+    const out = publicCommentBlocks(
+      zBlokami([wzmianka(), { text: '\n', attributes: { 'block-id': 'b1' } }, { text: 'Poprawione.' }])
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'paragraph', inline: [{ kind: 'text', text: 'Poprawione.' }] }])
+  })
+
+  it('linia zlozona TYLKO ze wzmianki znika cala, nie zostawia pustego akapitu', () => {
+    const out = publicCommentBlocks(
+      zBlokami([
+        { text: 'Pierwszy akapit.' },
+        { text: '\n', attributes: { 'block-id': 'b1' } },
+        wzmianka(),
+        { text: '\n', attributes: { 'block-id': 'b2' } },
+        { text: 'Drugi akapit.' },
+      ])
+    )
+
+    assert.deepStrictEqual(out, [
+      { kind: 'paragraph', inline: [{ kind: 'text', text: 'Pierwszy akapit.' }] },
+      { kind: 'paragraph', inline: [{ kind: 'text', text: 'Drugi akapit.' }] },
+    ])
+  })
+
+  it('wzmianka na POCZATKU zdania nie zostawia spacji na wcieciu', () => {
+    const out = publicCommentBlocks(zBlokami([wzmianka(), { text: ' sprawdz prosze.' }]))
+
+    assert.deepStrictEqual(out, [
+      { kind: 'paragraph', inline: [{ kind: 'text', text: 'sprawdz prosze.' }] },
+    ])
+  })
+
+  it('wzmianka w SRODKU zdania nie zostawia podwojnej spacji', () => {
+    const out = publicCommentBlocks(
+      zBlokami([{ text: 'Prosze ' }, wzmianka(), { text: ' o sprawdzenie.' }])
+    )
+    const inline = (out[0] as { inline: Array<{ text: string }> }).inline
+
+    assert.strictEqual(inline.map(n => n.text).join(''), 'Prosze o sprawdzenie.')
+  })
+
+  it('@followers tez nie jest trescia dla klienta', () => {
+    const out = publicCommentBlocks(
+      zBlokami([{ type: 'followers_tag', text: '@followers', field_id: 'followers_tag' }, { text: ' gotowe' }])
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'paragraph', inline: [{ kind: 'text', text: 'gotowe' }] }])
+  })
+
+  it('wzmianka w punkcie listy znika, punkt zostaje', () => {
+    const out = publicCommentBlocks(
+      zBlokami([
+        { text: 'zrobione przez ' },
+        wzmianka(),
+        { text: '\n', attributes: { list: { list: 'bullet' } } },
+      ])
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'bullets', items: [[{ kind: 'text', text: 'zrobione przez' }]] }])
+  })
+
+  it('punkt listy zlozony tylko ze wzmianki znika, lista nie zostaje pusta', () => {
+    const out = publicCommentBlocks(
+      zBlokami([
+        { text: 'prawdziwy punkt' },
+        { text: '\n', attributes: { list: { list: 'bullet' } } },
+        wzmianka(),
+        { text: '\n', attributes: { list: { list: 'bullet' } } },
+      ])
+    )
+
+    assert.deepStrictEqual(out, [{ kind: 'bullets', items: [[{ kind: 'text', text: 'prawdziwy punkt' }]] }])
+  })
+
+  it('komentarz zlozony WYLACZNIE ze wzmianki nie zostawia nic do pokazania', () => {
+    const out = publicCommentBlocks(zBlokami([wzmianka()]))
+
+    assert.deepStrictEqual(out, [])
+  })
+
+  it('wzmianka o ZADANIU zostaje, bo to kontekst dla klienta, nie powiadomienie', () => {
+    const out = publicCommentBlocks(
+      zBlokami([
+        { text: 'patrz ' },
+        { text: '869abc', type: 'task_mention', task_mention: { task_id: '869abc' } },
+      ])
+    )
+
+    assert.deepStrictEqual(out, [
+      {
+        kind: 'paragraph',
+        inline: [{ kind: 'text', text: 'patrz ' }, { kind: 'taskMention', taskId: '869abc' }],
+      },
+    ])
+  })
+})
+
+describe('co NIE wychodzi do przegladarki', () => {
+  it('surowe bloki ClickUpa nie jada razem z gotowymi', () => {
+    // Pole `comment` to nieprzetworzony zapis z ClickUpa: ze znacznikiem [P] i
+    // ze wzmiankami o osobach. Renderowanie ich nie uzywa, ale dopoki lecialy
+    // w odpowiedzi, to co usunelismy z widoku bylo dalej w przegladarce
+    // klienta, do odczytania w narzedziach deweloperskich.
+    const wejscie = [
+      {
+        id: 'c1',
+        comment: [
+          { text: '[P] ' },
+          { type: 'tag', text: '@Paulina Andrzejewska', user: { id: 1, username: 'Paulina Andrzejewska' } },
+          { text: ' gotowe' },
+        ],
+        comment_text: '[P] @Paulina Andrzejewska gotowe',
+        date: '0',
+        user: null,
+      },
+    ] as unknown as ClickUpComment[]
+
+    const wynik = filterPublicComments(wejscie)
+    const wyslane = JSON.stringify(wynik)
+
+    assert.strictEqual('comment' in wynik[0], false, 'surowe bloki nadal jada do klienta')
+    assert.ok(!wyslane.includes('Paulina'), 'WYCIEK oznaczenia osoby')
+    assert.ok(!wyslane.includes('[P]'), 'znacznik nadal jedzie do klienta')
+  })
+
+  it('gotowe bloki i tekst zostaja, bo z nich renderuje sie watek', () => {
+    const wynik = filterPublicComments([comment('[P] Zrobione.')])
+
+    assert.deepStrictEqual(wynik[0].comment_text, 'Zrobione.')
+    assert.deepStrictEqual(wynik[0].blocks, [
+      { kind: 'paragraph', inline: [{ kind: 'text', text: 'Zrobione.' }] },
+    ])
+  })
+})
+
+describe('komentarz wychodzi do klienta z WYBRANYMI polami', () => {
+  /** Komentarz w kształcie, w jakim naprawdę oddaje go ClickUp. */
+  const zClickUpa = () =>
+    ({
+      id: 'c1',
+      comment: [{ text: '[P] gotowe' }],
+      comment_text: '[P] gotowe',
+      date: '1786025083695',
+      resolved: false,
+      reply_count: 0,
+      reactions: [],
+      assignee: null,
+      group_assignee: null,
+      user: {
+        id: 94729587,
+        username: 'Paulina Andrzejewska',
+        email: 'andrzejewska.paulina78@gmail.com',
+        initials: 'PA',
+        profilePicture: 'https://attachments.clickup.com/profilePictures/94729587.jpg',
+      },
+    }) as unknown as ClickUpComment
+
+  it('WYCIEK: prywatny mail autora z zespolu nie jedzie do klienta', () => {
+    const wyslane = JSON.stringify(filterPublicComments([zClickUpa()]))
+
+    assert.ok(!wyslane.includes('gmail.com'), 'adres prywatny w przegladarce klienta')
+    assert.ok(!wyslane.includes('Paulina'), 'imie i nazwisko autora z zespolu')
+    assert.ok(!wyslane.includes('profilePictures'), 'zdjecie profilowe autora')
+  })
+
+  it('wychodza DOKLADNIE pola, ktore portal renderuje', () => {
+    // Lista wprost, nie „bez tych kilku". Nowe pole od ClickUpa ma trafic do
+    // klienta dopiero wtedy, gdy ktos je tu swiadomie dopisze.
+    const [wynik] = filterPublicComments([zClickUpa()])
+
+    assert.deepStrictEqual(Object.keys(wynik).sort(), ['blocks', 'comment_text', 'date', 'id', 'sender'])
+  })
+
+  it('autor jest w polu sender, wiec klient nadal wie, kto odpowiedzial', () => {
+    const [agencja] = filterPublicComments([zClickUpa()])
+    const [klient] = filterPublicComments([comment('[P] (Anna) dziekuje')])
+
+    assert.strictEqual(agencja.sender, 'important.is')
+    assert.strictEqual(klient.sender, 'Anna')
   })
 })

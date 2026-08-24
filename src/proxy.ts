@@ -25,6 +25,8 @@ import { isSitepingWidgetPath } from '@/lib/siteping/widgetPath'
  *   img-src https:  klienci mają własne logo pod dowolnym adresem, a szuflada
  *                   zadania pokazuje miniatury załączników z ClickUpa. Obrazek
  *                   z obcego hosta jest nieporównanie mniej groźny niż skrypt.
+ *   media-src https: nagrania dołączone do komentarzy leżą na CDN-ie ClickUpa,
+ *                   tak samo jak miniatury. Bez tej dyrektywy `<video>` milczy.
  *   connect-src     tylko własne źródło: portal woła wyłącznie swoje API, także
  *                   przy strumieniowaniu odpowiedzi asystenta.
  *   'unsafe-eval'   WYŁĄCZNIE w trybie deweloperskim, bo React używa tam eval
@@ -52,6 +54,11 @@ function buildCsp(nonce: string): string {
     `style-src 'self'${isDev ? " 'unsafe-inline'" : ''}`,
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
+    // media-src osobno, bo bez niego wideo wpadało w `default-src 'self'` i
+    // nagranie dołączone do komentarza w ClickUpie nie odtwarzało się wcale
+    // (blokada widoczna tylko w konsoli, w interfejsie odtwarzacz po prostu
+    // milczał). Ten sam zakres co obrazki: załączniki idą z CDN-u ClickUpa.
+    "media-src 'self' blob: https:",
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",

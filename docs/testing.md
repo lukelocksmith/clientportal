@@ -87,6 +87,58 @@ wskazaniem złej bazy.
 `npm run lint` skanuje też katalogi spoza `src`, w tym pozostawione worktree
 z ich `.next`. Gdy sypie tysiącami błędów, sprawdź `npx eslint src tests`.
 
+### Renderowanie komentarzy: podgląd wszystkich bloków
+
+Formatowania komentarzy **nie da się przekliknąć na prawdziwych danych**.
+Komentarz dociera do klienta tylko ze znacznikiem `[P]`, a takich komentarzy
+było 9 na 373 (pomiar 2026-08-24) i wszystkie były prostym tekstem. Obrazek,
+tabela ani blok kodu nie wystąpiły ani raz, więc jedynym sposobem obejrzenia ich
+byłoby dopisanie komentarza w ClickUpie klienta.
+
+Dlatego jest strona podglądu, dostępna **tylko lokalnie**:
+
+```bash
+npm run dev
+# http://localhost:3000/admin/podglad-komentarza
+```
+
+Pokazuje jeden komentarz przepuszczony przez ten sam `parseCommentBlocks`, co
+komentarze klientów: nagłówek, pogrubienie, kursywę, przekreślenie, kod w linii,
+link z etykietą, goły adres, wzmiankę o osobie, wzmiankę o zadaniu **w zakresie
+portalu i poza nim**, cytat, listę punktowaną i numerowaną, blok kodu, tabelę,
+obrazek, plik i wideo. Pod spodem rozwija się drzewo bloków, więc widać, co
+parser naprawdę zwrócił.
+
+Na produkcji strona zwraca 404 (`notFound()` przy `NODE_ENV=production`).
+Sprawdzenie tej bramy nie kończy się na teście jednostkowym:
+
+```bash
+npm run build && PORT=3100 npm start
+curl -o /dev/null -w '%{http_code}\n' localhost:3100/admin/podglad-komentarza  # 404
+curl -o /dev/null -w '%{http_code}\n' localhost:3100/admin                     # 200, build cały
+```
+
+Odtwarzacz wideo i link do PDF na podglądzie wskazują wymyślony adres, więc
+zgłoszą błąd wczytywania. To nie jest awaria, chodzi o wygląd bloku.
+
+**Testy tej ścieżki**, gdy zmieniasz cokolwiek w renderowaniu komentarzy:
+
+```bash
+npx vitest run src/lib/commentBlocks.test.ts          # parser delty ClickUpa
+npx vitest run src/lib/commentMentions.test.ts        # wzmianki i zakres portalu
+npx vitest run src/lib/publicComments.test.tsx        # znacznik [P] i podpis klienta
+npx vitest run src/components/kanban/CommentBody.test.tsx   # render bloków
+npx vitest run src/components/kanban/TaskDrawer.test.tsx    # szuflada od strony klienta
+npx vitest run src/proxy.test.ts                      # CSP: czy obrazek i wideo przejdą
+npm run test:integration -- routes.clickupTasks       # wzmianki przez prawdziwą trasę
+```
+
+Granica, której te testy pilnują najmocniej: **nazwę wspomnianego zadania wolno
+pokazać tylko wtedy, gdy zadanie należy do portalu tego klienta.** Test
+„WYCIEK: zadanie z INNEGO portalu nie dostaje nazwy" sprawdza nie tylko pole
+wzmianki, ale całą odpowiedź trasy, więc nazwa nie przejdzie też polem, o którym
+nikt nie pomyślał.
+
 ## Co jest pokryte
 
 **Trasy API wywołane wprost, jako funkcje** (`tests/integration/routes.*.test.ts`).

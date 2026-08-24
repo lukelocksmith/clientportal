@@ -13,6 +13,8 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { MarkdownLite } from './MarkdownLite'
+import { CommentBody } from './CommentBody'
+import { publicCommentBlocks } from '@/lib/publicComments'
 import { useImageAttachments } from '@/components/shared/useImageAttachments'
 
 interface TaskDrawerProps {
@@ -188,7 +190,12 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
     )
     if (res.ok) {
       const savedText = editText
-      setComments(prev => prev.map(c => (c.id === commentId ? { ...c, comment_text: savedText } : c)))
+      // Bloki trzeba przeliczyć razem z tekstem: bez tego szuflada pokazywałaby
+      // starą treść, bo renderuje bloki, a nie `comment_text`.
+      const savedBlocks = publicCommentBlocks({ comment_text: savedText } as ClickUpComment)
+      setComments(prev =>
+        prev.map(c => (c.id === commentId ? { ...c, comment_text: savedText, blocks: savedBlocks } : c))
+      )
       cancelEdit()
     } else {
       toast.error('Nie udało się zapisać komentarza')
@@ -621,6 +628,12 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                               </button>
                             </div>
                           </div>
+                        ) : comment.blocks ? (
+                          /* Bloki niosą formatowanie z ClickUpa jeden do
+                             jednego. MarkdownLite zostaje dla komentarzy bez
+                             bloków (starsze odpowiedzi trasy), żeby wątek nigdy
+                             nie wyszedł pusty. */
+                          <CommentBody blocks={comment.blocks} slug={slug} />
                         ) : (
                           <MarkdownLite text={comment.comment_text} />
                         )}

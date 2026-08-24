@@ -10,6 +10,7 @@ import {
   dropTestPortal,
   createTestUser,
   createTestList,
+  insertIndexedTask,
 } from './helpers'
 
 /**
@@ -553,6 +554,221 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
 
       assert.strictEqual(res.status, 403)
       assert.strictEqual(clickup.deleteComment.mock.calls.length, 0)
+    })
+  })
+
+  /**
+   * WZMIANKI O ZADANIACH w komentarzach.
+   *
+   * Zgloszenie z 2026-08-24: wzmianka docierala do klienta jako goly
+   * identyfikator `869enjjkr`. Naprawa dokleja nazwe, ale nazwa zadania jest
+   * DANA KLIENTA, wiec wolno ja pokazac tylko wtedy, gdy zadanie nalezy do
+   * TEGO portalu. Te testy sprawdzaja jedno i drugie na prawdziwej bazie,
+   * przez prawdziwa trase, bo tylko tak widac, ze brama zakresu naprawde
+   * stoi przed dokleceniem nazwy.
+   */
+  describe('wzmianki o zadaniach w komentarzach', () => {
+    /** Komentarz publiczny, ktory wspomina zadanie o podanym identyfikatorze. */
+    const komentarzZeWzmianka = (taskId: string) => [
+      {
+        id: 'c-wzmianka',
+        date: '1000',
+        comment_text: `[P] poprawione w ${taskId}`,
+        comment: [
+          { text: '[P] poprawione w ' },
+          { text: taskId, type: 'task_mention', task_mention: { task_id: taskId } },
+        ],
+      },
+    ]
+
+    const wzmianka = (body: { comments: Array<{ blocks?: unknown[] }> }) => {
+      const blocks = (body.comments[0]?.blocks ?? []) as Array<{ inline?: Array<Record<string, unknown>> }>
+      return blocks.flatMap(b => b.inline ?? []).find(n => n.kind === 'taskMention')
+    }
+
+    it('zadanie Z PORTALU dostaje nazwe z indeksu, bez pytania ClickUpa', async () => {
+      await loginClient()
+      await insertIndexedTask({
+        portalId: portalA.id,
+        clickupTaskId: 'zad-wspomniane',
+        name: 'Drobne poprawki',
+        searchText: 'drobne poprawki',
+        dateCreated: 1,
+      })
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue(komentarzZeWzmianka('zad-wspomniane'))
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.deepStrictEqual(wzmianka(body), {
+        kind: 'taskMention',
+        taskId: 'zad-wspomniane',
+        name: 'Drobne poprawki',
+      })
+      // Indeks wystarczyl. Gdyby trasa i tak pytala ClickUpa, kazdy komentarz
+      // ze wzmianka kosztowalby dodatkowy strzal do sieci.
+      assert.strictEqual(clickup.getTask.mock.calls.length, 0)
+    })
+
+    it('WYCIEK: zadanie z INNEGO portalu nie dostaje nazwy', async () => {
+      await loginClient()
+      await insertIndexedTask({
+        portalId: portalB.id,
+        clickupTaskId: 'zad-obcego-klienta',
+        name: 'Tajny projekt konkurencji',
+        searchText: 'tajny projekt konkurencji',
+        dateCreated: 1,
+      })
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue(komentarzZeWzmianka('zad-obcego-klienta'))
+      // Indeks portalu A go nie zna, wiec trasa pyta ClickUpa — a tam zadanie
+      // siedzi w folderze DRUGIEGO portalu.
+      clickup.getTask.mockResolvedValue({
+        id: 'zad-obcego-klienta',
+        name: 'Tajny projekt konkurencji',
+        folder: { id: `fake-${portalB.slug}` },
+        list: { id: 'lista-obca' },
+      })
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.deepStrictEqual(wzmianka(body), { kind: 'taskMention', taskId: 'zad-obcego-klienta' })
+      // Najwazniejsza asercja: nazwa nie pojawia sie NIGDZIE w odpowiedzi,
+      // takze w polach, o ktorych nie pomyslelismy.
+      assert.ok(
+        !JSON.stringify(body).includes('Tajny projekt'),
+        'WYCIEK nazwy zadania innego klienta'
+      )
+    })
+
+    it('zadanie z portalu, ale poza ZAWEZONYM zakresem list, tez bez nazwy', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue(komentarzZeWzmianka('zad-poza-zakresem'))
+      // Wlasciwy folder, ale lista NIE jest w zakresie portalu A.
+      clickup.getTask.mockResolvedValue({
+        id: 'zad-poza-zakresem',
+        name: 'Zadanie z listy poza zakresem',
+        folder: { id: `fake-${portalA.slug}` },
+        list: { id: 'lista-poza-zakresem' },
+      })
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.deepStrictEqual(wzmianka(body), { kind: 'taskMention', taskId: 'zad-poza-zakresem' })
+      assert.ok(!JSON.stringify(body).includes('poza zakresem"'), 'nazwa nie ma prawa wyjsc')
+    })
+
+    it('zadanie jeszcze NIEINDEKSOWANE dostaje nazwe z ClickUpa', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue(komentarzZeWzmianka('zad-swieze'))
+      clickup.getTask.mockResolvedValue({
+        id: 'zad-swieze',
+        name: 'Zadanie zalozone przed chwila',
+        folder: { id: `fake-${portalA.slug}` },
+        list: { id: 'lista-portalu' },
+      })
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.deepStrictEqual(wzmianka(body), {
+        kind: 'taskMention',
+        taskId: 'zad-swieze',
+        name: 'Zadanie zalozone przed chwila',
+      })
+    })
+
+    it('awaria ClickUpa przy wzmiance nie zabiera klientowi komentarza', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue(komentarzZeWzmianka('zad-nieznane'))
+      clickup.getTask.mockRejectedValue(new Error('ClickUp 500'))
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(body.comments.length, 1, 'komentarz zostaje, tylko bez nazwy zadania')
+      assert.deepStrictEqual(wzmianka(body), { kind: 'taskMention', taskId: 'zad-nieznane' })
+    })
+
+    it('obrazek z komentarza dociera jako blok obrazka, nie jako nazwa pliku', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue([
+        {
+          id: 'c-obrazek',
+          date: '1000',
+          comment_text: '[P] zrzut\nimage.png',
+          comment: [
+            { text: '[P] zrzut' },
+            { text: '\n', attributes: { 'block-id': 'b1' } },
+            {
+              text: 'image.png',
+              type: 'image',
+              image: { url: 'https://cdn.clickup.test/zrzut.png', title: 'zrzut.png', width: 940, height: 842 },
+            },
+          ],
+        },
+      ])
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.deepStrictEqual(body.comments[0].blocks, [
+        { kind: 'paragraph', inline: [{ kind: 'text', text: 'zrzut' }] },
+        {
+          kind: 'image',
+          url: 'https://cdn.clickup.test/zrzut.png',
+          name: 'zrzut.png',
+          width: 940,
+          height: 842,
+        },
+      ])
+    })
+
+    it('znacznik [P] nie wychodzi w blokach, tak samo jak nie wychodzi w tekscie', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTaskComments.mockResolvedValue([
+        {
+          id: 'c-znacznik',
+          date: '1000',
+          comment_text: '[P] gotowe',
+          comment: [{ text: '[P] gotowe' }],
+        },
+      ])
+
+      const res = await commentsGET(
+        req(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.ok(!JSON.stringify(body.comments[0].blocks).includes('[P]'), 'znacznik zostal w blokach')
     })
   })
 })

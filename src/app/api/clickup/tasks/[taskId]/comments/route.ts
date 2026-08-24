@@ -1,6 +1,10 @@
 import { readJson } from '@/lib/apiJson'
 import { NextRequest, NextResponse } from 'next/server'
-import { getTaskComments, addComment } from '@/lib/clickup'
+import { getTaskComments, addComment, getTask } from '@/lib/clickup'
+import { getPortalScope } from '@/lib/portalScopeStore'
+import { taskBelongsToPortal } from '@/lib/portalScope'
+import { getIndexedTaskNames } from '@/lib/taskIndex'
+import { collectTaskMentions, applyTaskMentions, resolveTaskMentions } from '@/lib/commentMentions'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
 import { filterPublicComments, buildOwnComment, PUBLIC_PREFIX } from '@/lib/publicComments'
 import { logEvent, getOwnedCommentIds, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
@@ -25,8 +29,28 @@ export async function GET(
   // isOwn steruje przyciskami edycji/usuwania w szufladzie — tylko przy
   // komentarzach, które ten adres sam dodał z portalu.
   const ownedIds = await getOwnedCommentIds(portal.id, session.email, visible.map(c => c.id))
+
+  /**
+   * Wzmianki o zadaniach: z identyfikatora na nazwę, ale TYLKO dla zadań z
+   * tego portalu. Rozstrzyga to serwer, więc nazwa cudzego zadania nie wychodzi
+   * do przeglądarki wcale (patrz lib/commentMentions.ts). Rozwiązujemy naraz
+   * dla całego wątku, bo wzmianki się powtarzają.
+   */
+  const mentioned = collectTaskMentions(visible.flatMap(c => c.blocks ?? []))
+  const names = await resolveTaskMentions(mentioned, {
+    indexed: ids => getIndexedTaskNames(portal.id, ids),
+    live: async id => {
+      const [task, scope] = await Promise.all([getTask(id), getPortalScope(portal.id)])
+      return taskBelongsToPortal(task, portal.clickupFolderId, scope) ? { name: task.name } : null
+    },
+  })
+
   return NextResponse.json({
-    comments: visible.map(c => ({ ...c, isOwn: ownedIds.has(c.id) })),
+    comments: visible.map(c => ({
+      ...c,
+      isOwn: ownedIds.has(c.id),
+      blocks: c.blocks ? applyTaskMentions(c.blocks, names) : undefined,
+    })),
   })
 }
 

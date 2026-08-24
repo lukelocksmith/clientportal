@@ -600,3 +600,23 @@ export async function getHistoryFacets(portalId: string): Promise<{
     indexedCount: Number(total[0]?.count ?? 0),
   }
 }
+
+/**
+ * Nazwy zadań z indeksu, zawężone do JEDNEGO portalu.
+ *
+ * Zawężenie po `portalId` nie jest optymalizacją, tylko granicą bezpieczeństwa:
+ * funkcja służy do rozwiązywania wzmianek w komentarzach, a nazwa zadania z
+ * portalu innego klienta nie ma prawa wyjść (patrz lib/commentMentions.ts).
+ */
+export async function getIndexedTaskNames(
+  portalId: string,
+  taskIds: readonly string[]
+): Promise<Map<string, string>> {
+  if (taskIds.length === 0) return new Map()
+  const rows = await db
+    .select({ id: taskIndex.clickupTaskId, name: taskIndex.name })
+    .from(taskIndex)
+    .where(and(eq(taskIndex.portalId, portalId), inArray(taskIndex.clickupTaskId, [...taskIds])))
+
+  return new Map(rows.map(row => [row.id, row.name]))
+}

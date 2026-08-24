@@ -276,7 +276,7 @@ describe('edycja i usuwanie wlasnego komentarza', () => {
     await uzytkownik.click(screen.getByRole('button', { name: 'Zapisz' }))
 
     await waitFor(() => assert.ok(screen.queryByText('Nowa tresc')))
-    assert.strictEqual(screen.queryByText('Stara tresc'), null)
+    assert.strictEqual(screen.queryByText('Stara tresc') === null, true)
     const [adres, opcje] = fetchMock.mock.calls[wywolaniaPrzedEdycja]
     assert.match(adres as string, /\/comments\/k1\?slug=wdf/)
     assert.strictEqual((opcje as RequestInit).method, 'PUT')
@@ -482,6 +482,95 @@ describe('komentarze renderowane jako markdown', () => {
 })
 
 /**
+ * BLOKI KOMENTARZA. Od 2026-08-24 trasa oddaje `blocks`, czyli formatowanie
+ * przeniesione z ClickUpa jeden do jednego. Zgloszenie brzmialo: wzmianka o
+ * innym zadaniu docierala do klienta jako goly identyfikator `869enjjkr`.
+ */
+describe('komentarze renderowane z blokow ClickUpa', () => {
+  it('ZGLOSZENIE: wzmianka o zadaniu to link z nazwa, nie identyfikator', async () => {
+    odpowiadaj({
+      komentarze: [
+        {
+          id: 'k1',
+          comment_text: 'Poprawione w 869enjjkr',
+          sender: 'important.is',
+          date: '1',
+          blocks: [
+            {
+              kind: 'paragraph',
+              inline: [
+                { kind: 'text', text: 'Poprawione w ' },
+                { kind: 'taskMention', taskId: '869enjjkr', name: 'Drobne poprawki' },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    const link = await screen.findByRole('link', { name: /Drobne poprawki/ })
+    assert.strictEqual(link.getAttribute('href'), '/wdf?task=869enjjkr')
+    assert.strictEqual(screen.queryByText(/869enjjkr/) === null, true, 'identyfikator nie ma prawa byc widoczny')
+  })
+
+  it('zadanie spoza portalu nie pokazuje nazwy ani linku', async () => {
+    odpowiadaj({
+      komentarze: [
+        {
+          id: 'k1',
+          comment_text: 'Poprawione w 869obcy',
+          sender: 'important.is',
+          date: '1',
+          blocks: [{ kind: 'paragraph', inline: [{ kind: 'taskMention', taskId: '869obcy' }] }],
+        },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    assert.ok(await screen.findByText(/inne zadanie/i))
+    assert.strictEqual(screen.queryByText(/869obcy/) === null, true)
+  })
+
+  it('obrazek z komentarza jest widoczny, a nie napisem "image.png"', async () => {
+    odpowiadaj({
+      komentarze: [
+        {
+          id: 'k1',
+          comment_text: 'image.png',
+          sender: 'important.is',
+          date: '1',
+          blocks: [{ kind: 'image', url: 'https://cdn.clickup.test/zrzut.png', name: 'zrzut.png' }],
+        },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    const img = await screen.findByRole('img')
+    assert.strictEqual(img.getAttribute('src'), 'https://cdn.clickup.test/zrzut.png')
+    assert.strictEqual(screen.queryByText('image.png') === null, true)
+  })
+
+  it('bloki maja pierwszenstwo nad splaszczonym tekstem', async () => {
+    odpowiadaj({
+      komentarze: [
+        {
+          id: 'k1',
+          comment_text: 'wersja splaszczona',
+          sender: 'important.is',
+          date: '1',
+          blocks: [{ kind: 'paragraph', inline: [{ kind: 'text', text: 'wersja z blokow' }] }],
+        },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    assert.ok(await screen.findByText('wersja z blokow'))
+    assert.strictEqual(screen.queryByText('wersja splaszczona') === null, true)
+  })
+})
+
+/**
  * OPIS ZADANIA. Tresc pochodzi z ClickUpa, w tym z formularza klienta i z czatu
  * AI, wiec musi byc renderowana jako TEKST, a nie jako znaczniki.
  */
@@ -554,7 +643,7 @@ describe('naglowek zadania', () => {
     render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
     await screen.findByText('Brak komentarzy')
 
-    assert.strictEqual(screen.queryByText('Alarm'), null)
+    assert.strictEqual(screen.queryByText('Alarm') === null, true)
   })
 
   it('zamkniecie szuflady zglasza sie wyzej', async () => {
@@ -585,7 +674,7 @@ describe('zglaszajacy', () => {
     render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
     await screen.findByText('Brak komentarzy')
 
-    assert.strictEqual(screen.queryByText('Anna Klient'), null)
+    assert.strictEqual(screen.queryByText('Anna Klient') === null, true)
   })
 })
 

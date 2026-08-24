@@ -30,6 +30,22 @@ import { parseCommentBlocks, blocksToText, type BlockNode, type InlineNode } fro
 export const PUBLIC_PREFIX = '[P] '
 
 /**
+ * Jak agencja przedstawia się KLIENTOWI.
+ *
+ * Klient widzi zespół, nigdy konkretną osobę. Nie chodzi o ukrywanie: kto
+ * odpisał, wiadomo po naszej stronie (ClickUp, `audit_log`), a klient ma
+ * relację z important.is, nie z pojedynczym człowiekiem, który akurat tego dnia
+ * siedział przy zadaniu. Bez tego w dzwonku wychodziło „Łukasz Slusarski: test2",
+ * a w wątku autor „Admin" (zgłoszone 24.08).
+ *
+ * STAŁA, nie literał: ten napis jest jednocześnie ETYKIETĄ i WARUNKIEM —
+ * `TaskDrawer` i `taskComments` rozpoznają po nim komentarz agencji. Trzy kopie
+ * tego samego napisu to kwestia czasu, kiedy jedna się rozjedzie i komentarz
+ * agencji zacznie uchodzić za komentarz klienta.
+ */
+export const AGENCY_SENDER = 'Zespół important.is'
+
+/**
  * Co UZNAJEMY za oznaczenie publiczne: `[P]` albo `[PUBLIC]`, dowolna wielkość
  * liter, spacje wewnątrz nawiasów, dowolne miejsce w treści.
  *
@@ -94,7 +110,7 @@ export function stripPublicPrefix(text: string): { text: string; sender: string 
   if (match) {
     return { text: cleaned.slice(match[0].length), sender: match[1] }
   }
-  return { text: cleaned, sender: 'important.is' }
+  return { text: cleaned, sender: AGENCY_SENDER }
 }
 
 /** Komentarze widoczne dla klienta, z zdjętym prefiksem i rozpoznanym autorem. */

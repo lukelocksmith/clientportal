@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { auditLog, portals, taskComments } from '@/lib/db/schema'
+import { AGENCY_SENDER } from '@/lib/publicComments'
 import {
   isDbReachable,
   createTestPortal,
@@ -563,6 +564,37 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       assert.strictEqual(res.status, 200)
       assert.strictEqual(clickup.addComment.mock.calls.length, 1)
     })
+
+    it.skipIf(!process.env.ADMIN_SECRET)(
+      'ZGLOSZENIE: odpowiedz PM-a NIE jest podpisana "(Admin)"',
+      async () => {
+        /**
+         * Zgloszone przez Lukasza 24.08: klient widzial w watku autora „Admin".
+         * Bral sie z podpisu `(Imie)`, ktory trasa dokleja do kazdego komentarza
+         * pisanego z portalu — a sesja obejsciowa admina ma imie „Admin".
+         *
+         * PM piszacy przez obejscie wystepuje w imieniu agencji, wiec komentarz
+         * ma isc BEZ podpisu osoby. Kto konkretnie pisal, zostaje w audit_log.
+         */
+        loginAdmin()
+        clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+        clickup.addComment.mockResolvedValue({ id: 'c-admin-podpis' })
+
+        const res = await commentsPOST(
+          jsonReq(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`, { text: 'juz sie tym zajmujemy' }),
+          params('task-1')
+        )
+        assert.strictEqual(res.status, 200)
+
+        const tresc = clickup.addComment.mock.calls[0][1] as string
+        assert.ok(!tresc.includes('(Admin)'), `podpis Admin wyszedl do klienta: ${tresc}`)
+        assert.ok(tresc.startsWith('[P]'), 'komentarz nadal musi byc publiczny')
+
+        // A tak klient zobaczy autora w watku.
+        const body = await res.json()
+        assert.strictEqual(body.comment.sender, AGENCY_SENDER)
+      }
+    )
   })
 
   describe('komentarz klienta -> task_comments (krok 1 zejscia z ClickUpa)', () => {

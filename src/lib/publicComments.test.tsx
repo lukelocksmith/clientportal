@@ -11,6 +11,7 @@ import { describe, it } from 'vitest'
 import assert from 'node:assert'
 import {
   PUBLIC_PREFIX,
+  AGENCY_SENDER,
   isPublicComment,
   stripPublicPrefix,
   filterPublicComments,
@@ -79,8 +80,17 @@ describe('isPublicComment', () => {
 
 describe('stripPublicPrefix', () => {
   it('zdejmuje znacznik z poczatku i podpisuje agencje', () => {
-    assert.deepStrictEqual(stripPublicPrefix('[P] gotowe'), { text: 'gotowe', sender: 'important.is' })
-    assert.deepStrictEqual(stripPublicPrefix('[PUBLIC] gotowe'), { text: 'gotowe', sender: 'important.is' })
+    assert.deepStrictEqual(stripPublicPrefix('[P] gotowe'), { text: 'gotowe', sender: AGENCY_SENDER })
+    assert.deepStrictEqual(stripPublicPrefix('[PUBLIC] gotowe'), { text: 'gotowe', sender: AGENCY_SENDER })
+  })
+
+  it('agencja podpisuje sie ZESPOLEM, nigdy imieniem konkretnej osoby', () => {
+    // Zgloszone przez Lukasza 24.08. Klient ma widziec, ze odpowiedzial
+    // important.is, a nie ktora osoba z zespolu siedziala tego dnia przy
+    // zadaniu. Kto konkretnie, wiadomo z ClickUpa i z audit_log, czyli po
+    // NASZEJ stronie.
+    assert.strictEqual(AGENCY_SENDER, 'Zespół important.is')
+    assert.ok(!AGENCY_SENDER.includes('Admin'), 'konto obejsciowe nie moze byc twarza agencji')
   })
 
   it('rozpoznaje autora po stronie klienta', () => {
@@ -119,7 +129,7 @@ describe('filterPublicComments', () => {
       wynik.map(c => c.comment_text),
       ['Poprawione, sprawdz prosze.', 'dziekuje']
     )
-    assert.deepStrictEqual(wynik.map(c => c.sender), ['important.is', 'Anna'])
+    assert.deepStrictEqual(wynik.map(c => c.sender), [AGENCY_SENDER, 'Anna'])
 
     // Najwazniejsza asercja tego pliku: zadna wewnetrzna tresc nie wyszla.
     const wyjscie = wynik.map(c => c.comment_text).join(' ')
@@ -527,7 +537,7 @@ describe('komentarz wychodzi do klienta z WYBRANYMI polami', () => {
     const [agencja] = filterPublicComments([zClickUpa()])
     const [klient] = filterPublicComments([comment('[P] (Anna) dziekuje')])
 
-    assert.strictEqual(agencja.sender, 'important.is')
+    assert.strictEqual(agencja.sender, AGENCY_SENDER)
     assert.strictEqual(klient.sender, 'Anna')
   })
 })

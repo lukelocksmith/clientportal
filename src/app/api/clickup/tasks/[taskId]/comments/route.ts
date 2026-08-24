@@ -6,7 +6,7 @@ import { taskBelongsToPortal } from '@/lib/portalScope'
 import { getIndexedTaskNames } from '@/lib/taskIndex'
 import { collectTaskMentions, applyTaskMentions, resolveTaskMentions } from '@/lib/commentMentions'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
-import { filterPublicComments, buildOwnComment, PUBLIC_PREFIX } from '@/lib/publicComments'
+import { filterPublicComments, buildOwnComment, PUBLIC_PREFIX, AGENCY_SENDER } from '@/lib/publicComments'
 import { logEvent, getOwnedCommentIds, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
 import { recordClientComment } from '@/lib/taskComments'
 import { sortOldestFirst } from '@/lib/utils'
@@ -78,8 +78,15 @@ export async function POST(
 
   // All client comments are public by definition — prefix so they pass the filter on GET.
   // Agency team must manually add [PUBLIC] in ClickUp to expose their replies.
-  const clientLabel = session.name ? `(${session.name})` : '(Klient)'
-  const created = await addComment(taskId, `${PUBLIC_PREFIX}${clientLabel} ${text}`)
+  //
+  // PODPIS TYLKO DLA KLIENTA. Sesja obejściowa admina to PM piszący w imieniu
+  // agencji, więc jego komentarz idzie BEZ `(Imię)` — inaczej klient widzi w
+  // wątku autora „Admin" (zgłoszone 24.08). Brak podpisu znaczy przy odczycie
+  // dokładnie „to napisała agencja", patrz `stripPublicPrefix`. Kto konkretnie,
+  // zostaje w `audit_log` niżej.
+  const jestAdminem = session.userId === 'admin'
+  const podpis = jestAdminem ? '' : `${session.name ? `(${session.name})` : '(Klient)'} `
+  const created = await addComment(taskId, `${PUBLIC_PREFIX}${podpis}${text}`)
 
   // Podpis "(Imię)" w ClickUpie jest tekstem i imiona się powtarzają, więc
   // rozstrzygające przypisanie do konta trzymamy u siebie.
@@ -96,24 +103,24 @@ export async function POST(
 
   // `created` jest okrojoną odpowiedzią ClickUpa (patrz buildOwnComment).
   // Klient dostaje pełny obiekt zbudowany z tego, co sami napisaliśmy.
-  const comment = buildOwnComment(created, text, session.name)
+  // Autor: zespół, gdy pisze PM przez obejście — tak samo jak przy odczycie.
+  const comment = buildOwnComment(created, text, jestAdminem ? AGENCY_SENDER : session.name)
 
   // Krok 1 zejścia z ClickUpa (docs/superpowers/specs/2026-08-09-...): własna
   // baza rozmowy z klientem. Po udanym lustrze do ClickUpa, nie przed —
   // bez `created.id` nie ma po czym dedupować przy późniejszym sync z webhooka.
   // Awaria zapisu tutaj NIE może zabrać klientowi już wysłanego komentarza.
   try {
-    // Sesja admina (obejście, PM odpowiada za klienta) ma userId='admin' —
-    // to nie jest wiersz w portal_users, więc nie ma czego wstawić jako
-    // klucz obcy. Ten sam sentinel co w portal-ideas/route.ts i PATCH tasks.
-    const jestAdminem = session.userId === 'admin'
+    // Sesja admina (obejście) nie jest wierszem w `portal_users`, więc nie ma
+    // czego wstawić jako klucz obcy. Ten sam sentinel co w portal-ideas
+    // i w PATCH zadania.
     await recordClientComment({
       portalId: session.portalId,
       clickupTaskId: taskId,
       clickupCommentId: created.id,
       authorType: jestAdminem ? 'agency' : 'client',
       authorId: jestAdminem ? null : session.userId,
-      authorLabel: session.name ?? (jestAdminem ? 'important.is' : 'Klient'),
+      authorLabel: jestAdminem ? AGENCY_SENDER : (session.name ?? 'Klient'),
       body: text.trim(),
     })
   } catch (e) {

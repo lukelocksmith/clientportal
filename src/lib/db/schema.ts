@@ -570,7 +570,7 @@ export const taskComments = pgTable('task_comments', {
   authorType: text('author_type').notNull(),
   /** portal_users.id, gdy wiemy które konto pisało (zapis z portalu). Null dla komentarzy wciągniętych z ClickUpa i dla agencji. */
   authorId: uuid('author_id').references(() => portalUsers.id, { onDelete: 'set null' }),
-  /** Podpis czytelny: imię klienta albo 'important.is'. Zdenormalizowane jak wszędzie — przeżywa usunięcie konta. */
+  /** Podpis czytelny: imię klienta albo AGENCY_SENDER. Zdenormalizowane jak wszędzie — przeżywa usunięcie konta. */
   authorLabel: text('author_label').notNull(),
   /** Tekst bez znacznika [P] i bez podpisu (Imię) — to samo, co dziś widzi klient. */
   body: text('body').notNull(),

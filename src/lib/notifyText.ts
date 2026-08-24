@@ -1,4 +1,5 @@
 import type { NotifyEvent } from './notifyConfig'
+import { AGENCY_SENDER } from './publicComments'
 
 /**
  * Treść powiadomienia: jedna linia do dzwonka i tekst maila.
@@ -81,7 +82,9 @@ export function mailText(input: NotifyTextInput): MailText {
 
   switch (input.event) {
     case 'comment': {
-      const kto = input.author?.trim() ? input.author.trim() : 'Zespół'
+      // Zapas, gdy autor nie doszedł. Nigdy imię konkretnej osoby z zespołu:
+      // klient ma relację z agencją, nie z człowiekiem (patrz AGENCY_SENDER).
+      const kto = input.author?.trim() ? input.author.trim() : AGENCY_SENDER
       return {
         ...wspolne,
         subject: `Nowa odpowiedź: ${input.taskName}`,

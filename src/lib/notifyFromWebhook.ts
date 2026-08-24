@@ -1,5 +1,5 @@
 import { getTaskComments } from './clickup'
-import { isPublicComment, publicCommentBlocks } from './publicComments'
+import { isPublicComment, publicCommentBlocks, stripPublicPrefix } from './publicComments'
 import { blocksToText } from './commentBlocks'
 import { statusKind } from './notifications'
 import { produceNotifications, type ProduceResult } from './notifyProducer'
@@ -62,12 +62,23 @@ export async function notifyOnComment(input: {
    */
   const text = blocksToText(publicCommentBlocks(najnowszy))
 
+  /**
+   * AUTOR liczony tą samą ścieżką co w wątku, a NIE z konta ClickUpa.
+   *
+   * `user.username` to imię i nazwisko osoby z zespołu, która akurat odpisała,
+   * i tak właśnie w dzwonku klienta wyszło „Łukasz Slusarski: test2"
+   * (zgłoszone 24.08). `stripPublicPrefix` daje to, co klient widzi nad
+   * komentarzem: własne imię, gdy pisał ktoś od klienta, albo zespół, gdy
+   * odpisała agencja.
+   */
+  const { sender } = stripPublicPrefix(najnowszy.comment_text ?? '')
+
   return produceNotifications({
     portalId: input.portalId,
     event: 'comment',
     taskId: input.taskId,
     taskName: input.taskName,
-    author: najnowszy.user?.username ?? null,
+    author: sender,
     excerpt: text,
     clickupCommentId: najnowszy.id,
   })

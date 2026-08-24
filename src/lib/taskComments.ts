@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { db } from './db'
 import { taskComments } from './db/schema'
 import type { ClickUpComment } from './types'
-import { filterPublicComments } from './publicComments'
+import { filterPublicComments, AGENCY_SENDER } from './publicComments'
 
 /**
  * Rozmowa z klientem, zapisywana u nas. Krok 1 kierunku ustalonego w
@@ -95,7 +95,7 @@ export async function syncPublishedComments(
       continue
     }
 
-    const authorType = c.sender && c.sender !== 'important.is' ? 'client' : 'agency'
+    const authorType = c.sender && c.sender !== AGENCY_SENDER ? 'client' : 'agency'
 
     await db
       .insert(taskComments)
@@ -104,7 +104,7 @@ export async function syncPublishedComments(
         clickupTaskId,
         clickupCommentId: c.id,
         authorType,
-        authorLabel: c.sender ?? 'important.is',
+        authorLabel: c.sender ?? AGENCY_SENDER,
         body,
         publishedAt: toDate(c.date),
         source: 'clickup',

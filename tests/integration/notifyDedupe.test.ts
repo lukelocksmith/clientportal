@@ -67,11 +67,31 @@ describe.skipIf(!dbUp)('claimEvent', () => {
   })
 
   it('WYSCIG na szeroko: piec rownoleglych prob daje jedno true', async () => {
-    const wyniki = await Promise.all(
+    /**
+     * `allSettled`, nie `all`, i to nie jest ostrożnościowa ozdoba.
+     *
+     * Ten test raz padł w pełnym przebiegu i NIE dało się powiedzieć dlaczego,
+     * bo `Promise.all` zamienia awarię połączenia w to samo czerwone, co
+     * zerwany niezmiennik. A to dwie zupełnie różne diagnozy: pierwsza znaczy
+     * „pula połączeń pod obciążeniem testów" (vitest puszcza pliki równolegle,
+     * a `postgres()` domyślnie daje 10 połączeń NA PROCES), druga znaczy
+     * „zapora powtórek nie działa i klient dostanie dublety".
+     *
+     * Dlatego odrzucenia raportujemy OSOBNO i z treścią błędu.
+     */
+    const wyniki = await Promise.allSettled(
       Array.from({ length: 5 }, () => claimEvent(portalId, 'comment:powtorka'))
     )
 
-    assert.strictEqual(wyniki.filter(Boolean).length, 1)
+    const bledy = wyniki.filter(w => w.status === 'rejected')
+    assert.strictEqual(
+      bledy.length,
+      0,
+      `zapytania nie doszly do bazy: ${bledy.map(b => String((b as PromiseRejectedResult).reason)).join(' | ')}`
+    )
+
+    const wygrane = wyniki.filter(w => w.status === 'fulfilled' && w.value === true).length
+    assert.strictEqual(wygrane, 1, `dokladnie jedno zajecie mialo przejsc, przeszlo ${wygrane}`)
   })
 
   it('rozne klucze nie blokuja sie wzajemnie', async () => {

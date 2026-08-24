@@ -16,6 +16,7 @@ import {
   publicCommentTexts,
   isPublicComment,
   stripPublicPrefix,
+  AGENCY_SENDER,
 } from '@/lib/publicComments'
 import type { ClickUpComment } from '@/lib/types'
 
@@ -99,7 +100,7 @@ describe('textSearch', () => {
     })
     assert.deepStrictEqual(stripPublicPrefix('[PUBLIC] robimy'), {
       text: 'robimy',
-      sender: 'important.is',
+      sender: AGENCY_SENDER,
     })
 
     const mixed = [
@@ -115,7 +116,7 @@ describe('textSearch', () => {
 
     const shown = filterPublicComments(mixed)
     assert.strictEqual(shown.length, 3, 'przechodzą trzy komentarze oznaczone')
-    assert.deepStrictEqual(shown.map(c => c.sender), ['important.is', 'Mikołaj', 'important.is'])
+    assert.deepStrictEqual(shown.map(c => c.sender), [AGENCY_SENDER, 'Mikołaj', AGENCY_SENDER])
 
     const texts = publicCommentTexts(mixed)
     assert.strictEqual(texts.length, 3)

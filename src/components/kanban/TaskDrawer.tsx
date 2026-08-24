@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MarkdownLite } from './MarkdownLite'
 import { CommentBody } from './CommentBody'
-import { publicCommentBlocks } from '@/lib/publicComments'
+import { publicCommentBlocks, AGENCY_SENDER } from '@/lib/publicComments'
 import { useImageAttachments } from '@/components/shared/useImageAttachments'
 
 interface TaskDrawerProps {
@@ -392,7 +392,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                 <span>
                   {reporter && !reporter.isAgency
                     ? (reporter.name ?? reporter.email)
-                    : 'important.is'}
+                    : AGENCY_SENDER}
                 </span>
               </div>
             </div>
@@ -559,7 +559,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
             ) : (
               <div className="space-y-4">
                 {comments.map(comment => {
-                  const isAgency = comment.sender === 'important.is'
+                  const isAgency = comment.sender === AGENCY_SENDER
                   const initials = isAgency ? 'IM' : (comment.sender?.slice(0, 2).toUpperCase() ?? '?')
                   const bgColor = isAgency ? '#3b6fe8' : '#6b7280'
                   const isEditing = editingCommentId === comment.id

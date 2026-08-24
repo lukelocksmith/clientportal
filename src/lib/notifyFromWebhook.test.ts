@@ -22,6 +22,7 @@ vi.mock('./clickup', () => clickup)
 vi.mock('./notifyProducer', () => producent)
 
 import { notifyOnComment } from './notifyFromWebhook'
+import { AGENCY_SENDER } from './publicComments'
 
 /** Komentarz w ksztalcie, w jakim oddaje go API ClickUpa. */
 function komentarz(nadpisz: Record<string, unknown> = {}) {
@@ -82,9 +83,52 @@ describe('ktory komentarz jest zdarzeniem', () => {
     await notifyOnComment(wejscie)
 
     const arg = wywolanie()
-    assert.strictEqual(arg.author, 'Artem Titov')
+    assert.strictEqual(arg.author, AGENCY_SENDER)
     assert.strictEqual(arg.excerpt, 'Poprawione, sprawdź proszę')
     assert.strictEqual(arg.event, 'comment')
+  })
+})
+
+describe('kogo widzi klient jako autora', () => {
+  it('ZGLOSZENIE: imie osoby z zespolu NIE wchodzi do powiadomienia', async () => {
+    // Znalezione przez Lukasza 24.08: w dzwonku klienta stalo
+    // „Łukasz Slusarski: test2". Nazwa brala sie z konta ClickUpa osoby, ktora
+    // odpisala. Klient ma widziec, ze odpowiedziala agencja, a nie kto
+    // konkretnie tego dnia siedzial przy zadaniu.
+    clickup.getTaskComments.mockResolvedValue([
+      komentarz({ comment_text: '[P] test2', user: { username: 'Łukasz Slusarski' } }),
+    ])
+
+    await notifyOnComment(wejscie)
+
+    const arg = wywolanie()
+    assert.strictEqual(String(arg.author).includes('Slusarski'), false, 'nazwisko z zespolu w powiadomieniu')
+    assert.strictEqual(arg.author, AGENCY_SENDER)
+  })
+
+  it('konto obejsciowe admina tez nie wychodzi jako "Admin"', async () => {
+    clickup.getTaskComments.mockResolvedValue([
+      komentarz({ comment_text: '[P] juz sie tym zajmujemy', user: { username: 'Admin' } }),
+    ])
+
+    await notifyOnComment(wejscie)
+
+    assert.strictEqual(wywolanie().author, AGENCY_SENDER)
+  })
+
+  it('ale komentarz KLIENTA zachowuje jego imie', async () => {
+    // Druga osoba w firmie klienta ma widziec, ze pisala kolezanka, a nie
+    // „Zespół important.is". Granica biegnie miedzy agencja a klientem, nie
+    // „ukrywamy wszystkich".
+    clickup.getTaskComments.mockResolvedValue([
+      komentarz({ comment_text: '[P] (Anna) dziękuję, działa', user: { username: 'Konto serwisowe' } }),
+    ])
+
+    await notifyOnComment(wejscie)
+
+    const arg = wywolanie()
+    assert.strictEqual(arg.author, 'Anna')
+    assert.strictEqual(arg.excerpt, 'dziękuję, działa')
   })
 })
 

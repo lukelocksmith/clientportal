@@ -18,6 +18,7 @@ const { db } = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => ({ db }))
 
 import { recordClientComment, syncPublishedComments } from './taskComments'
+import { AGENCY_SENDER } from './publicComments'
 import type { ClickUpComment } from './types'
 
 let insertedRows: Record<string, unknown>[]
@@ -100,7 +101,7 @@ describe('syncPublishedComments — kto wchodzi', () => {
     ])
 
     assert.strictEqual(insertedRows[0].authorType, 'agency')
-    assert.strictEqual(insertedRows[0].authorLabel, 'important.is')
+    assert.strictEqual(insertedRows[0].authorLabel, AGENCY_SENDER)
   })
 
   it('data komentarza (ms) staje się publishedAt', async () => {

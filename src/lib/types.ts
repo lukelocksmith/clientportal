@@ -53,7 +53,7 @@ export type ClickUpComment = {
   resolved?: boolean
   date: string
   replies?: ClickUpComment[]
-  sender?: string  // parsed from [PUBLIC] prefix: client name or 'important.is'
+  sender?: string  // z prefiksu [PUBLIC]: imię klienta albo AGENCY_SENDER (publicComments.ts)
   /** Czy TEN zalogowany dodal ten komentarz z portalu — steruje przyciskami edycji/usuwania. */
   isOwn?: boolean
   /**

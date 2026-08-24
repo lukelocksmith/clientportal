@@ -1,9 +1,9 @@
-import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { createHmac } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, portals } from '@/lib/db/schema'
+import { auditLog, portals, taskComments } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -321,6 +321,67 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       assert.strictEqual(clickup.updateTask.mock.calls.length, 0)
     })
 
+    /**
+     * KONTRAKT TLUMIENIA POWIADOMIEN, druga polowa.
+     *
+     * Producent szuka w `audit_log` wpisu `status_changed` po `resourceId`
+     * (zadanie) i `meta.toStatus` (wartosc), zeby NIE wyslac klientowi
+     * powiadomienia o zmianie, ktora sam wlasnie zrobil. Ten test pilnuje
+     * pierwszej polowy: ze trasa naprawde taki wpis zostawia i w tym kszталcie.
+     * Bez niego obie polowy moga sie rozjechac i tlumienie po cichu przestanie
+     * dzialac, a klient zacznie dostawac maile o wlasnych klikniecach.
+     */
+    it('zmiana statusu zostawia slad do tlumienia powiadomien', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.updateTask.mockResolvedValue({ id: 'task-slad', status: { status: 'w trakcie' } })
+
+      await taskPATCH(
+        req(`/api/clickup/tasks/task-slad?slug=${portalA.slug}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'w trakcie' }),
+        }),
+        params('task-slad')
+      )
+
+      const wpisy = await db
+        .select({ userId: auditLog.userId, resourceId: auditLog.resourceId, meta: auditLog.meta })
+        .from(auditLog)
+        .where(and(eq(auditLog.portalId, portalA.id), eq(auditLog.action, 'status_changed')))
+
+      const wpis = wpisy.find(w => w.resourceId === 'task-slad')
+      assert.ok(wpis, 'brak wpisu status_changed, tlumienie nie ma po czym rozpoznac')
+      assert.strictEqual(wpis.userId, userA, 'wpis musi wskazywac autora zmiany')
+      // `meta` jest TEKSTEM z JSON-em, nie kolumna jsonb. Producent to parsuje;
+      // ten test pilnuje, ze jest co parsowac.
+      assert.deepStrictEqual(JSON.parse(wpis.meta ?? '{}'), { toStatus: 'w trakcie' })
+    })
+
+    it('zmiana samej NAZWY nie zostawia sladu o statusie', async () => {
+      // Inaczej tlumienie zjadaloby powiadomienia o zmianach, ktorych klient
+      // nie robil.
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.updateTask.mockResolvedValue({ id: 'task-nazwa', name: 'Nowa nazwa' })
+
+      await taskPATCH(
+        req(`/api/clickup/tasks/task-nazwa?slug=${portalA.slug}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Nowa nazwa' }),
+        }),
+        params('task-nazwa')
+      )
+
+      const wpisy = await db
+        .select({ resourceId: auditLog.resourceId })
+        .from(auditLog)
+        .where(and(eq(auditLog.portalId, portalA.id), eq(auditLog.action, 'status_changed')))
+
+      assert.strictEqual(wpisy.some(w => w.resourceId === 'task-nazwa'), false)
+    })
+
     it('pole spoza schematu odrzucone przed dotknieciem ClickUpa', async () => {
       await loginClient()
       clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
@@ -462,6 +523,74 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       assert.strictEqual(res.status, 200)
       assert.strictEqual(clickup.addComment.mock.calls.length, 1)
     })
+  })
+
+  describe('komentarz klienta -> task_comments (krok 1 zejscia z ClickUpa)', () => {
+    afterEach(async () => {
+      await db.delete(taskComments).where(eq(taskComments.portalId, portalA.id))
+    })
+
+    it('udany komentarz klienta zapisuje sie tez we wlasnej bazie, jako client/portal', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.addComment.mockResolvedValue({ id: 'c-wlasny-zapis' })
+
+      const res = await commentsPOST(
+        jsonReq(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`, { text: 'dzieki, sprawdzimy' }),
+        params('task-1')
+      )
+      assert.strictEqual(res.status, 200)
+
+      const [row] = await db
+        .select()
+        .from(taskComments)
+        .where(eq(taskComments.clickupCommentId, 'c-wlasny-zapis'))
+      assert.ok(row, 'komentarz klienta musi trafic do task_comments')
+      assert.strictEqual(row.portalId, portalA.id)
+      assert.strictEqual(row.authorType, 'client')
+      assert.strictEqual(row.authorId, userA)
+      assert.strictEqual(row.source, 'portal')
+      assert.strictEqual(row.body, 'dzieki, sprawdzimy')
+    })
+
+    it('awaria lustra do ClickUpa (addComment rzuca) nie zapisuje niczego do task_comments', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.addComment.mockRejectedValue(new Error('ClickUp 500'))
+
+      await assert.rejects(
+        commentsPOST(
+          jsonReq(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`, { text: 'zginelo?' }),
+          params('task-1')
+        )
+      )
+
+      const rows = await db.select().from(taskComments).where(eq(taskComments.portalId, portalA.id))
+      assert.strictEqual(rows.length, 0, 'bez udanego lustra nie ma czego dedupowac przy pozniejszym syncu')
+    })
+
+    it.skipIf(!process.env.ADMIN_SECRET)(
+      'komentarz PM-a przez obejscie admina zapisuje sie jako agency, bez author_id',
+      async () => {
+        loginAdmin()
+        clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+        clickup.addComment.mockResolvedValue({ id: 'c-pm-zapis' })
+
+        const res = await commentsPOST(
+          jsonReq(`/api/clickup/tasks/task-1/comments?slug=${portalA.slug}`, { text: 'juz sie tym zajmujemy' }),
+          params('task-1')
+        )
+        assert.strictEqual(res.status, 200)
+
+        const [row] = await db
+          .select()
+          .from(taskComments)
+          .where(eq(taskComments.clickupCommentId, 'c-pm-zapis'))
+        assert.ok(row, 'komentarz PM-a przez admina tez musi trafic do task_comments')
+        assert.strictEqual(row.authorType, 'agency')
+        assert.strictEqual(row.authorId, null)
+      }
+    )
   })
 
   describe('PUT/DELETE /api/clickup/tasks/[taskId]/comments/[commentId] (edycja/usuniecie wlasnego)', () => {

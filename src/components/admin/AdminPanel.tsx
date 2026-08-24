@@ -30,6 +30,8 @@ type Portal = {
   /** Przestrzeń ClickUp tego portalu, do pobrania listy tagów dla autoTags. */
   clickupSpaceId: string
   autoTags: string | null
+  /** Macierz powiadomień projektu (lib/notifyConfig.ts). `null` = wyłączone. */
+  notificationConfig: unknown
 } & PortalFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {

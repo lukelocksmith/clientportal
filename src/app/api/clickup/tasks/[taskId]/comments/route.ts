@@ -8,6 +8,7 @@ import { collectTaskMentions, applyTaskMentions, resolveTaskMentions } from '@/l
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
 import { filterPublicComments, buildOwnComment, PUBLIC_PREFIX } from '@/lib/publicComments'
 import { logEvent, getOwnedCommentIds, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
+import { recordClientComment } from '@/lib/taskComments'
 import { sortOldestFirst } from '@/lib/utils'
 
 export async function GET(
@@ -96,6 +97,28 @@ export async function POST(
   // `created` jest okrojoną odpowiedzią ClickUpa (patrz buildOwnComment).
   // Klient dostaje pełny obiekt zbudowany z tego, co sami napisaliśmy.
   const comment = buildOwnComment(created, text, session.name)
+
+  // Krok 1 zejścia z ClickUpa (docs/superpowers/specs/2026-08-09-...): własna
+  // baza rozmowy z klientem. Po udanym lustrze do ClickUpa, nie przed —
+  // bez `created.id` nie ma po czym dedupować przy późniejszym sync z webhooka.
+  // Awaria zapisu tutaj NIE może zabrać klientowi już wysłanego komentarza.
+  try {
+    // Sesja admina (obejście, PM odpowiada za klienta) ma userId='admin' —
+    // to nie jest wiersz w portal_users, więc nie ma czego wstawić jako
+    // klucz obcy. Ten sam sentinel co w portal-ideas/route.ts i PATCH tasks.
+    const jestAdminem = session.userId === 'admin'
+    await recordClientComment({
+      portalId: session.portalId,
+      clickupTaskId: taskId,
+      clickupCommentId: created.id,
+      authorType: jestAdminem ? 'agency' : 'client',
+      authorId: jestAdminem ? null : session.userId,
+      authorLabel: session.name ?? (jestAdminem ? 'important.is' : 'Klient'),
+      body: text.trim(),
+    })
+  } catch (e) {
+    console.error(`[comments] zapis do task_comments dla ${created.id} nie powiódł się:`, e)
+  }
 
   return NextResponse.json({ comment })
 }

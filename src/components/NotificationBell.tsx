@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck, X } from 'lucide-react'
+import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck, FilePlus2, X } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +13,12 @@ import { relativeTime, exactTime } from '@/lib/relativeTime'
 
 type Item = {
   id: string
-  kind: 'comment' | 'status' | 'closed' | 'panic_ack'
+  /**
+   * Zwykły `string`, nie unia. Wiersz w bazie może mieć rodzaj nowszy niż ten
+   * komponent (nowy rodzaj wdrożony wcześniej niż nowy dzwonek), a wtedy unia
+   * kłamie i tak. Nieznany rodzaj obsługujemy zapasem, patrz `IKONY` niżej.
+   */
+  kind: string
   taskId: string | null
   taskName: string
   payload: Record<string, unknown>
@@ -36,8 +41,12 @@ function describe(item: Item): string {
       return 'Sprawa zamknięta'
     case 'status':
       return p.from && p.to ? `Status: ${p.from} → ${p.to}` : 'Zmiana statusu'
+    case 'created':
+      return 'Nowe zadanie w Twoim projekcie'
     case 'panic_ack':
       return 'Zespół podjął Twój alarm'
+    default:
+      return 'Coś się zmieniło w tej sprawie'
   }
 }
 
@@ -48,16 +57,29 @@ function describe(item: Item): string {
  * odpowiedz zespolu, czy zmiana statusu. Ikona pozwala przelecec wzrokiem
  * i zatrzymac sie na tym, co wazne.
  */
-const IKONY = {
+const IKONY: Record<string, typeof Bell> = {
   comment: MessageSquare,
+  created: FilePlus2,
   status: ArrowRightLeft,
   closed: CheckCircle2,
   panic_ack: ShieldCheck,
-} as const
+}
+
+/**
+ * Zapas dla rodzaju, którego ten dzwonek nie zna.
+ *
+ * Bez niego `IKONY[kind]` daje `undefined`, React próbuje wyrenderować to jako
+ * komponent i wywala CAŁĄ listę, nie jedną pozycję. Klient widzi wtedy pusty
+ * dzwonek zamiast powiadomień, których ma kilka. Jeden nieznany rodzaj nie może
+ * kosztować wszystkich pozostałych.
+ */
+const IKONA_ZAPASOWA = Bell
+const NAZWA_ZAPASOWA = 'Powiadomienie'
 
 /** Nazwa rodzaju, czytana przez czytniki ekranu zamiast samej ikony. */
-const NAZWY_RODZAJU = {
+const NAZWY_RODZAJU: Record<string, string> = {
   comment: 'Odpowiedź',
+  created: 'Nowe zadanie',
   status: 'Zmiana statusu',
   closed: 'Zamknięte',
   panic_ack: 'Alarm podjęty',
@@ -219,7 +241,7 @@ export function NotificationBell({ slug }: { slug: string }) {
                     }
                   >
                     {(() => {
-                      const Ikona = IKONY[item.kind]
+                      const Ikona = IKONY[item.kind] ?? IKONA_ZAPASOWA
                       return <Ikona className="h-3.5 w-3.5" aria-hidden />
                     })()}
                   </span>
@@ -229,7 +251,7 @@ export function NotificationBell({ slug }: { slug: string }) {
                       {/* Rodzaj zdarzenia slowami: ikona sama nie wystarcza
                           czytnikowi ekranu, a przy podobnych ikonach tez oku. */}
                       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {NAZWY_RODZAJU[item.kind]}
+                        {NAZWY_RODZAJU[item.kind] ?? NAZWA_ZAPASOWA}
                       </span>
                       <span
                         className="shrink-0 text-[11px] text-muted-foreground"

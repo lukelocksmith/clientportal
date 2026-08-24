@@ -5,6 +5,7 @@ import { getFolderTaskHistory, getTask, getTaskComments } from './clickup'
 import { getPortalScope } from './portalScopeStore'
 import { filterTasksToScope, isListInScope } from './portalScope'
 import { publicCommentTexts } from './publicComments'
+import { syncPublishedComments } from './taskComments'
 import { buildSearchText, escapeLikePattern, normalizeQuery } from './textSearch'
 
 /**
@@ -215,6 +216,15 @@ export async function syncPortalIndex(
         })
         .where(and(eq(taskIndex.portalId, portal.id), eq(taskIndex.clickupTaskId, row.clickupTaskId)))
 
+      // Ten sam przelot po komentarzach karmi drugi cel: tabelę task_comments
+      // (krok 1 zejścia z ClickUpa). Osobny try/catch, żeby awaria zapisu tam
+      // nie cofnęła już zapisanego indeksu wyszukiwania.
+      try {
+        await syncPublishedComments(portal.id, row.clickupTaskId, comments)
+      } catch (e) {
+        console.error(`[taskIndex] sync task_comments dla ${row.clickupTaskId} nie powiódł się:`, e)
+      }
+
       contentSynced++
     } catch (e) {
       // Jedno zadanie nie może wywalić całego przebiegu. Bez ustawienia
@@ -263,6 +273,16 @@ export async function indexSingleTask(portalId: string, taskId: string): Promise
     const comments = await getTaskComments(taskId)
     const publicComments = publicCommentTexts(comments)
     const attachmentNames = (full.attachments ?? []).map(a => a.title).filter(Boolean)
+
+    // Ścieżka webhooka: dowolna zmiana zadania (nie tylko komentarz) dociąga
+    // komentarze i tak, więc to jest realny „prawie od razu" punkt wciągania
+    // do task_comments, zanim jeszcze ruszy subskrypcja webhooka dedykowana
+    // komentarzom. Awaria nie może zablokować indeksu wyszukiwania.
+    try {
+      await syncPublishedComments(portalId, taskId, comments)
+    } catch (e) {
+      console.error(`[taskIndex] sync task_comments dla ${taskId} nie powiódł się:`, e)
+    }
 
     await db
       .insert(taskIndex)

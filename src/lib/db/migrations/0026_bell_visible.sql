@@ -1,0 +1,11 @@
+-- Widocznosc powiadomienia w dzwonku, osobno od istnienia wiersza.
+--
+-- Wiersz powstaje ZAWSZE, bo to on jest zapisem „o tym juz powiadomilismy" i po
+-- nim rozpoznajemy powtorke zdarzenia z ClickUpa. Bez tej kolumny przy ustawieniu
+-- „mail tak, dzwonek nie" wiersz nie powstawal i ponowione zdarzenie wysylalo
+-- maila drugi raz.
+--
+-- `IF NOT EXISTS` z tego samego powodu co przy 0025: bazy stawiane przez
+-- `db:push` moga miec kolumne juz dopisana, a jedno polecenie z bledem przerywa
+-- CALA migracje i aplikacja nie wstaje (awaria produkcji 2026-08-14).
+ALTER TABLE "notifications" ADD COLUMN IF NOT EXISTS "bell_visible" boolean DEFAULT true NOT NULL;

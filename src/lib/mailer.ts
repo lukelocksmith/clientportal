@@ -22,7 +22,7 @@ export function isMailConfigured(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
 }
 
-export type MailKind = 'invite' | 'reset' | 'password-changed' | 'panic'
+export type MailKind = 'invite' | 'reset' | 'password-changed' | 'panic' | 'notification'
 
 export async function sendMail(options: {
   to: string

@@ -24,12 +24,13 @@ import { isDbReachable, createTestPortal, dropTestPortal, createTestList } from 
  *
  *   docker start cp-test-pg && npm run test:integration
  */
-const { clickup, taskIndex, timeSnapshots, cronRuns, scopeStore } = vi.hoisted(() => ({
+const { clickup, taskIndex, timeSnapshots, cronRuns, scopeStore, store } = vi.hoisted(() => ({
   clickup: { getAllTasksForFolder: vi.fn(), getAllTasksForLists: vi.fn() },
   taskIndex: { syncPortalIndex: vi.fn() },
   timeSnapshots: { writeSnapshots: vi.fn() },
   cronRuns: { recordCronRun: vi.fn() },
   scopeStore: { getPortalScope: vi.fn() },
+  store: { purgeOldRead: vi.fn(async () => 0) },
 }))
 
 vi.mock('@/lib/clickup', () => clickup)
@@ -37,6 +38,7 @@ vi.mock('@/lib/taskIndex', () => taskIndex)
 vi.mock('@/lib/timeSnapshots', () => timeSnapshots)
 vi.mock('@/lib/cronRuns', () => cronRuns)
 vi.mock('@/lib/portalScopeStore', () => scopeStore)
+vi.mock('@/lib/notificationStore', () => store)
 
 import { NextRequest } from 'next/server'
 import { GET as indexGET, POST as indexPOST } from '@/app/api/cron/task-index/route'
@@ -286,6 +288,44 @@ describe.skipIf(!dbUp || !maSekret)('trasy cronowe na prawdziwej bazie', () => {
 
       assert.strictEqual(clickup.getAllTasksForFolder.mock.calls.length, 1)
       assert.strictEqual(clickup.getAllTasksForLists.mock.calls.length, 0)
+    })
+  })
+
+  /**
+   * RETENCJA POWIADOMIEN.
+   *
+   * Spec przewidywal ja przy cronie zbiorczych maili, ktorego nie budujemy, wiec
+   * `purgeOldRead` zostalo bez wywolania i tabela `notifications` roslaby bez
+   * konca. To NIE byla decyzja, tylko skutek uboczny — stad ten test.
+   */
+  describe('sprzatanie starych powiadomien', () => {
+    it('dzienny przebieg indeksu kasuje PRZECZYTANE starsze niz 90 dni', async () => {
+      taskIndex.syncPortalIndex.mockResolvedValue({
+        fetched: 0, upserted: 0, deleted: 0, contentSynced: 0, contentPending: 0, truncated: false,
+      })
+      store.purgeOldRead.mockResolvedValue(3)
+
+      const res = await indexGET(req(`/api/cron/task-index?token=${process.env.CRON_SECRET}&slug=${portalA.slug}`))
+      const body = await res.json()
+
+      assert.strictEqual(res.status, 200)
+      assert.deepStrictEqual(store.purgeOldRead.mock.calls[0], [90])
+      assert.strictEqual(body.purgedNotifications, 3, 'wynik ma byc widoczny w odpowiedzi')
+    })
+
+    it('awaria sprzatania NIE psuje indeksowania', async () => {
+      // Indeks Historii jest wazniejszy niz porzadek w tabeli powiadomien.
+      taskIndex.syncPortalIndex.mockResolvedValue({
+        fetched: 0, upserted: 0, deleted: 0, contentSynced: 0, contentPending: 0, truncated: false,
+      })
+      store.purgeOldRead.mockRejectedValue(new Error('baza padla'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const res = await indexGET(req(`/api/cron/task-index?token=${process.env.CRON_SECRET}&slug=${portalA.slug}`))
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(taskIndex.syncPortalIndex.mock.calls.length, 1)
+      errorSpy.mockRestore()
     })
   })
 })

@@ -49,7 +49,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="pl" className={`${rubik.variable} h-full antialiased`}>
       <body className="min-h-full bg-background text-foreground">
         {nonce && (
-          <script nonce={nonce} dangerouslySetInnerHTML={{ __html: STEMPEL_NONCE(nonce) }} />
+          /**
+           * `suppressHydrationWarning` jest tu KONIECZNE, nie kosmetyczne.
+           * Przeglądarka po wczytaniu strony CZYŚCI atrybut `nonce` (element
+           * zachowuje wartość tylko we właściwości), więc React porównuje
+           * `nonce="..."` z serwera z `nonce=""` w DOM i zgłasza rozjazd
+           * hydracji przy każdym wejściu na stronę.
+           */
+          <script
+            nonce={nonce}
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: STEMPEL_NONCE(nonce) }}
+          />
         )}
         {children}
         <Toaster richColors position="top-right" />

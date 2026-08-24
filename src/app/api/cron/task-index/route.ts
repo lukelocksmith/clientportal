@@ -5,6 +5,7 @@ import { portals } from '@/lib/db/schema'
 import { verifyToken } from '@/lib/apiAuth'
 import { syncPortalIndex, type SyncResult } from '@/lib/taskIndex'
 import { recordCronRun } from '@/lib/cronRuns'
+import { purgeOldRead } from '@/lib/notificationStore'
 import { acquireCronLock } from '@/lib/cronLock'
 
 export const dynamic = 'force-dynamic'
@@ -115,12 +116,34 @@ async function runIndex(request: NextRequest): Promise<NextResponse> {
 
   const pending = results.reduce((sum, r) => sum + (r.contentPending ?? 0), 0)
 
+  /**
+   * RETENCJA POWIADOMIEŃ, doczepiona do tego przebiegu.
+   *
+   * Spec przewidywał ją przy cronie zbiorczych maili, którego nie budujemy, więc
+   * bez tego `purgeOldRead` nie miałoby żadnego wywołania i tabela rosłaby bez
+   * końca. To jedyny dzienny przebieg, jaki mamy, więc jedzie tutaj.
+   *
+   * Kasujemy wyłącznie PRZECZYTANE starsze niż 90 dni. Nieprzeczytane zostają
+   * bez względu na wiek: sprawa, której klient nie widział, nie może zniknąć mu
+   * z dzwonka po cichu.
+   *
+   * Awaria sprzątania NIE psuje indeksowania: porządek w tabeli powiadomień jest
+   * wtórny wobec Historii, po którą klient sięga.
+   */
+  let purgedNotifications: number | null = null
+  try {
+    purgedNotifications = await purgeOldRead(90)
+  } catch (e) {
+    console.error('[cron/task-index] sprzątanie starych powiadomień nie powiodło się:', e)
+  }
+
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     budget,
     forceContent,
     // Gdy > 0, odpal tę trasę ponownie. Backfill jest wznawialny.
     contentPendingTotal: pending,
+    purgedNotifications,
     portals: results,
   })
 }

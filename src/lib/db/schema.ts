@@ -86,6 +86,17 @@ export const portals = pgTable('portals', {
    */
   autoTags: text('auto_tags'),
   /**
+   * Macierz powiadomień tego projektu: zdarzenie -> kanał -> włączone.
+   * Kształt i walidacja w lib/notifyConfig.ts, bo kolumna jest luźna, a reguła
+   * ma jedno miejsce.
+   *
+   * `null` znaczy JEDNOCZEŚNIE „nigdy nie ustawione" i „powiadomienia
+   * wyłączone", i to jest w porządku: oba znaczą ciszę. Dzięki temu nowa
+   * funkcja jest domyślnie wyłączona we wszystkich projektach bez osobnej
+   * kolumny na przełącznik.
+   */
+  notificationConfig: jsonb('notification_config'),
+  /**
    * Domeny, z ktorych /api/siteping/[slug] przyjmuje zgloszenia — SAME NAZWY
    * HOSTOW po przecinku (np. "wdf.important.is,wodadlafirmy.pl"), bez schematu
    * i bez sciezki. Klient moze miec staging i produkcje jako dwie realne,
@@ -156,6 +167,16 @@ export const notifications = pgTable('notifications', {
   /** Zdenormalizowana, żeby powiadomienie przeżyło zniknięcie zadania. */
   taskName: text('task_name').notNull(),
   payload: jsonb('payload').notNull().default({}),
+  /**
+   * Czy ten wiersz ma być widoczny w dzwonku.
+   *
+   * Wiersz powstaje ZAWSZE, także gdy admin wyłączył dzwonek dla tego
+   * zdarzenia, bo to on jest zapisem „o tym już powiadomiliśmy" i po nim
+   * rozpoznajemy powtórkę zdarzenia z ClickUpa (dostarczanie „co najmniej
+   * raz" plus webhook przy edycji komentarza). Bez tego przy konfiguracji
+   * „mail tak, dzwonek nie" ponowione zdarzenie wysyłało maila drugi raz.
+   */
+  bellVisible: boolean('bell_visible').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   /** Null = nieprzeczytane. */
   readAt: timestamp('read_at'),
@@ -487,6 +508,51 @@ export const smsLog = pgTable('sms_log', {
 }, (t) => ({
   portalCreatedIdx: index('sms_log_portal_created_idx').on(t.portalId, t.createdAt),
   recipientIdx: index('sms_log_recipient_idx').on(t.recipient, t.createdAt),
+}))
+
+/**
+ * Rozmowa z klientem, własność portalu. Krok 1 kierunku ustalonego w
+ * docs/superpowers/specs/2026-08-09-portal-2.0-kierunek-design.md: ClickUp
+ * dostaje lustro, portal dostaje źródło prawdy o tym, co klient widział.
+ *
+ * Trzyma WYŁĄCZNIE komentarze opublikowane do klienta (przeszły przez
+ * lib/publicComments.ts). Wewnętrzna dyskusja agencji nigdy tu nie trafia —
+ * usuwa to ryzyko wycieku strukturalnie, zamiast filtrować je przy każdym
+ * odczycie tak jak dziś.
+ *
+ * `publishedAt` jest ZDARZENIEM, nie predykatem: kiedy komentarz stał się
+ * widoczny. Edycja treści w ClickUpie go nie rusza, w przeciwieństwie do
+ * dzisiejszego stanu, gdzie widoczność komentarza sprzed miesięcy zależy od
+ * tego, co jego treść mówi W TEJ CHWILI.
+ *
+ * ODCZYT w portalu na razie nadal idzie z ClickUpa (TaskDrawer, trasa
+ * /comments) — ta tabela na razie tylko się napełnia z każdym opublikowanym
+ * komentarzem, żeby przełączenie źródła (krok 2 kierunku) było zmianą
+ * jednego zapytania, a nie budową od zera.
+ */
+export const taskComments = pgTable('task_comments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  clickupTaskId: text('clickup_task_id').notNull(),
+  /** Referencja do lustra po stronie ClickUpa. Unikalna: wciąganie z ClickUpa jest idempotentne po tym polu. */
+  clickupCommentId: text('clickup_comment_id').notNull(),
+  /** 'client' | 'agency' — rozstrzygnięte tak samo jak dziś w publicComments.ts: podpis "(Imię)" na początku znaczy klienta. */
+  authorType: text('author_type').notNull(),
+  /** portal_users.id, gdy wiemy które konto pisało (zapis z portalu). Null dla komentarzy wciągniętych z ClickUpa i dla agencji. */
+  authorId: uuid('author_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  /** Podpis czytelny: imię klienta albo 'important.is'. Zdenormalizowane jak wszędzie — przeżywa usunięcie konta. */
+  authorLabel: text('author_label').notNull(),
+  /** Tekst bez znacznika [P] i bez podpisu (Imię) — to samo, co dziś widzi klient. */
+  body: text('body').notNull(),
+  publishedAt: timestamp('published_at').notNull(),
+  editedAt: timestamp('edited_at'),
+  deletedAt: timestamp('deleted_at'),
+  /** 'portal' | 'clickup' — gdzie komentarz faktycznie powstał. */
+  source: text('source').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  clickupCommentUnique: uniqueIndex('task_comments_clickup_comment_idx').on(t.clickupCommentId),
+  taskIdx: index('task_comments_task_idx').on(t.portalId, t.clickupTaskId, t.publishedAt),
 }))
 
 export const auditLog = pgTable('audit_log', {

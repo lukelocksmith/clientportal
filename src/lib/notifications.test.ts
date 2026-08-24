@@ -50,6 +50,9 @@ describe('groupOf', () => {
     assert.strictEqual(groupOf('panic_ack'), 'important')
     assert.strictEqual(groupOf('status'), 'board')
     assert.strictEqual(groupOf('closed'), 'board')
+    // Nowe zadanie od agencji to tez ruch na tablicy, nie odpowiedz na sprawe
+    // klienta, wiec trafia do grupy mniej pilnej (dodane 2026-08-24).
+    assert.strictEqual(groupOf('created'), 'board')
   })
 })
 

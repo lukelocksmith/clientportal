@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { db } from './db'
 import { auditLog } from './db/schema'
 import { normalizeActorId, isAdminActor } from './reporter'
@@ -23,6 +23,12 @@ import { normalizeActorId, isAdminActor } from './reporter'
 export const EVENT_TASK_CREATED = 'task_created'
 export const EVENT_PANIC_ALERT = 'panic_alert'
 export const EVENT_COMMENT_ADDED = 'comment_added'
+/**
+ * Zmiana statusu zrobiona Z PORTALU. Logowana od 2026-08-24, wcześniej nie
+ * zapisywaliśmy jej nigdzie, więc nie dało się rozpoznać, że powiadomienie o
+ * zmianie statusu dotyczy działania samego klienta.
+ */
+export const EVENT_STATUS_CHANGED = 'status_changed'
 /** Zostaje bez zmian: takie wiersze są już w bazie (lib/portalIdeas.ts). */
 export const EVENT_PORTAL_IDEA = 'portal_idea'
 /**
@@ -46,6 +52,7 @@ export type EventAction =
   | typeof EVENT_TASK_CREATED
   | typeof EVENT_PANIC_ALERT
   | typeof EVENT_COMMENT_ADDED
+  | typeof EVENT_STATUS_CHANGED
   | typeof EVENT_PORTAL_IDEA
   | typeof EVENT_LOGIN
   | typeof EVENT_LOGIN_FAILED
@@ -55,6 +62,7 @@ export const EVENT_LABELS: Record<EventAction, string> = {
   [EVENT_TASK_CREATED]: 'Zgłoszenie zadania',
   [EVENT_PANIC_ALERT]: 'Alarm',
   [EVENT_COMMENT_ADDED]: 'Komentarz',
+  [EVENT_STATUS_CHANGED]: 'Zmiana statusu',
   [EVENT_PORTAL_IDEA]: 'Pomysł na portal',
   [EVENT_LOGIN]: 'Logowanie',
   [EVENT_LOGIN_FAILED]: 'Nieudane logowanie',
@@ -312,4 +320,112 @@ export async function portalEventActors(portalId: string): Promise<
 
   return rows
     .filter((r): r is { email: string; name: string | null; count: number; lastAt: Date } => !!r.email)
+}
+
+/**
+ * Kto z portalu wykonał daną akcję, jeśli ktokolwiek.
+ *
+ * Służy WYŁĄCZNIE do tłumienia własnego powiadomienia: klient, który sam
+ * napisał komentarz albo sam założył zadanie, nie ma dostawać maila o swoim
+ * działaniu. Portal i zespół piszą do ClickUpa jednym kontem serwisowym, więc
+ * webhook wraca nierozróżnialny i bez tego zapytania nie da się tego rozdzielić.
+ *
+ * `null` znaczy „nie my", czyli zdarzenie pochodzi od zespołu w ClickUpie.
+ */
+export async function actorOfCommentEvent(
+  portalId: string,
+  clickupCommentId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({ userId: auditLog.userId })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.portalId, portalId),
+        eq(auditLog.action, EVENT_COMMENT_ADDED),
+        eq(auditLog.resourceId, clickupCommentId)
+      )
+    )
+    .limit(1)
+
+  return rows[0]?.userId ?? null
+}
+
+/** Ten sam mechanizm dla założenia zadania: `resourceId` to id zadania. */
+export async function actorOfTaskCreated(
+  portalId: string,
+  clickupTaskId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({ userId: auditLog.userId })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.portalId, portalId),
+        eq(auditLog.action, EVENT_TASK_CREATED),
+        eq(auditLog.resourceId, clickupTaskId)
+      )
+    )
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1)
+
+  return rows[0]?.userId ?? null
+}
+
+/**
+ * Autor zgłoszenia jako identyfikator konta, nie jako imię.
+ *
+ * `getTaskReporter` wyżej oddaje imię i adres do POKAZANIA w interfejsie.
+ * Powiadomienia potrzebują identyfikatora, bo po nim rozstrzygamy, czyja to
+ * sprawa i kto ma dostać maila.
+ */
+export async function reporterUserId(
+  portalId: string,
+  clickupTaskId: string
+): Promise<string | null> {
+  return actorOfTaskCreated(portalId, clickupTaskId)
+}
+
+/**
+ * Kto z portalu ustawił na tym zadaniu DOKŁADNIE ten status w ostatnich
+ * `withinMs` milisekundach.
+ *
+ * Statusów nie da się stłumić deterministycznie, bo ClickUp nie oddaje w
+ * webhooku niczego, co wskazywałoby na nasze żądanie. Okno czasowe porównuje
+ * WARTOŚĆ statusu, nie sam fakt ruchu: inaczej zmiana zrobiona przez zespół
+ * zaraz po zmianie klienta zostałaby zjedzona jako „własna", a kierunek
+ * „klient nie dowiedział się o działaniu zespołu" jest groźniejszy niż
+ * „klient zobaczył powiadomienie o sobie".
+ */
+export async function actorOfRecentStatusChange(input: {
+  portalId: string
+  clickupTaskId: string
+  toStatus: string
+  withinMs: number
+}): Promise<string | null> {
+  const od = new Date(Date.now() - input.withinMs)
+  const rows = await db
+    .select({ userId: auditLog.userId, meta: auditLog.meta })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.portalId, input.portalId),
+        eq(auditLog.action, EVENT_STATUS_CHANGED),
+        eq(auditLog.resourceId, input.clickupTaskId),
+        gte(auditLog.createdAt, od)
+      )
+    )
+    .orderBy(desc(auditLog.createdAt))
+    .limit(5)
+
+  const szukany = input.toStatus.trim().toLowerCase()
+  for (const row of rows) {
+    // `meta` jest TEKSTEM z JSON-em, nie kolumną jsonb (patrz `logEvent`),
+    // więc bez parsowania każde porównanie wychodziło puste i tłumienie nie
+    // działało wcale.
+    const meta = parseMeta(row.meta)
+    const zapisany = typeof meta?.toStatus === 'string' ? meta.toStatus.trim().toLowerCase() : ''
+    if (zapisany === szukany) return row.userId ?? null
+  }
+  return null
 }

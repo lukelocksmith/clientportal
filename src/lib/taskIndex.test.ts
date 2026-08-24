@@ -19,7 +19,7 @@ import assert from 'node:assert'
  * taskIndex, nie reimplementujemy ich testow.
  */
 
-const { db, clickup, portalScopeStore } = vi.hoisted(() => {
+const { db, clickup, portalScopeStore, taskComments } = vi.hoisted(() => {
   // Musi byc ustawione PRZED zaimportowaniem taskIndex.ts, bo modul czyta
   // env raz, przy imporcie, do stalej modulowej SYNC_DELAY_MS. Bez tego
   // kazdy test przebiegu tresci czekalby 800ms na zadanie.
@@ -39,12 +39,19 @@ const { db, clickup, portalScopeStore } = vi.hoisted(() => {
     portalScopeStore: {
       getPortalScope: vi.fn(),
     },
+    // Wlasny modul, z wlasnymi testami (taskComments.test.ts). Podstawiony
+    // tutaj, zeby jego insercje nie mieszaly sie w `insertCalls` z tymi,
+    // ktore sprawdzaja mapowanie taskIndex — patrz opis wiazania nizej.
+    taskComments: {
+      syncPublishedComments: vi.fn(async () => ({ upserted: 0, skipped: 0 })),
+    },
   }
 })
 
 vi.mock('@/lib/db', () => ({ db }))
 vi.mock('@/lib/clickup', () => clickup)
 vi.mock('@/lib/portalScopeStore', () => portalScopeStore)
+vi.mock('@/lib/taskComments', () => taskComments)
 
 import { syncPortalIndex, indexSingleTask } from '@/lib/taskIndex'
 import type { ClickUpTask, ClickUpComment } from '@/lib/types'
@@ -239,6 +246,28 @@ describe('indexSingleTask — mapowanie pol', () => {
     assert.strictEqual(row.publicCommentCount, 1)
     assert.match(row.searchText as string, /plik\.pdf/)
     assert.doesNotMatch(row.searchText as string, /wewnetrzna/)
+  })
+
+  it('kazde wywolanie webhookowe karmi tez task_comments, tymi samymi komentarzami', async () => {
+    clickup.getTask.mockResolvedValue(clickUpTask())
+    const komentarze = [comment('[P] odpowiedz dla klienta')]
+    clickup.getTaskComments.mockResolvedValue(komentarze)
+
+    await indexSingleTask('portal-1', 't-1')
+
+    assert.strictEqual(taskComments.syncPublishedComments.mock.calls.length, 1)
+    assert.deepStrictEqual(taskComments.syncPublishedComments.mock.calls[0], ['portal-1', 't-1', komentarze])
+  })
+
+  it('awaria zapisu do task_comments nie przerywa indeksowania wyszukiwarki', async () => {
+    clickup.getTask.mockResolvedValue(clickUpTask())
+    clickup.getTaskComments.mockResolvedValue([])
+    taskComments.syncPublishedComments.mockRejectedValueOnce(new Error('DB padla'))
+
+    const ok = await indexSingleTask('portal-1', 't-1')
+
+    assert.strictEqual(ok, true)
+    assert.strictEqual(insertCalls.length, 1, 'wpis do task_index musi powstac mimo awarii task_comments')
   })
 
   it('przy konflikcie NADPISUJE tez searchText i contentSyncedAt (w odroznieniu od bulk-syncu)', async () => {
@@ -454,6 +483,33 @@ describe('syncPortalIndex — przebieg tresci (komentarze i zalaczniki)', () => 
     assert.strictEqual(result.contentSynced, 1)
     assert.strictEqual(result.contentPending, 1)
     assert.strictEqual(clickup.getTask.mock.calls.length, 1)
+  })
+
+  it('kazde doczytane zadanie karmi tez task_comments, tymi samymi komentarzami', async () => {
+    clickup.getFolderTaskHistory.mockResolvedValue({ tasks: [], truncated: false })
+    queueSelects([], [{ clickupTaskId: 'x1', name: 'X1', description: null }])
+    clickup.getTask.mockResolvedValue(clickUpTask({ id: 'x1' }))
+    const komentarze = [comment('[P] odpowiedz')]
+    clickup.getTaskComments.mockResolvedValue(komentarze)
+
+    await syncPortalIndex(PORTAL, { budget: 10 })
+
+    assert.strictEqual(taskComments.syncPublishedComments.mock.calls.length, 1)
+    assert.deepStrictEqual(taskComments.syncPublishedComments.mock.calls[0], [PORTAL.id, 'x1', komentarze])
+  })
+
+  it('awaria zapisu do task_comments nie przerywa przebiegu ani nie liczy sie jako blad zadania', async () => {
+    clickup.getFolderTaskHistory.mockResolvedValue({ tasks: [], truncated: false })
+    queueSelects([], [{ clickupTaskId: 'x1', name: 'X1', description: null }])
+    clickup.getTask.mockResolvedValue(clickUpTask({ id: 'x1' }))
+    clickup.getTaskComments.mockResolvedValue([])
+    taskComments.syncPublishedComments.mockRejectedValueOnce(new Error('DB padla'))
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await syncPortalIndex(PORTAL, { budget: 10 })
+
+    assert.strictEqual(result.contentSynced, 1)
+    errSpy.mockRestore()
   })
 
   it('gdy doczytanie jednego zadania padnie, reszta przebiegu nie jest przerywana', async () => {

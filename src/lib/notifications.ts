@@ -13,8 +13,15 @@
 
 import { TASK_STATUS_CLOSED } from './utils'
 
-/** Rodzaj zdarzenia. Odpowiada kolumnie `kind` w tabeli notifications. */
-export type NotifyKind = 'comment' | 'status' | 'closed' | 'panic_ack'
+/**
+ * Rodzaj zdarzenia. Odpowiada kolumnie `kind` w tabeli notifications.
+ *
+ * `created` doszlo 2026-08-24 razem z macierzą per projekt: nowe zadanie
+ * założone przez agencję jest dla klienta informacją, że coś się pojawiło.
+ * `panic_ack` nie jest w tej macierzy, bo alarm ma własną, twardą regułę
+ * (mail wyłącznie do osoby, która go wcisnęła) i nie podlega konfiguracji.
+ */
+export type NotifyKind = 'comment' | 'created' | 'status' | 'closed' | 'panic_ack'
 
 /** Ustawienie użytkownika dla grupy zdarzeń. */
 export type NotifyMode = 'instant' | 'daily' | 'never'

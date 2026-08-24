@@ -7,8 +7,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TEAM_MEMBERS, parseContactMemberIds } from '@/lib/team'
 import { parseAutoTags } from '@/lib/autoTags'
+import {
+  parseNotificationConfig,
+  serializeNotificationConfig,
+  type NotificationConfig,
+} from '@/lib/notifyConfig'
 import { ProjectLinksForm } from './ProjectLinksForm'
 import { AutoTagsPicker } from './AutoTagsPicker'
+import { NotificationMatrix } from './NotificationMatrix'
 
 /**
  * Konfiguracja projektu: marka (logo, kolor) i kontakt opiekuna.
@@ -29,6 +35,7 @@ interface Props {
     contactName: string | null; contactEmail: string | null; contactPhone: string | null
     clickupSpaceId: string
     autoTags: string | null
+    notificationConfig: unknown
   }
   onSaved: (changes: Partial<Props['portal']>) => void
 }
@@ -47,6 +54,9 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const [cEmail, setCEmail] = useState(portal.contactEmail ?? '')
   const [cPhone, setCPhone] = useState(portal.contactPhone ?? '')
   const [autoTags, setAutoTags] = useState<string[]>(() => parseAutoTags(portal.autoTags))
+  const [notify, setNotify] = useState<NotificationConfig>(() =>
+    parseNotificationConfig(portal.notificationConfig)
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -68,6 +78,12 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const membersDirty =
     savedMembers.length !== members.length || savedMembers.some(id => !members.includes(id))
 
+  const savedNotify = parseNotificationConfig(portal.notificationConfig)
+  // Porownanie po JSON-ie: macierz jest maly obiekt o ustalonej kolejnosci
+  // kluczy (buduje ja `parseNotificationConfig`), wiec to wystarcza i nie
+  // wymaga wlasnego porownywania w glab.
+  const notifyDirty = JSON.stringify(savedNotify) !== JSON.stringify(parseNotificationConfig(notify))
+
   const savedAutoTags = parseAutoTags(portal.autoTags)
   const autoTagsDirty =
     savedAutoTags.length !== autoTags.length || savedAutoTags.some(t => !autoTags.includes(t))
@@ -75,6 +91,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const dirty =
     membersDirty ||
     autoTagsDirty ||
+    notifyDirty ||
     (portal.brandColor ?? '') !== color ||
     (portal.logoUrl ?? '') !== logo ||
     (portal.contactName ?? '') !== cName ||
@@ -126,6 +143,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         contactEmail: cEmail.trim() === '' ? null : cEmail.trim(),
         contactPhone: cPhone.trim() === '' ? null : cPhone.trim(),
         autoTags,
+        notificationConfig: serializeNotificationConfig(notify),
       }
       const res = await fetch('/api/admin/portals', {
         method: 'PATCH',
@@ -151,6 +169,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         contactEmail: data.portal?.contactEmail ?? null,
         contactPhone: data.portal?.contactPhone ?? null,
         autoTags: data.portal?.autoTags ?? null,
+        notificationConfig: data.portal?.notificationConfig ?? null,
       })
       setSaved(true)
     } catch {
@@ -367,6 +386,21 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         </div>
       </div>
 
+      {/* Powiadomienia dla klienta. Wszystko odznaczone znaczy „ten projekt nie
+          wysyła nic", i tak jest domyślnie w każdym projekcie. */}
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Powiadomienia dla klienta
+        </p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Co i którym kanałem trafia do osób z tego projektu. Nic zaznaczonego znaczy, że projekt
+          nie wysyła powiadomień.
+        </p>
+        <div className="mt-2">
+          <NotificationMatrix config={notify} onChange={setNotify} />
+        </div>
+      </div>
+
       {/* Jeden zapis na całą konfigurację powyżej: marka, kontakt i tagi lecą
           jednym PATCH-em. Przycisk stoi w stopce, a nie w rzędzie kontaktu, bo
           tam wyglądał na zapis samego kontaktu i zapalał się po wyborze tagu
@@ -386,7 +420,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         </Button>
         {dirty && !saving && (
           <span className="text-xs text-muted-foreground">
-            Niezapisane zmiany: marka, kontakt i tagi.
+            Niezapisane zmiany: marka, kontakt, tagi i powiadomienia.
           </span>
         )}
       </div>

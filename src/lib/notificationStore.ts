@@ -14,6 +14,11 @@ export type NewNotification = {
   portalId: string
   userId: string
   kind: NotifyKind
+  /**
+   * Czy pokazać w dzwonku. `false` znaczy „zapisz, ale nie dzwoń": wiersz jest
+   * wtedy wyłącznie zapisem, po którym rozpoznajemy powtórkę zdarzenia.
+   */
+  bellVisible?: boolean
   clickupTaskId?: string | null
   taskName: string
   payload?: Record<string, unknown>
@@ -39,6 +44,9 @@ export async function createNotifications(rows: NewNotification[]) {
         clickupTaskId: r.clickupTaskId ?? null,
         taskName: r.taskName,
         payload: r.payload ?? {},
+        // Domyślnie widoczne: wyłączenie dzwonka jest decyzją wołającego,
+        // a nie brakiem pola.
+        bellVisible: r.bellVisible ?? true,
         emailSentAt: r.emailSentAt ?? null,
       }))
     )
@@ -50,16 +58,22 @@ export async function countUnread(userId: string): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(notifications)
-    .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)))
+    .where(and(eq(notifications.userId, userId), isNull(notifications.readAt), eq(notifications.bellVisible, true)))
   return row?.n ?? 0
 }
 
-/** Lista pod dzwonkiem, od najnowszych. */
+/**
+ * Lista pod dzwonkiem, od najnowszych.
+ *
+ * Wiersze niewidoczne w dzwonku (`bell_visible = false`) wypadają: powstały
+ * tylko po to, żeby rozpoznać powtórkę zdarzenia, a admin świadomie wyłączył
+ * dla nich dzwonek.
+ */
 export async function listForUser(userId: string, limit = 20) {
   return db
     .select()
     .from(notifications)
-    .where(eq(notifications.userId, userId))
+    .where(and(eq(notifications.userId, userId), eq(notifications.bellVisible, true)))
     .orderBy(sql`${notifications.createdAt} desc`)
     .limit(Math.min(Math.max(limit, 1), 50))
 }
@@ -158,4 +172,35 @@ export async function purgeOldRead(days = 90): Promise<number> {
     .where(and(sql`${notifications.readAt} is not null`, lt(notifications.readAt, cutoff)))
     .returning({ id: notifications.id })
   return gone.length
+}
+
+/**
+ * Czy o tym komentarzu już powiadamialiśmy.
+ *
+ * ClickUp dostarcza zdarzenia CO NAJMNIEJ RAZ, a webhook przychodzi także przy
+ * EDYCJI komentarza, kiedy najnowszy w wątku bywa ten sam co poprzednio. Bez
+ * tej bramy klient dostawałby to samo powiadomienie po kilka razy, a przy
+ * włączonym mailu także kilka maili.
+ *
+ * Identyfikator komentarza trzymamy w `payload`, nie w osobnej kolumnie:
+ * dotyczy jednego rodzaju zdarzenia, a kolumna dla jednego rodzaju to migracja
+ * i indeks, których pozostałe rodzaje nigdy nie użyją.
+ */
+export async function commentAlreadyNotified(
+  portalId: string,
+  clickupCommentId: string
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.portalId, portalId),
+        eq(notifications.kind, 'comment'),
+        sql`${notifications.payload} ->> 'commentId' = ${clickupCommentId}`
+      )
+    )
+    .limit(1)
+
+  return Boolean(row)
 }

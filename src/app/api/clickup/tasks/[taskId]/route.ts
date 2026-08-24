@@ -5,6 +5,7 @@ import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
 import { updateTask, getTask } from '@/lib/clickup'
 import { getTaskReporter } from '@/lib/portalEvents'
 import { recordStatusChange } from '@/lib/statusHistory'
+import { logEvent, EVENT_STATUS_CHANGED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { taskBelongsToPortal } from '@/lib/portalScope'
@@ -96,6 +97,28 @@ export async function PATCH(
       source: 'portal',
       actorUserId: gate.session.userId === 'admin' ? null : gate.session.userId,
       actorLabel: gate.session.name ?? gate.session.email,
+    })
+
+    /**
+     * Ślad do TŁUMIENIA POWIADOMIENIA o własnym działaniu.
+     *
+     * `recordStatusChange` wyżej jest historią dla klienta, ta linia jest
+     * wpisem technicznym: webhook ClickUpa przyjdzie za chwilę z tą samą
+     * zmianą, podpisaną kontem serwisowym agencji, i bez tego wpisu wysłałby
+     * klientowi powiadomienie o tym, co sam właśnie zrobił. Producent szuka
+     * tutaj po `resourceId` (zadanie) i `meta.toStatus` (wartość), w oknie
+     * dwóch minut. Patrz `actorOfRecentStatusChange`.
+     */
+    await logEvent({
+      portalId: portal.id,
+      actor: {
+        userId: gate.session.userId,
+        email: gate.session.email,
+        name: gate.session.name,
+      },
+      action: EVENT_STATUS_CHANGED,
+      resourceId: taskId,
+      meta: { toStatus: parsed.data.status },
     })
   }
 

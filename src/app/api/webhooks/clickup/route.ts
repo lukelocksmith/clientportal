@@ -6,6 +6,11 @@ import { portals } from '@/lib/db/schema'
 import { getTask } from '@/lib/clickup'
 import { indexSingleTask, removeTaskFromIndex } from '@/lib/taskIndex'
 import { recordStatusChange } from '@/lib/statusHistory'
+import {
+  notifyOnComment,
+  notifyOnStatusChange,
+  notifyOnTaskCreated,
+} from '@/lib/notifyFromWebhook'
 import { parseStatusChange, type ClickUpHistoryItem } from '@/lib/clickupHistoryItems'
 
 const WEBHOOK_SECRET = process.env.CLICKUP_WEBHOOK_SECRET
@@ -134,6 +139,33 @@ export async function POST(request: NextRequest) {
         actorLabel: zmiana.actorLabel,
         changedAt: zmiana.changedAt ?? undefined,
       })
+    }
+
+    /**
+     * POWIADOMIENIA. Krok osobny i po indeksowaniu, bo indeks Historii jest
+     * ważniejszy: gdyby powiadomienie wywróciło trasę, ClickUp ponawiałby
+     * zdarzenie, a po serii nieudanych prób wyłączyłby subskrypcję i zabrałby
+     * przy okazji indeksowanie. `produceNotifications` nie rzuca wyjątkiem,
+     * a `catch` niżej jest drugą siatką.
+     *
+     * Brama projektu jest wewnątrz producenta: portal bez ustawionej macierzy
+     * nie dostaje nic, więc ta ścieżka jest domyślnie cicha wszędzie.
+     */
+    try {
+      if (isCommentEvent) {
+        await notifyOnComment({ portalId: target.id, taskId, taskName: task.name ?? taskId })
+      } else if (zmiana) {
+        await notifyOnStatusChange({
+          portalId: target.id,
+          taskId,
+          taskName: task.name ?? taskId,
+          change: zmiana,
+        })
+      } else if (payload.event === 'taskCreated') {
+        await notifyOnTaskCreated({ portalId: target.id, taskId, taskName: task.name ?? taskId })
+      }
+    } catch (e) {
+      console.error(`[webhook] powiadomienia dla zadania ${taskId} nie powiodły się:`, e)
     }
 
     revalidatePath(`/${target.slug}/historia`)

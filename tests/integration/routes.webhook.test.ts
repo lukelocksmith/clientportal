@@ -1,7 +1,7 @@
 import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { createHmac } from 'node:crypto'
-import { isDbReachable, createTestPortal, dropTestPortal } from './helpers'
+import { isDbReachable, createTestPortal, dropTestPortal, createTestUser } from './helpers'
 
 /**
  * WEBHOOK ClickUpa — jedyne wejscie, ktore przyjmuje payload od cudzego systemu.
@@ -29,22 +29,27 @@ import { isDbReachable, createTestPortal, dropTestPortal } from './helpers'
  */
 const SEKRET = 'sekret-testowy-webhooka'
 
-const { poprzedniSekret, clickup, taskIndex, cache } = vi.hoisted(() => {
+const { poprzedniSekret, clickup, taskIndex, cache, mailer } = vi.hoisted(() => {
   const poprzedni = process.env.CLICKUP_WEBHOOK_SECRET
   process.env.CLICKUP_WEBHOOK_SECRET = 'sekret-testowy-webhooka'
   return {
     poprzedniSekret: poprzedni,
-    clickup: { getTask: vi.fn() },
+    clickup: { getTask: vi.fn(), getTaskComments: vi.fn() },
     taskIndex: { indexSingleTask: vi.fn(), removeTaskFromIndex: vi.fn() },
     cache: { revalidatePath: vi.fn(), revalidateTag: vi.fn() },
+    mailer: { sendMail: vi.fn(async () => ({ sent: true as const })) },
   }
 })
 
 vi.mock('@/lib/clickup', () => clickup)
 vi.mock('@/lib/taskIndex', () => taskIndex)
 vi.mock('next/cache', () => cache)
+vi.mock('@/lib/mailer', () => mailer)
 
 import { NextRequest } from 'next/server'
+import { eq } from 'drizzle-orm'
+import { db } from '@/lib/db'
+import { notifications, portals } from '@/lib/db/schema'
 import { POST as webhookPOST } from '@/app/api/webhooks/clickup/route'
 
 const dbUp = await isDbReachable()
@@ -300,6 +305,159 @@ describe.skipIf(!dbUp)('webhook ClickUpa na prawdziwej bazie', () => {
 
       assert.strictEqual(res.status, 200)
       assert.strictEqual(clickup.getTask.mock.calls.length, 0)
+    })
+  })
+
+  /**
+   * POWIADOMIENIA przez PRAWDZIWA trase webhooka.
+   *
+   * Producent ma wlasny zestaw testow (notifyProducer.test.ts). Tutaj chodzi o
+   * to, czego tamten nie dowodzi: ze trasa go NAPRAWDE wola, ze wola go dla
+   * wlasciwego zdarzenia i ze awaria powiadomien nie zabiera indeksowania
+   * Historii. Do 2026-08-24 tego wywolania nie bylo wcale.
+   */
+  describe('powiadomienia', () => {
+    let uzytkownik: string
+
+    beforeAll(async () => {
+      uzytkownik = await createTestUser(portalA.id, `wh-user-${portalA.slug}@example.com`)
+    })
+
+    beforeEach(async () => {
+      mailer.sendMail.mockResolvedValue({ sent: true })
+      clickup.getTaskComments.mockResolvedValue([])
+      await db.delete(notifications).where(eq(notifications.portalId, portalA.id))
+      await db
+        .update(portals)
+        .set({ notificationConfig: null })
+        .where(eq(portals.id, portalA.id))
+    })
+
+    async function wlaczPowiadomienia() {
+      await db
+        .update(portals)
+        .set({
+          notificationConfig: {
+            comment: { bell: true, mail: true },
+            status: { bell: true },
+            closed: { bell: true, mail: true },
+            created: { bell: true },
+          },
+        })
+        .where(eq(portals.id, portalA.id))
+    }
+
+    const zadanieA = { id: 'z-notify', name: 'Zadanie z powiadomieniem', folder: { id: `fake-${''}` } }
+
+    function zadanie() {
+      return { ...zadanieA, folder: { id: `fake-${portalA.slug}` } }
+    }
+
+    async function wiersze() {
+      return db.select().from(notifications).where(eq(notifications.portalId, portalA.id))
+    }
+
+    it('projekt BEZ macierzy: indeks tak, powiadomienia nie', async () => {
+      // To jest flaga wdrozenia sprawdzona przez cala trase, nie tylko w
+      // producencie: wdrozenie na produkcje nie moze nic wyslac samo z siebie.
+      clickup.getTask.mockResolvedValue(zadanie())
+      clickup.getTaskComments.mockResolvedValue([
+        { id: 'k1', comment_text: '[P] odpowiedz', date: '1000', user: { username: 'Artem' } },
+      ])
+
+      const res = await webhookPOST(podpisane({ event: 'taskCommentPosted', task_id: 'z-notify' }))
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(taskIndex.indexSingleTask.mock.calls.length, 1, 'indeks dziala niezaleznie')
+      assert.strictEqual((await wiersze()).length, 0, 'powiadomienia milcza')
+      assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
+    })
+
+    it('komentarz [P] tworzy powiadomienie i wysyla mail', async () => {
+      await wlaczPowiadomienia()
+      clickup.getTask.mockResolvedValue(zadanie())
+      clickup.getTaskComments.mockResolvedValue([
+        { id: 'k-publiczny', comment_text: '[P] poprawione', date: '1000', user: { username: 'Artem' } },
+      ])
+
+      const res = await webhookPOST(podpisane({ event: 'taskCommentPosted', task_id: 'z-notify' }))
+
+      assert.strictEqual(res.status, 200)
+      const rows = await wiersze()
+      assert.strictEqual(rows.length, 1)
+      assert.strictEqual(rows[0].kind, 'comment')
+      assert.strictEqual(rows[0].clickupTaskId, 'z-notify')
+      assert.strictEqual(mailer.sendMail.mock.calls.length, 1)
+    })
+
+    it('komentarz WEWNETRZNY nie tworzy niczego', async () => {
+      await wlaczPowiadomienia()
+      clickup.getTask.mockResolvedValue(zadanie())
+      clickup.getTaskComments.mockResolvedValue([
+        { id: 'k-wewn', comment_text: 'klient nie zaplacil faktury', date: '1000', user: { username: 'Artem' } },
+      ])
+
+      await webhookPOST(podpisane({ event: 'taskCommentPosted', task_id: 'z-notify' }))
+
+      assert.strictEqual((await wiersze()).length, 0)
+      assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
+    })
+
+    it('zmiana statusu tworzy powiadomienie ze starym i nowym statusem', async () => {
+      await wlaczPowiadomienia()
+      clickup.getTask.mockResolvedValue(zadanie())
+
+      await webhookPOST(
+        podpisane({
+          event: 'taskStatusUpdated',
+          task_id: 'z-notify',
+          history_items: [
+            { field: 'status', before: { status: 'nowe' }, after: { status: 'w trakcie' } },
+          ],
+        })
+      )
+
+      const rows = await wiersze()
+      assert.strictEqual(rows.length, 1)
+      assert.strictEqual(rows[0].kind, 'status')
+      assert.deepStrictEqual(rows[0].payload, { from: 'nowe', to: 'w trakcie' })
+      // Macierz ma dla statusu tylko dzwonek, wiec poczta nie rusza.
+      assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
+    })
+
+    it('zamkniecie sprawy to inne zdarzenie niz zwykla zmiana statusu', async () => {
+      await wlaczPowiadomienia()
+      clickup.getTask.mockResolvedValue(zadanie())
+
+      await webhookPOST(
+        podpisane({
+          event: 'taskStatusUpdated',
+          task_id: 'z-notify',
+          history_items: [
+            { field: 'status', before: { status: 'w trakcie' }, after: { status: 'zamknięte' } },
+          ],
+        })
+      )
+
+      const rows = await wiersze()
+      assert.strictEqual(rows[0].kind, 'closed')
+      assert.strictEqual(mailer.sendMail.mock.calls.length, 1, 'zamkniecie ma mail w macierzy')
+    })
+
+    it('awaria powiadomien NIE psuje indeksowania ani nie zwraca bledu', async () => {
+      // ClickUp po serii bledow wylacza subskrypcje, a wtedy tracimy takze
+      // aktualizacje Historii. Powiadomienie jest wazne, subskrypcja wazniejsza.
+      await wlaczPowiadomienia()
+      clickup.getTask.mockResolvedValue(zadanie())
+      clickup.getTaskComments.mockRejectedValue(new Error('ClickUp padl'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const res = await webhookPOST(podpisane({ event: 'taskCommentPosted', task_id: 'z-notify' }))
+
+      assert.strictEqual(res.status, 200)
+      assert.strictEqual(taskIndex.indexSingleTask.mock.calls.length, 1)
+      assert.strictEqual((await wiersze()).length, 0)
+      errorSpy.mockRestore()
     })
   })
 })

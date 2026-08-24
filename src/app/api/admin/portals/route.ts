@@ -11,6 +11,7 @@ import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { serializeContactMemberIds, TEAM_MEMBERS } from '@/lib/team'
 import { serializeAutoTags } from '@/lib/autoTags'
+import { parseNotificationConfig, serializeNotificationConfig } from '@/lib/notifyConfig'
 
 export async function GET(request: NextRequest) {
   if (!await isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       // dla checkboxów autoTags (patrz /api/admin/portals/tags).
       clickupSpaceId: portals.clickupSpaceId,
       autoTags: portals.autoTags,
+      notificationConfig: portals.notificationConfig,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
@@ -150,6 +152,21 @@ const UpdatePortalSchema = z
       .max(20)
       .optional()
       .transform(v => (v === undefined ? undefined : serializeAutoTags(v))),
+    /**
+     * Macierz powiadomień: zdarzenie -> kanał -> włączone. Kształt i walidacja
+     * w lib/notifyConfig.ts, tu tylko przepuszczamy obiekt i normalizujemy.
+     *
+     * `null` czyści konfigurację, czyli WYŁĄCZA powiadomienia dla projektu.
+     * Pusty obiekt też: `serializeNotificationConfig` sprowadza „nic nie
+     * zaznaczone" do `null`, żeby cisza miała jeden zapis, nie dwa.
+     */
+    notificationConfig: z
+      .unknown()
+      .nullable()
+      .optional()
+      .transform(v =>
+        v === undefined ? undefined : serializeNotificationConfig(parseNotificationConfig(v))
+      ),
     contactName: z
       .string()
       .max(120)
@@ -190,6 +207,12 @@ const UpdatePortalSchema = z
  * 404, bo nie ma z czym porównać nagłówka Origin:
  *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
  *        -d '{"slug":"wdf","sitepingEnabled":true,"siteDomains":"wdf.important.is,wodadlafirmy.pl"}'
+ *
+ * Powiadomienia (domyślnie wyłączone we WSZYSTKICH projektach, bo brak
+ * konfiguracji znaczy ciszę):
+ *   curl -X PATCH .../api/admin/portals -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+ *        -d '{"slug":"important","notificationConfig":{"comment":{"bell":true,"mail":true}}}'
+ * Wyłączenie: `"notificationConfig": null`.
  *
  * Zod ma `.strict()`, więc nieznane pole daje 400 zamiast cichego pominięcia.
  */
@@ -236,6 +259,7 @@ export async function PATCH(request: NextRequest) {
       // dla checkboxów autoTags (patrz /api/admin/portals/tags).
       clickupSpaceId: portals.clickupSpaceId,
       autoTags: portals.autoTags,
+      notificationConfig: portals.notificationConfig,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,

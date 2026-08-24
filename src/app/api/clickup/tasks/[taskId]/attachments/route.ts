@@ -1,11 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
-import { addTaskAttachment } from '@/lib/clickup'
+import { addTaskAttachment, getTask } from '@/lib/clickup'
 
 export const runtime = 'nodejs'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB per file
 const MAX_FILES = 5
+
+/**
+ * GET /api/clickup/tasks/{taskId}/attachments?slug=onyx
+ *
+ * Załączniki zadania. Trasa miała wyłącznie POST, więc GET pod tym adresem
+ * odbijał się o 405, co przy diagnozowaniu wygląda jak awaria, a jest tylko
+ * brakiem metody.
+ *
+ * UWAGA: oddaje to samo, co pole `attachments` w trasie szczegółów zadania,
+ * z której korzysta szuflada. Ten sam zakres danych, drugi adres — więc ta
+ * sama brama zakresu, sprawdzana PRZED dotknięciem ClickUpa.
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  const gate = await requirePortalApi(request.nextUrl.searchParams.get('slug'))
+  if (!gate.ok) return gate.response
+
+  const { taskId } = await params
+
+  const scope = await requireTaskInPortal(taskId, gate.portal)
+  if (!scope.ok) return scope.response
+
+  const task = await getTask(taskId)
+  return NextResponse.json({ attachments: task.attachments ?? [] })
+}
 
 // POST /api/clickup/tasks/{taskId}/attachments?slug=onyx
 // Uploads client-supplied files (screenshots) as ClickUp attachments on a task.

@@ -71,6 +71,7 @@ import { createSession, setSessionCookie } from '@/lib/auth'
 import { GET as tasksGET, POST as tasksPOST } from '@/app/api/clickup/tasks/route'
 import { GET as taskGET, PATCH as taskPATCH } from '@/app/api/clickup/tasks/[taskId]/route'
 import { GET as commentsGET, POST as commentsPOST } from '@/app/api/clickup/tasks/[taskId]/comments/route'
+import { GET as attachmentsGET } from '@/app/api/clickup/tasks/[taskId]/attachments/route'
 import { PUT as commentPUT, DELETE as commentDELETE } from '@/app/api/clickup/tasks/[taskId]/comments/[commentId]/route'
 
 const dbUp = await isDbReachable()
@@ -769,6 +770,68 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       const body = await res.json()
 
       assert.ok(!JSON.stringify(body.comments[0].blocks).includes('[P]'), 'znacznik zostal w blokach')
+    })
+  })
+
+  /**
+   * ZALACZNIKI, odczyt. Trasa miala tylko POST (wgrywanie), wiec GET zwracal
+   * 405. Dodany, zeby adres nie klamal, ale oddaje to samo, co trasa
+   * szczegolow zadania, wiec MUSI miec te sama granice: brak sesji odbija sie
+   * o 401, a zadanie spoza portalu o 403, ZANIM ktokolwiek zapyta ClickUpa.
+   */
+  describe('zalaczniki, odczyt', () => {
+    it('klient widzi zalaczniki WLASNEGO zadania', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTask.mockResolvedValue(zadanieWlasne())
+
+      const res = await attachmentsGET(
+        req(`/api/clickup/tasks/task-1/attachments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.strictEqual(res.status, 200)
+      assert.deepStrictEqual(body.attachments, [{ id: 'att-1', url: 'https://example.test/a.png' }])
+    })
+
+    it('zadanie bez zalacznikow daje pusta liste, nie brak pola', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.getTask.mockResolvedValue({ ...zadanieWlasne(), attachments: undefined })
+
+      const res = await attachmentsGET(
+        req(`/api/clickup/tasks/task-1/attachments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+      const body = await res.json()
+
+      assert.deepStrictEqual(body.attachments, [])
+    })
+
+    it('zadanie SPOZA portalu -> 403 i ClickUp nie jest pytany o zadanie', async () => {
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(false)
+
+      const res = await attachmentsGET(
+        req(`/api/clickup/tasks/obce/attachments?slug=${portalA.slug}`),
+        params('obce')
+      )
+
+      assert.strictEqual(res.status, 403)
+      assert.strictEqual(clickup.getTask.mock.calls.length, 0, 'brama musi stac PRZED pobraniem zadania')
+    })
+
+    it('bez sesji -> 401, tak samo jak reszta tras portalu', async () => {
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+
+      const res = await attachmentsGET(
+        req(`/api/clickup/tasks/task-1/attachments?slug=${portalA.slug}`),
+        params('task-1')
+      )
+
+      assert.strictEqual(res.status, 401)
+      assert.strictEqual(clickup.getTask.mock.calls.length, 0)
     })
   })
 })

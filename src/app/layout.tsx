@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import { Rubik } from 'next/font/google'
 import { Toaster } from 'sonner'
 import './globals.css'
@@ -24,10 +25,32 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Stempluje nonce na arkuszach tworzonych z JS.
+ *
+ * Biblioteki wstrzykują `<style>` przez `document.createElement`, bez nonce'a,
+ * bo nie mają skąd go wziąć. Przy `style-src 'self' 'nonce-...'` przeglądarka
+ * blokuje taki arkusz i pisze o tym tylko w konsoli: interfejs po prostu
+ * wygląda źle, bez żadnego błędu (sonner, powiadomienia bez stylu, 2026-08-24).
+ *
+ * Łata jest wąska z rozmysłem: dotyka WYŁĄCZNIE tagu `style` i tylko dokłada
+ * atrybut. Wykonuje się przed paczkami aplikacji, bo skrypt bez `defer` w
+ * treści strony rusza od razu przy parsowaniu.
+ */
+const STEMPEL_NONCE = (nonce: string) =>
+  `(function(){try{var d=document,c=d.createElement.bind(d);d.createElement=function(t){` +
+  `var e=c.apply(d,arguments);if(String(t).toLowerCase()==='style'){e.setAttribute('nonce','${nonce}')}return e}}catch(e){}})()`
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Nonce wystawia proxy w nagłówku żądania, ten sam, który trafia do CSP.
+  const nonce = (await headers()).get('x-nonce') ?? ''
+
   return (
     <html lang="pl" className={`${rubik.variable} h-full antialiased`}>
       <body className="min-h-full bg-background text-foreground">
+        {nonce && (
+          <script nonce={nonce} dangerouslySetInnerHTML={{ __html: STEMPEL_NONCE(nonce) }} />
+        )}
         {children}
         <Toaster richColors position="top-right" />
       </body>

@@ -27,6 +27,9 @@ import { isSitepingWidgetPath } from '@/lib/siteping/widgetPath'
  *                   z obcego hosta jest nieporównanie mniej groźny niż skrypt.
  *   media-src https: nagrania dołączone do komentarzy leżą na CDN-ie ClickUpa,
  *                   tak samo jak miniatury. Bez tej dyrektywy `<video>` milczy.
+ *   style-src nonce  arkusze wstrzykiwane z JS przez biblioteki (sonner przy
+ *                   imporcie modułu). Nonce, nie `unsafe-inline`: przechodzi
+ *                   tylko to, co ostemplował nasz kod startowy.
  *   connect-src     tylko własne źródło: portal woła wyłącznie swoje API, także
  *                   przy strumieniowaniu odpowiedzi asystenta.
  *   'unsafe-eval'   WYŁĄCZNIE w trybie deweloperskim, bo React używa tam eval
@@ -51,7 +54,11 @@ function buildCsp(nonce: string): string {
     // z plików, czyli z `self`, i nie generuje ANI JEDNEGO naruszenia. Kolory
     // marki klienta idą atrybutem `style`, który obsługuje `style-src-attr`
     // niżej i który zostaje ścisły w obu trybach.
-    `style-src 'self'${isDev ? " 'unsafe-inline'" : ''}`,
+    // Nonce także dla stylów: biblioteki wstrzykują arkusze z JS (sonner robi
+    // to przy imporcie modułu), a bez nonce przeglądarka je blokowała, więc
+    // powiadomienia na produkcji wychodziły BEZ STYLU. Nonce stempluje im
+    // `layout.tsx`, patrz komentarz tam.
+    `style-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-inline'" : ''}`,
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     // media-src osobno, bo bez niego wideo wpadało w `default-src 'self'` i

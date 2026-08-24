@@ -43,6 +43,17 @@ describe('co portal MUSI moc pokazac', () => {
     assert.match(dyrektywa('img-src'), /https:/)
   })
 
+  it('styl wstrzykniety z JS przechodzi po nonce, nie po unsafe-inline', () => {
+    // Biblioteki wstrzykuja arkusze z JS (sonner robi to przy imporcie
+    // modulu). Bez nonce w `style-src` przegladarka blokowala te arkusze i
+    // powiadomienia na produkcji byly BEZ STYLU, a w konsoli lecialy bledy
+    // CSP (znalezione 2026-08-24).
+    const wartosc = dyrektywa('style-src')
+
+    assert.match(wartosc, /'nonce-/)
+    assert.ok(!wartosc.includes("'unsafe-inline'"), 'unsafe-inline otwiera wstrzykiwanie dowolnego stylu')
+  })
+
   it('podglad wgrywanego pliku z pamieci przegladarki dziala', () => {
     // `blob:` jest potrzebny przy podgladzie zalacznika przed wyslaniem.
     assert.match(dyrektywa('img-src'), /blob:/)

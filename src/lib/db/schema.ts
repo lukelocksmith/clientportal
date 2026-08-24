@@ -188,6 +188,36 @@ export const notifications = pgTable('notifications', {
 }))
 
 /**
+ * Zapora przed podwójnym powiadomieniem o TYM SAMYM zdarzeniu.
+ *
+ * Powstała 24.08 po realnym incydencie: ten sam webhook ClickUpa (status
+ * zmieniony, komentarz dodany) przyszedł do naszej trasy dwukrotnie w odstępie
+ * ułamka sekundy — ClickUp gwarantuje dostarczenie „co najmniej raz", nie
+ * dokładnie raz. Poprzednia wersja sprawdzała powtórkę zapytaniem `SELECT`
+ * przed zapisem (`commentAlreadyNotified`), co ma wyścig: dwa równoległe
+ * żądania widzą „jeszcze nic nie ma" i oba wstawiają wiersz.
+ *
+ * Ta tabela zamyka wyścig NA POZIOMIE BAZY: klucz jest jednoznaczny dla
+ * zdarzenia (nie dla odbiorcy — jedno zdarzenie, jeden klucz, niezależnie od
+ * tego, ilu ludzi dostanie powiadomienie), a unikalny indeks sprawia, że
+ * DRUGIE wstawienie tego samego klucza kończy się cicho (`ON CONFLICT DO
+ * NOTHING`), zamiast przechodzić i tworzyć duplikat.
+ *
+ * `dedupe_key` per rodzaj zdarzenia (lib/notifyProducer.ts buduje):
+ *   comment -> identyfikator komentarza z ClickUpa
+ *   status/closed -> zadanie + nowy status + znacznik czasu zmiany z ClickUpa
+ *   created -> samo zadanie (zdarzenie tworzenia zdarza się raz w życiu zadania)
+ */
+export const notifiedEvents = pgTable('notified_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  dedupeKey: text('dedupe_key').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  portalKeyUnique: uniqueIndex('notified_events_portal_key_idx').on(t.portalId, t.dedupeKey),
+}))
+
+/**
  * Historia zmian statusu zadania.
  *
  * Osobna tabela, NIE `audit_log`: tamten opisuje, co zrobił człowiek w portalu

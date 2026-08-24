@@ -83,6 +83,11 @@ export function reporterLabel(reporter: Pick<Reporter, 'name' | 'email'>): strin
  * utworzone przez nas w trybie obejścia admina jest oznaczone WPROST: taki wpis
  * nie może wyglądać jak zgłoszenie klienta, bo to fałszowałoby historię
  * współpracy, na którą potem powołujemy się przy rozliczeniu.
+ *
+ * BEZ linii „Projekt": zadanie i tak siedzi w folderze tego klienta w ClickUpie,
+ * więc ta informacja jest tam, gdzie zespół i tak patrzy — dublowanie jej w
+ * stopce nie dodawało nic (uwaga Łukasza po teście 24.08). Kanał zostaje, bo
+ * REALNIE się różni między źródłami zgłoszenia (AI, alarm, widget, formularz).
  */
 export function reporterFooter(reporter: Reporter): string {
   const who = isAdminActor({ email: reporter.email })
@@ -92,7 +97,6 @@ export function reporterFooter(reporter: Reporter): string {
   return [
     '---',
     `**Zgłoszone przez:** ${who}`,
-    `**Projekt:** ${reporter.portalName} (/${reporter.portalSlug})`,
     `**Kanał:** ${SOURCE_LABELS[reporter.source]}`,
   ].join('\n')
 }

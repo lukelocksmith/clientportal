@@ -358,6 +358,46 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       assert.deepStrictEqual(JSON.parse(wpis.meta ?? '{}'), { toStatus: 'w trakcie' })
     })
 
+    it('WYSCIG: slad powstaje PRZED zmiana w ClickUpie, nie po niej', async () => {
+      /**
+       * Zgloszone przez Lukasza 24.08: przeciagnal karte w portalu i dostal
+       * powiadomienie o wlasnej zmianie.
+       *
+       * Przyczyna byla w KOLEJNOSCI. `updateTask` wywoluje webhook ClickUpa,
+       * ktory wraca do nas w kilkaset milisekund. Gdy slad zapisywal sie PO
+       * zmianie, webhook zdazal przyjsc pierwszy, nie znajdowal sladu i uznawal
+       * zmiane za cudza.
+       *
+       * Tego nie da sie sprawdzic mierzac czas — test bylby losowy. Zamiast
+       * tego wymuszamy blad `updateTask`: jesli slad istnieje MIMO ze zmiana
+       * sie nie powiodla, to dowod, ze zapisal sie wczesniej.
+       */
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(true)
+      clickup.updateTask.mockRejectedValue(new Error('ClickUp 500'))
+
+      await assert.rejects(
+        taskPATCH(
+          req(`/api/clickup/tasks/task-wyscig?slug=${portalA.slug}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'w trakcie' }),
+          }),
+          params('task-wyscig')
+        )
+      )
+
+      const wpisy = await db
+        .select({ resourceId: auditLog.resourceId })
+        .from(auditLog)
+        .where(and(eq(auditLog.portalId, portalA.id), eq(auditLog.action, 'status_changed')))
+
+      assert.ok(
+        wpisy.some(w => w.resourceId === 'task-wyscig'),
+        'slad musi istniec przed zmiana w ClickUpie, inaczej webhook wyprzedza tlumienie'
+      )
+    })
+
     it('zmiana samej NAZWY nie zostawia sladu o statusie', async () => {
       // Inaczej tlumienie zjadaloby powiadomienia o zmianach, ktorych klient
       // nie robil.

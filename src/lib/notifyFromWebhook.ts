@@ -87,6 +87,9 @@ export function notifyOnStatusChange(input: {
     taskName: input.taskName,
     fromStatus: input.change.fromStatus,
     toStatus: input.change.toStatus,
+    // Czas Z CLICKUPA, nie nasz: to on odróżnia powtórzone dostarczenie tego
+    // samego zdarzenia od prawdziwej drugiej zmiany na ten sam status.
+    eventAt: input.change.changedAt,
   })
 }
 

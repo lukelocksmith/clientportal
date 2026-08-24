@@ -5,7 +5,7 @@ import { portals, portalUsers } from './db/schema'
 import { resolveBranding } from './branding'
 import { sendMail } from './mailer'
 import { chooseRecipients } from './notifications'
-import { commentAlreadyNotified, createNotifications } from './notificationStore'
+import { claimEvent, releaseEvent, createNotifications } from './notificationStore'
 import {
   channelEnabled,
   notificationsOff,
@@ -56,6 +56,13 @@ export type ProduceInput = {
   toStatus?: string | null
   /** Identyfikator komentarza z ClickUpa: deterministyczne tłumienie własnej akcji. */
   clickupCommentId?: string | null
+  /**
+   * Kiedy zdarzenie zaszło U ŹRÓDŁA (znacznik z payloadu ClickUpa), a nie kiedy
+   * do nas dotarło. Wchodzi do klucza powtórki, więc to samo zdarzenie
+   * dostarczone dwa razy ma ten sam klucz, a prawdziwa druga zmiana na ten sam
+   * status ma inny.
+   */
+  eventAt?: Date | null
 }
 
 export type ProduceResult = {
@@ -75,6 +82,42 @@ export type ProduceResult = {
  * zmianą klienta i niezależną zmianą zespołu.
  */
 const STATUS_SUPPRESSION_MS = 2 * 60 * 1000
+
+/**
+ * Klucz, po którym rozpoznajemy TO SAMO zdarzenie dostarczone drugi raz.
+ *
+ * Musi spełniać naraz dwa warunki, i to napięcie jest tu całą trudnością:
+ * powtórka tego samego zdarzenia ma dać ten sam klucz, ale PRAWDZIWA druga
+ * zmiana na tę samą wartość (zadanie wraca do „w trakcie" po tygodniu) musi
+ * dać inny — inaczej zablokowalibyśmy ją na zawsze.
+ *
+ * Rozstrzyga to znacznik czasu Z CLICKUPA: przy podwójnym dostarczeniu jest
+ * identyczny, przy nowej zmianie inny.
+ *
+ * Zdarzenia o naturalnie jednorazowym charakterze (komentarz ma własny
+ * identyfikator, zadanie powstaje raz) klucza czasowego nie potrzebują.
+ */
+export function dedupeKeyFor(input: ProduceInput): string {
+  if (input.event === 'comment' && input.clickupCommentId) {
+    return `comment:${input.clickupCommentId}`
+  }
+  if (input.event === 'created') {
+    return `created:${input.taskId}`
+  }
+
+  /**
+   * Zapas, gdy ClickUp nie podał czasu zdarzenia: kubełek minutowy.
+   *
+   * Świadomie NIE pusty ciąg. Pusty dawałby klucz stały dla pary
+   * (zadanie, status), czyli po pierwszej zmianie na „w trakcie" żadna
+   * następna zmiana na „w trakcie" nie powiadomiłaby już nigdy. Kubełek
+   * wycina powtórki (te przychodzą w sekundach), a zmianę sprzed tygodnia
+   * przepuszcza.
+   */
+  const stamp = input.eventAt ? input.eventAt.getTime() : Math.floor(Date.now() / 60_000)
+  const suffix = input.event === 'comment' ? 'comment' : `${input.toStatus ?? ''}`
+  return `${input.event}:${input.taskId}:${suffix}:${stamp}`
+}
 
 export async function produceNotifications(input: ProduceInput): Promise<ProduceResult> {
   try {
@@ -110,14 +153,45 @@ async function produce(input: ProduceInput): Promise<ProduceResult> {
 
   /**
    * To samo zdarzenie drugi raz. ClickUp dostarcza „co najmniej raz", a webhook
-   * przychodzi także przy EDYCJI komentarza, kiedy najnowszy w wątku bywa ten
-   * sam. Sprawdzamy PRZED policzeniem odbiorców, bo to najtańsze zapytanie.
+   * przychodzi także przy EDYCJI komentarza.
+   *
+   * ZAJMUJEMY zdarzenie zapisem, nie sprawdzamy go odczytem: dwa równoległe
+   * dostarczenia oba przeszłyby przez `SELECT`, bo oba widziałyby pustą tabelę.
+   * Tak właśnie powstały podwójne wpisy w dzwonku (24.08). Rozstrzyga unikalny
+   * indeks w bazie, patrz `claimEvent`.
+   *
+   * Dotyczy WSZYSTKICH rodzajów zdarzeń, nie tylko komentarzy — zmiany statusu
+   * dublowały się dokładnie tak samo, a wcześniej nie miały żadnej ochrony.
    */
-  if (input.event === 'comment' && input.clickupCommentId) {
-    if (await commentAlreadyNotified(input.portalId, input.clickupCommentId)) {
-      return { bell: 0, mailed: 0, reason: 'duplicate' }
-    }
+  const klucz = dedupeKeyFor(input)
+  if (!(await claimEvent(input.portalId, klucz))) {
+    return { bell: 0, mailed: 0, reason: 'duplicate' }
   }
+
+  /**
+   * Od tego miejsca klucz jest ZAJĘTY, więc każda awaria musi go oddać.
+   *
+   * Inaczej zdarzenie przepada na zawsze: ponowne dostarczenie przez ClickUpa
+   * odbiłoby się od zajętego klucza, mimo że klient nigdy nie dostał
+   * powiadomienia. Cisza z powodu awarii ma być odwracalna, w odróżnieniu od
+   * ciszy z powodu ustawień.
+   */
+  try {
+    return await deliver(input, portal, config)
+  } catch (e) {
+    await releaseEvent(input.portalId, klucz).catch(() => {})
+    throw e
+  }
+}
+
+/** Właściwa wysyłka. Wydzielona, żeby zwalnianie klucza obejmowało CAŁOŚĆ. */
+async function deliver(
+  input: ProduceInput,
+  portal: { slug: string; name: string; logoUrl: string | null; brandColor: string | null },
+  config: ReturnType<typeof parseNotificationConfig>
+): Promise<ProduceResult> {
+  const bellOn = channelEnabled(config, input.event, 'bell')
+  const mailOn = channelEnabled(config, input.event, 'mail')
 
   const [actorUserId, ownerUserId, users] = await Promise.all([
     detectActor(input),

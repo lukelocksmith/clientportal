@@ -57,12 +57,19 @@ describe('reporterLabel', () => {
 })
 
 describe('reporterFooter', () => {
-  it('zawiera osobe, projekt i kanal', () => {
+  it('zawiera osobe i kanal', () => {
     const footer = reporterFooter(KLIENT)
     assert.ok(footer.includes('Anna Kowalska <anna@onyx.pl>'), 'brak podpisu osoby')
-    assert.ok(footer.includes('Onyx (/onyx)'), 'brak projektu')
     assert.ok(footer.includes('formularz w portalu'), 'brak kanalu')
     assert.ok(footer.startsWith('---'), 'stopka musi byc odkreslona od tresci')
+  })
+
+  it('NIE powtarza projektu: zadanie i tak lezy w folderze tego klienta', () => {
+    // Usuniete 24.08 na prosbe Lukasza. Zespol widzi projekt po folderze w
+    // ClickUpie, wiec linia w stopce dokladala szum, nie informacje.
+    const footer = reporterFooter(KLIENT)
+    assert.ok(!footer.includes('Onyx (/onyx)'), 'projekt wrocil do stopki')
+    assert.ok(!footer.includes('Projekt:'), 'projekt wrocil do stopki')
   })
 
   it('kanal rozroznia formularz, AI, pomysl, alarm i komentarz', () => {

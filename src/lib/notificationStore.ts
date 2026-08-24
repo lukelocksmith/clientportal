@@ -6,7 +6,7 @@
  * bez udawania preferencji użytkowników.
  */
 import { db } from '@/lib/db'
-import { notifications, portalUsers } from '@/lib/db/schema'
+import { notifications, notifiedEvents, portalUsers } from '@/lib/db/schema'
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { NotifyKind } from '@/lib/notifications'
 
@@ -175,32 +175,69 @@ export async function purgeOldRead(days = 90): Promise<number> {
 }
 
 /**
- * Czy o tym komentarzu już powiadamialiśmy.
+ * Zajmuje zdarzenie: `true` znaczy „to my je obsługujemy", `false` znaczy
+ * „ktoś już je obsłużył, odpuść".
  *
- * ClickUp dostarcza zdarzenia CO NAJMNIEJ RAZ, a webhook przychodzi także przy
- * EDYCJI komentarza, kiedy najnowszy w wątku bywa ten sam co poprzednio. Bez
- * tej bramy klient dostawałby to samo powiadomienie po kilka razy, a przy
- * włączonym mailu także kilka maili.
+ * ClickUp dostarcza zdarzenia CO NAJMNIEJ RAZ, a webhook przychodzi też przy
+ * EDYCJI komentarza. Wcześniej stało tu sprawdzenie `SELECT`-em przed zapisem
+ * i miało WYŚCIG: dwa równoległe dostarczenia tego samego zdarzenia oba
+ * widziały pustą tabelę i oba wstawiały wiersz. Dokładnie to zobaczył Łukasz
+ * 24.08 — każda pozycja w dzwonku dwa razy.
  *
- * Identyfikator komentarza trzymamy w `payload`, nie w osobnej kolumnie:
- * dotyczy jednego rodzaju zdarzenia, a kolumna dla jednego rodzaju to migracja
- * i indeks, których pozostałe rodzaje nigdy nie użyją.
+ * Rozstrzyga BAZA, nie kod: unikalny indeks na (portal, klucz) plus
+ * `ON CONFLICT DO NOTHING`. Przy równoległych zapisach jeden zwróci wiersz,
+ * pozostałe nie zwrócą nic — i to jest jedyna wersja tej bramy, która nie da
+ * się oszukać czasem.
+ *
+ * Klucz jest per ZDARZENIE, nie per odbiorca: jedno zdarzenie zajmuje się raz,
+ * niezależnie od tego, ilu ludzi dostanie z niego powiadomienie.
  */
-export async function commentAlreadyNotified(
-  portalId: string,
-  clickupCommentId: string
-): Promise<boolean> {
-  const [row] = await db
-    .select({ id: notifications.id })
-    .from(notifications)
+export async function claimEvent(portalId: string, dedupeKey: string): Promise<boolean> {
+  const wstawione = await db
+    .insert(notifiedEvents)
+    .values({ portalId, dedupeKey })
+    .onConflictDoNothing({ target: [notifiedEvents.portalId, notifiedEvents.dedupeKey] })
+    .returning({ id: notifiedEvents.id })
+
+  return wstawione.length > 0
+}
+
+/**
+ * Zwalnia wcześniej zajęte zdarzenie.
+ *
+ * Wołane, gdy obsługa padła PO zajęciu klucza. Bez tego zdarzenie byłoby
+ * stracone na zawsze: klucz zostawał zajęty, więc ponowne dostarczenie tego
+ * samego zdarzenia przez ClickUpa odbijało się od niego, mimo że klient nigdy
+ * nie dostał powiadomienia.
+ */
+export async function releaseEvent(portalId: string, dedupeKey: string): Promise<void> {
+  await db
+    .delete(notifiedEvents)
+    .where(and(eq(notifiedEvents.portalId, portalId), eq(notifiedEvents.dedupeKey, dedupeKey)))
+}
+
+/**
+ * Retencja kluczy powtórek: kasuje wpisy starsze niż `days`.
+ *
+ * Ponowne dostarczenia ClickUpa przychodzą w sekundach, najwyżej minutach, więc
+ * klucz sprzed miesiąca nie chroni już przed niczym, a tabela rosłaby z każdym
+ * zdarzeniem w każdym projekcie bez końca.
+ *
+ * WYJĄTEK: klucze `created:` zostają na zawsze. Zadanie powstaje raz w życiu, a
+ * ten klucz nie ma w sobie czasu, więc jego skasowanie pozwoliłoby powiadomić
+ * o utworzeniu tego samego zadania drugi raz, gdyby ClickUp kiedyś przysłał
+ * `taskCreated` ponownie.
+ */
+export async function purgeOldEventKeys(days = 30): Promise<number> {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  const gone = await db
+    .delete(notifiedEvents)
     .where(
       and(
-        eq(notifications.portalId, portalId),
-        eq(notifications.kind, 'comment'),
-        sql`${notifications.payload} ->> 'commentId' = ${clickupCommentId}`
+        lt(notifiedEvents.createdAt, cutoff),
+        sql`${notifiedEvents.dedupeKey} NOT LIKE 'created:%'`
       )
     )
-    .limit(1)
-
-  return Boolean(row)
+    .returning({ id: notifiedEvents.id })
+  return gone.length
 }

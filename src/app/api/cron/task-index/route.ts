@@ -5,7 +5,7 @@ import { portals } from '@/lib/db/schema'
 import { verifyToken } from '@/lib/apiAuth'
 import { syncPortalIndex, type SyncResult } from '@/lib/taskIndex'
 import { recordCronRun } from '@/lib/cronRuns'
-import { purgeOldRead } from '@/lib/notificationStore'
+import { purgeOldRead, purgeOldEventKeys } from '@/lib/notificationStore'
 import { acquireCronLock } from '@/lib/cronLock'
 
 export const dynamic = 'force-dynamic'
@@ -137,6 +137,15 @@ async function runIndex(request: NextRequest): Promise<NextResponse> {
     console.error('[cron/task-index] sprzątanie starych powiadomień nie powiodło się:', e)
   }
 
+  // Klucze powtórek zdarzeń: patrz `purgeOldEventKeys`. Osobny try/catch, bo to
+  // druga, niezależna rzecz do posprzątania.
+  let purgedEventKeys: number | null = null
+  try {
+    purgedEventKeys = await purgeOldEventKeys(30)
+  } catch (e) {
+    console.error('[cron/task-index] sprzątanie kluczy powtórek nie powiodło się:', e)
+  }
+
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     budget,
@@ -144,6 +153,7 @@ async function runIndex(request: NextRequest): Promise<NextResponse> {
     // Gdy > 0, odpal tę trasę ponownie. Backfill jest wznawialny.
     contentPendingTotal: pending,
     purgedNotifications,
+    purgedEventKeys,
     portals: results,
   })
 }

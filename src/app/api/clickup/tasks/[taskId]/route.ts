@@ -82,6 +82,38 @@ export async function PATCH(
   // zmarnowane wywołanie wspólnego tokenu ClickUpa.
   const przed = parsed.data.status ? await getTask(taskId).catch(() => null) : null
 
+  /**
+   * Ślad do TŁUMIENIA POWIADOMIENIA o własnym działaniu — stawiany PRZED
+   * zmianą w ClickUpie, nie po niej.
+   *
+   * Kolejność jest tu istotą rzeczy, nie stylem. `updateTask` wywołuje webhook
+   * ClickUpa, a ten wraca do nas w kilkaset milisekund. Gdy ślad zapisywał się
+   * PO zmianie, webhook zdążał przyjść pierwszy, nie znajdował śladu i wysyłał
+   * klientowi powiadomienie o zmianie, którą ten przed chwilą sam kliknął.
+   * Dokładnie to zobaczył Łukasz 24.08.
+   *
+   * Cena odwrócenia kolejności: gdy `updateTask` padnie, zostaje ślad po
+   * zmianie, która się nie odbyła. Skutek jest ograniczony do wyciszenia jednego
+   * powiadomienia o TEN status przez dwie minuty — nieporównanie mniej szkodliwy
+   * niż powiadamianie klienta o jego własnym kliknięciu.
+   *
+   * Producent szuka tego wpisu po `resourceId` (zadanie) i `meta.toStatus`,
+   * patrz `actorOfRecentStatusChange`.
+   */
+  if (parsed.data.status) {
+    await logEvent({
+      portalId: portal.id,
+      actor: {
+        userId: gate.session.userId,
+        email: gate.session.email,
+        name: gate.session.name,
+      },
+      action: EVENT_STATUS_CHANGED,
+      resourceId: taskId,
+      meta: { toStatus: parsed.data.status },
+    })
+  }
+
   const task = await updateTask(taskId, parsed.data)
 
   // HISTORIA STATUSÓW. Klient przeciągnął kartę, więc podpisujemy zmianę jego
@@ -97,28 +129,6 @@ export async function PATCH(
       source: 'portal',
       actorUserId: gate.session.userId === 'admin' ? null : gate.session.userId,
       actorLabel: gate.session.name ?? gate.session.email,
-    })
-
-    /**
-     * Ślad do TŁUMIENIA POWIADOMIENIA o własnym działaniu.
-     *
-     * `recordStatusChange` wyżej jest historią dla klienta, ta linia jest
-     * wpisem technicznym: webhook ClickUpa przyjdzie za chwilę z tą samą
-     * zmianą, podpisaną kontem serwisowym agencji, i bez tego wpisu wysłałby
-     * klientowi powiadomienie o tym, co sam właśnie zrobił. Producent szuka
-     * tutaj po `resourceId` (zadanie) i `meta.toStatus` (wartość), w oknie
-     * dwóch minut. Patrz `actorOfRecentStatusChange`.
-     */
-    await logEvent({
-      portalId: portal.id,
-      actor: {
-        userId: gate.session.userId,
-        email: gate.session.email,
-        name: gate.session.name,
-      },
-      action: EVENT_STATUS_CHANGED,
-      resourceId: taskId,
-      meta: { toStatus: parsed.data.status },
     })
   }
 

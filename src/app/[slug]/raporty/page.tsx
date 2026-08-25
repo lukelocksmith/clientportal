@@ -104,6 +104,7 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
       <ReportView
         branding={branding}
         slug={slug}
+        hourlyRateNet={portal.hourlyRateNet}
         kind={kind}
         periods={periods}
         period={period}

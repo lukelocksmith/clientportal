@@ -97,6 +97,22 @@ export const portals = pgTable('portals', {
    */
   notificationConfig: jsonb('notification_config'),
   /**
+   * Stawka godzinowa NETTO w GROSZACH, do kwoty w raporcie czasu pracy.
+   *
+   * Grosze, nie złote: kwota to godziny razy stawka, a liczby
+   * zmiennoprzecinkowe dryfują przy sumowaniu (patrz lib/money.ts).
+   *
+   * ŹRÓDŁEM PRAWDY JEST CRM w Notion (baza „B: PROJEKT", kolumna `Godzinówka`),
+   * a ta kolumna jest jego kopią, wypełnianą przez
+   * `scripts/sync-stawki-notion.ts`. Kopia, a nie odpytywanie Notion na żywo,
+   * bo to strona KLIENTA: awaria cudzego API nie może zabrać mu raportu, a
+   * stawki zmieniają się rzadko.
+   *
+   * `null` znaczy „nie znamy stawki" i jest wartością poprawną: raport pokazuje
+   * wtedy same godziny. Zgadnięta kwota przy fakturze byłaby gorsza niż jej brak.
+   */
+  hourlyRateNet: integer('hourly_rate_net'),
+  /**
    * Domeny, z ktorych /api/siteping/[slug] przyjmuje zgloszenia — SAME NAZWY
    * HOSTOW po przecinku (np. "wdf.important.is,wodadlafirmy.pl"), bez schematu
    * i bez sciezki. Klient moze miec staging i produkcje jako dwie realne,

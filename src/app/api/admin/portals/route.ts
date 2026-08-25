@@ -10,6 +10,7 @@ import { DEFAULT_CLICKUP_SPACE_ID } from '@/lib/clickupSpace'
 import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { serializeContactMemberIds, TEAM_MEMBERS } from '@/lib/team'
+import { stawkaNaGrosze } from '@/lib/money'
 import { serializeAutoTags } from '@/lib/autoTags'
 import { parseNotificationConfig, serializeNotificationConfig } from '@/lib/notifyConfig'
 
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
       clickupSpaceId: portals.clickupSpaceId,
       autoTags: portals.autoTags,
       notificationConfig: portals.notificationConfig,
+      hourlyRateNet: portals.hourlyRateNet,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
@@ -167,6 +169,18 @@ const UpdatePortalSchema = z
       .transform(v =>
         v === undefined ? undefined : serializeNotificationConfig(parseNotificationConfig(v))
       ),
+    /**
+     * Stawka godzinowa NETTO, podawana w ZŁOTYCH (np. `140` albo `"140,50"`),
+     * zapisywana w groszach. `null` czyści stawkę, a wtedy raport pokazuje
+     * same godziny.
+     *
+     * Wartość ujemna albo nieliczbowa wypada na `null`, nie na błąd żądania:
+     * `stawkaNaGrosze` jest jedynym miejscem z tą regułą i ma własne testy.
+     */
+    hourlyRateNet: z
+      .unknown()
+      .optional()
+      .transform(v => (v === undefined ? undefined : stawkaNaGrosze(v))),
     contactName: z
       .string()
       .max(120)
@@ -260,6 +274,7 @@ export async function PATCH(request: NextRequest) {
       clickupSpaceId: portals.clickupSpaceId,
       autoTags: portals.autoTags,
       notificationConfig: portals.notificationConfig,
+      hourlyRateNet: portals.hourlyRateNet,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,

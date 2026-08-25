@@ -9,6 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDuration, getStatusColor } from '@/lib/utils'
+import { kwotaNettoGrosze, formatujZl, formatujStawke } from '@/lib/money'
 import { PeriodPicker } from './PeriodPicker'
 import type { PortalBranding } from '@/lib/branding'
 import type { Period, PeriodKind, TimeReport } from '@/lib/timeReports'
@@ -16,6 +17,12 @@ import type { Period, PeriodKind, TimeReport } from '@/lib/timeReports'
 interface ReportViewProps {
   slug: string
   kind: PeriodKind
+  /**
+   * Stawka NETTO w groszach. `null` znaczy „nie znamy" i wtedy raport pokazuje
+   * SAME GODZINY, bez kwoty. Zgadnięta kwota obok faktury byłaby gorsza niż
+   * jej brak (patrz lib/money.ts).
+   */
+  hourlyRateNet?: number | null
   periods: Period[]
   period: Period
   /** null oznacza, że ClickUp nie odpowiedział. */
@@ -28,6 +35,7 @@ interface ReportViewProps {
 export function ReportView({
   slug,
   kind,
+  hourlyRateNet = null,
   periods,
   period,
   report,
@@ -35,6 +43,11 @@ export function ReportView({
   newerKey,
   branding,
 }: ReportViewProps) {
+  // Liczymy z sumy CAŁEGO raportu (zadania + narzut), czyli z tej samej
+  // liczby, którą klient widzi jako „Łącznie". Suma kolumny Czas równa się
+  // tej wartości, bo czas jest kwantowany u źródła (patrz timeReports.ts).
+  const kwotaNetto = report ? kwotaNettoGrosze(report.totalMs, hourlyRateNet) : null
+
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-8">
       <h2 className="text-xl font-semibold text-foreground">Raport czasu pracy</h2>
@@ -71,11 +84,26 @@ export function ReportView({
         </Card>
       ) : (
         <>
+          {/* Kwota TYLKO przy sumie, nie przy każdym zadaniu: to jest liczba
+              do faktury, a rozbicie na pozycje sugerowałoby, że każde zadanie
+              wyceniamy osobno (ustalone z Łukaszem 25.08). */}
           <Card className="mt-6">
             <CardContent className="flex items-baseline justify-between py-5">
               <span className="text-sm font-medium text-muted-foreground">Łącznie</span>
-              <span className="text-2xl font-semibold tabular-nums text-foreground">
-                {formatDuration(report.totalMs) || '0m'}
+              <span className="text-right">
+                <span className="block text-2xl font-semibold tabular-nums text-foreground">
+                  {formatDuration(report.totalMs) || '0m'}
+                </span>
+                {kwotaNetto !== null && (
+                  <span className="mt-1 block text-sm tabular-nums text-muted-foreground">
+                    {/* „netto" jest przy kwocie NA STAŁE. Raport leży obok
+                        faktury z VAT-em jako osobną pozycją, więc kwota bez
+                        podpisu dawałaby się przeczytać jako brutto. */}
+                    <span className="font-medium text-foreground">{formatujZl(kwotaNetto)}</span>
+                    {' netto · '}
+                    {formatujStawke(hourlyRateNet!)}
+                  </span>
+                )}
               </span>
             </CardContent>
           </Card>

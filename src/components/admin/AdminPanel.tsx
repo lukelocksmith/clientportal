@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, Send, Loader2, History } from 'lucide-react'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
+import { PORTAL_FEATURES, type PortalFeatureKey, type PortalFeatureFlags } from '@/lib/portalFeatures'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { SitepingTab } from '@/components/admin/SitepingTab'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -21,8 +22,6 @@ import { Input } from '@/components/ui/input'
 
 type Portal = {
   id: string; slug: string; name: string; isActive: boolean
-  /** SitePing NIE jest zakladka portalu, wiec nie nalezy do PortalFlags. */
-  sitepingEnabled: boolean
   siteDomains: string | null
   logoUrl: string | null; brandColor: string | null
   contactMemberIds: string | null
@@ -35,7 +34,7 @@ type Portal = {
   hourlyRateNet: number | null
   notionProjectUrl: string | null
   defaultAssigneeId: number | null
-} & PortalFlags
+} & PortalFlags & PortalFeatureFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {
   totals: Stat
@@ -232,7 +231,7 @@ export default function AdminPanel() {
    * Optymistycznie odbija checkbox, żeby nie czekać na przeładowanie listy,
    * i cofa go, gdy zapis się nie udał.
    */
-  async function toggleFlag(portal: Portal, flag: keyof PortalFlags) {
+  async function toggleFlag(portal: Portal, flag: keyof PortalFlags | PortalFeatureKey) {
     const next = !portal[flag]
     setPortals(prev => prev.map(p => (p.id === portal.id ? { ...p, [flag]: next } : p)))
 
@@ -471,6 +470,32 @@ export default function AdminPanel() {
                       </label>
                     ))}
                   </div>
+
+                  {/* Funkcje wewnątrz zakładek. Osobna grupa od zakładek, bo to
+                      nie menu, a zachowanie stron (lib/portalFeatures.ts).
+                      Do 25.08 te flagi dawały się przestawić WYŁĄCZNIE curlem,
+                      więc funkcja wdrożona i działająca wyglądała na nieistniejącą. */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 px-4 py-3">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Funkcje w portalu
+                    </span>
+                    {PORTAL_FEATURES.map(feature => (
+                      <label
+                        key={feature.key}
+                        title={feature.hint}
+                        className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={portal[feature.key]}
+                          onChange={() => toggleFlag(portal, feature.key)}
+                          className="h-3.5 w-3.5 cursor-pointer accent-foreground"
+                        />
+                        {feature.label}
+                      </label>
+                    ))}
+                  </div>
+
                   {/* Marka projektu nad listą userów: to konfiguracja projektu,
                       nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}
                   <PortalConfigForm

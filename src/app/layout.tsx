@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { Rubik } from 'next/font/google'
 import { Toaster } from 'sonner'
+import { skryptMotywu } from '@/lib/theme'
 import './globals.css'
 
 // Rubik jest jedynym fontem w designie important.is (skill important-brand).
@@ -46,8 +47,31 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const nonce = (await headers()).get('x-nonce') ?? ''
 
   return (
-    <html lang="pl" className={`${rubik.variable} h-full antialiased`}>
+    /**
+     * `suppressHydrationWarning` na <html>: skrypt motywu niżej dokłada tu
+     * klasę `dark` i `color-scheme` PRZED hydracją, więc React zawsze zastanie
+     * atrybuty inne niż te, które wyrenderował serwer. Serwer nie ma jak tego
+     * przewidzieć — motyw jest informacją wyłącznie z przeglądarki.
+     */
+    <html lang="pl" className={`${rubik.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full bg-background text-foreground">
+        {/**
+          * MOTYW PRZED PIERWSZYM MALOWANIEM. Skrypt bez `defer` wykonuje się
+          * przy parsowaniu, czyli zanim cokolwiek zostanie narysowane — dlatego
+          * ustawienie motywu tutaj, a nie w komponencie. Komponent działa po
+          * malowaniu, więc dawałby białe mignięcie przy każdym wejściu.
+          *
+          * Nonce jest KONIECZNY: CSP portalu ma `script-src 'self' 'nonce-...'`
+          * bez `unsafe-inline`, więc skrypt bez nonce'a zostałby po cichu
+          * zablokowany i motyw wracałby do jasnego przy każdym odświeżeniu.
+          */}
+        {nonce && (
+          <script
+            nonce={nonce}
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: skryptMotywu() }}
+          />
+        )}
         {nonce && (
           /**
            * `suppressHydrationWarning` jest tu KONIECZNE, nie kosmetyczne.

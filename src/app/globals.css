@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/**
+ * Wariant `dark:` ma isc za KLASA `.dark`, a nie za ustawieniem systemu.
+ *
+ * Domyslnie w Tailwindzie v4 `dark:` sluchaja `prefers-color-scheme`, a nasze
+ * zmienne kolorow siedza pod `.dark`. Bez tej linii przelacznik zmienialby
+ * kolory (bo te ida ze zmiennych), ale klasy `dark:...` rozsiane po
+ * komponentach (tabs, dropdown-menu, ChatWindow) sluchalyby dalej systemu —
+ * czyli czesc interfejsu ignorowalaby wybor uzytkownika.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: var(--font-brand-sans);
   /* Monospace z systemu, nie webfont. Uzywamy go w dwoch polach (token

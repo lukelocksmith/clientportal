@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { visibleTabs, type PortalFlags } from '@/lib/portalTabs'
 import type { PortalBranding } from '@/lib/branding'
 import { NotificationBell } from '@/components/NotificationBell'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 interface PortalHeaderProps {
   slug: string
@@ -108,6 +109,7 @@ export function PortalHeader({
         {/* Dzwonek przed akcjami strony: jest wspólny dla całego portalu,
             a `children` bywa zestawem przycisków konkretnej zakładki. */}
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           <NotificationBell slug={slug} />
           {children}
         </div>

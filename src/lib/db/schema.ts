@@ -640,3 +640,53 @@ export const auditLog = pgTable('audit_log', {
   portalCreatedIdx: index('audit_log_portal_created_idx').on(t.portalId, t.createdAt),
   userActionIdx: index('audit_log_user_action_idx').on(t.userId, t.action, t.createdAt),
 }))
+
+/**
+ * Log diagnostyczny SitePinga: co sie stalo z ZADANIEM HTTP z widgetu.
+ *
+ * DLACZEGO OSOBNA TABELA, a nie `audit_log`: udane zgloszenia zostaja tam,
+ * gdzie byly (`source: 'siteping'`, z adresem strony i danymi zglaszajacego),
+ * bo to zdarzenie biznesowe — kto co zglosil. Tutaj jest zapis techniczny,
+ * kasowany po 30 dniach. Wspolna tabela znaczylaby, ze retencja logu kasuje
+ * klientowi historie jego wlasnych zgloszen.
+ *
+ * NAJWAZNIEJSZE SA WIERSZE ODMOWNE. Zly `Origin`, przekroczony limit i niepelna
+ * konfiguracja koncza sie w trasie zwyklym `return`, bez sladu gdziekolwiek —
+ * a to wlasnie one odpowiadaja na pytanie „czemu klientowi nie dochodza
+ * zgloszenia", ktore dzis nie ma odpowiedzi poza wejsciem na serwer.
+ *
+ * `ip_prefix`, nie `ip`: trzy oktety wystarcza, zeby odroznic jeden zrodlowy
+ * adres od wielu, a pelny adres to dane osobowe, ktorych trzymanie w logu
+ * diagnostycznym wymagaloby uzasadnienia, jakiego nie mamy.
+ *
+ * Tresci zgloszenia TU NIE MA — jest w ClickUpie i w `audit_log`. Log ma
+ * odpowiadac na „czy doszlo i z czym", a nie duplikowac cudze dane.
+ */
+export const sitepingLog = pgTable('siteping_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * `cascade`, inaczej niz w `mail_log` (`set null`): wiersz bez projektu nie
+   * niesie tu zadnej informacji, bo caly log czyta sie per projekt, a portal
+   * kasuje sie tylko razem z cala wspolpraca.
+   */
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  /** POST (zgloszenie), GET (panel widgetu), OPTIONS (preflight przegladarki). */
+  method: text('method').notNull(),
+  status: integer('status').notNull(),
+  /** 'ok' | 'origin_not_allowed' | 'rate_limited' | 'invalid_payload' | 'misconfigured' | 'error' — patrz lib/siteping/log.ts */
+  outcome: text('outcome').notNull(),
+  /** Naglowek `Origin` zadania. Odpowiada na „z ktorej strony to przyszlo". */
+  origin: text('origin'),
+  /** Trzy oktety adresu IPv4 albo trzy grupy IPv6. Nigdy pelny adres. */
+  ipPrefix: text('ip_prefix'),
+  durationMs: integer('duration_ms'),
+  /** Zadanie w ClickUpie, gdy zgloszenie sie powiodlo. Laczy log z tym, co widzi zespol. */
+  clickupTaskId: text('clickup_task_id'),
+  /** Powod odmowy albo tresc bledu. Nigdy tresc zgloszenia klienta. */
+  detail: text('detail'),
+}, (t) => ({
+  // Bez `desc` na kolumnie: indeks btree jest czytelny w obie strony, a panel
+  // pyta wylacznie o „ostatnie N tego projektu".
+  portalCreatedIdx: index('siteping_log_portal_created_idx').on(t.portalId, t.createdAt),
+}))

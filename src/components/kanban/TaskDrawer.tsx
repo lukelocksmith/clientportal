@@ -326,12 +326,20 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                 </span>
               )}
 
-              {/* Priority badge */}
+              {/* PRIORYTET: obrys plus kropka, nigdy wypełnienie.
+                  Status i priorytet stały tu obok siebie jako dwie wypełnione
+                  plakietki i zlewały się w jedno („kółeczko i w trakcie" —
+                  uwaga Łukasza 25.08). Teraz różni je forma, a nie tylko
+                  treść: STATUS jest wypełniony, bo mówi, gdzie sprawa jest;
+                  PRIORYTET jest obrysowany z kropką, bo mówi, jak pilna. To
+                  samo rozróżnienie działa na karcie i w szufladzie. */}
               {task.priority && (
-                <span
-                  className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                  style={{ backgroundColor: priorityColor + '20', color: priorityColor }}
-                >
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: priorityColor }}
+                    aria-hidden
+                  />
                   {getPriorityLabel(task.priority.priority)}
                 </span>
               )}

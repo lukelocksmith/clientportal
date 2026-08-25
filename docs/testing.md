@@ -61,6 +61,7 @@ Seed tworzy portal `wdf` z kontem `klient@wdf.pl`; hasło jest w
 |---|---|
 | `/wdf` | klient: kanban, szuflada zadania, alarm, czat |
 | `/wdf/historia`, `/wdf/raporty` | zakładki, jeśli włączone flagą |
+| `/wdf/profil` | własne konto: imię, zdjęcie, zmiana hasła (ikona ludzika w nagłówku) |
 | `/admin` | panel: projekty, konta, zużycie AI |
 
 **Kanban i szuflada wołają prawdziwy ClickUp**, więc bez `CLICKUP_API_TOKEN`
@@ -151,12 +152,14 @@ sesje, ciasteczka, HMAC admina i zapis do `audit_log` są prawdziwe.
 |---|---|
 | `routes.clickupTasks` | lista zadań, szczegóły, komentarze |
 | `routes.portal` | załączniki, alarm, powiadomienia, pomysły |
+| `routes.profile` | profil klienta: imię, zdjęcie (`/api/avatar` z ETagiem), zmiana hasła ze starym hasłem i blokadą prób |
 | `routes.auth` | logowanie w projekcie i ze strony głównej, wylogowanie, hasło z zaproszenia, reset |
 | `routes.admin` | perymetr, logowanie admina, konta użytkowników, zaproszenia |
 | `routes.adminPanel` | portale (POST/PATCH), linki, zdarzenia, rejestr maili, log synchronizacji, foldery i listy ClickUpa, historia osoby, potwierdzenie alarmu |
 | `routes.webhook` | webhook ClickUpa |
 | `routes.cron` | indeks Historii, zamrażanie godzin |
 | `routes.siteping` | publiczny endpoint widgetu |
+| `sitepingLog` | log diagnostyczny: zapis na każdym wyjściu z trasy, retencja 30 dni, granica projektów, trasa panelu |
 | `routes.aiChat` | brama czatu i narzędzie tworzenia zadania |
 | `apiSession` | brama sesji, ścieżka sukcesu i wszystkie odmowy |
 

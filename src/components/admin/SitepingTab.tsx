@@ -1,6 +1,7 @@
 'use client'
 import { SitepingConfigSection } from '@/components/admin/SitepingConfigSection'
 import { SitepingCheck } from '@/components/admin/SitepingCheck'
+import { SitepingLog } from '@/components/admin/SitepingLog'
 
 /**
  * Zakładka „SitePing" w karcie projektu.
@@ -42,6 +43,11 @@ export function SitepingTab({ portal, onSaved }: Props) {
         onSaved={onSaved}
       />
       <SitepingCheck slug={portal.slug} />
+      {/* Log na koncu, bo czyta sie go dopiero wtedy, gdy konfiguracja i test
+          nie wyjasnily sprawy. Test mowi „jak jest teraz", log mowi „co sie
+          dzialo" — i tylko on widzi zadania, ktore do nas doszly i odbily sie
+          od bramy. */}
+      <SitepingLog slug={portal.slug} />
     </div>
   )
 }

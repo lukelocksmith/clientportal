@@ -37,10 +37,15 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
       {...attributes}
       {...listeners}
       onClick={() => onClick(task)}
-      className="bg-card rounded-lg border border-border p-3 shadow-sm cursor-pointer hover:shadow-md hover:border-primary/30 transition-all group select-none"
+      /* Karta PŁASKA, bez cienia. Przy dwudziestu kartach na ekranie cień z
+         każdej z nich sumuje się w szary szum i zabiera wrażenie porządku;
+         sam obrys wystarcza, żeby oddzielić kartę od tła kolumny. Podniesienie
+         zostawiamy na przeciąganie, gdzie faktycznie znaczy „ta karta jest w
+         powietrzu". */
+      className="bg-card rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:border-foreground/20 hover:bg-accent/40 transition-colors group select-none"
     >
       {/* Task name */}
-      <p className="text-sm font-medium text-card-foreground line-clamp-2 mb-2">
+      <p className="text-sm font-medium leading-snug text-card-foreground line-clamp-2">
         {task.name}
       </p>
 
@@ -52,20 +57,42 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
           Awaria stoi OBOK priorytetu, nie zamiast niego: nie jest wartością
           pola priority, tylko tagiem, więc zgłoszenie awaryjne ma jedno i
           drugie. */}
-      {(task.priority?.priority || awaria) && (
-        <div className="mb-2 flex flex-wrap items-center gap-1">
+      {(task.priority?.priority || awaria || task.date_due) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {/* ALARM zostaje wypełniony kolorem. To jedyna plakietka, która ma
+              krzyczeć: awaria jest wyjątkiem, a nie jednym z czterech
+              poziomów, które klient widzi na każdej karcie. */}
           {awaria && (
             <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
               <AlertTriangle className="h-3 w-3" aria-hidden />
               Alarm
             </span>
           )}
+          {/* PRIORYTET jako kropka i tekst, bez wypełnionego tła.
+              Plakietka z kolorowym tłem na KAŻDEJ karcie (priorytet rysujemy
+              zawsze, patrz komentarz wyżej) dawała ścianę kolorowych prostokątów,
+              w której czerwony „Pilny" przestawał się wyróżniać — czyli kolor
+              tracił dokładnie tę funkcję, dla której go użyto. Kropka niesie ten
+              sam sygnał przy kilkunastu razy mniejszej powierzchni koloru. */}
           {task.priority?.priority && (
-            <span
-              className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-              style={{ color: priorityColor, backgroundColor: `${priorityColor}18` }}
-            >
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: priorityColor }}
+                aria-hidden
+              />
               {getPriorityCode(task.priority.priority)}
+            </span>
+          )}
+
+          {/* TERMIN tylko wtedy, gdy jest — zadania bez daty to u nas
+              większość, więc pusta ikona kalendarza na każdej karcie byłaby
+              szumem. Stoi w tym samym wierszu co priorytet, bo oba są
+              plakietkami tej samej rangi (uwaga Łukasza 25.08). */}
+          {task.date_due && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <Calendar className="h-3 w-3" aria-hidden />
+              {formatDate(task.date_due)}
             </span>
           )}
         </div>
@@ -74,13 +101,8 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
       {/* Footer */}
       <div className="flex items-center justify-between gap-2 mt-2">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Due date */}
-          {task.date_due && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Calendar className="h-3 w-3" />
-              {formatDate(task.date_due)}
-            </span>
-          )}
+          {/* Termin przeniesiony WYŻEJ, do wiersza plakietek — tutaj byłby drugi
+              raz. */}
 
           {/* Estimated time */}
           {estimate && (

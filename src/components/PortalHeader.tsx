@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { UserRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { visibleTabs, type PortalFlags } from '@/lib/portalTabs'
 import type { PortalBranding } from '@/lib/branding'
@@ -111,6 +112,24 @@ export function PortalHeader({
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />
           <NotificationBell slug={slug} />
+          {/* Profil NIE jest zakładką w `portalTabs`: to ustawienia własnego
+              konta, a nie funkcja projektu, którą admin włącza flagą. Stoi
+              więc przy motywie i dzwonku, czyli przy rzeczach wspólnych dla
+              całego portalu. Ikona z `aria-label` i `title`, bo sam obrazek
+              jest dla czytnika ekranu nierozróżnialny. */}
+          <Link
+            href={`/${slug}/profil`}
+            aria-label="Twój profil"
+            title="Twój profil"
+            className={cn(
+              'inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+              pathname.startsWith(`/${slug}/profil`)
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            )}
+          >
+            <UserRound className="h-4 w-4" />
+          </Link>
           {children}
         </div>
       </div>

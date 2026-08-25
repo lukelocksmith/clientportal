@@ -338,7 +338,13 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
 
       {/* Board */}
       <div className="flex-1 overflow-x-auto">
-        <div className="flex gap-4 p-6 h-full min-w-max">
+        {/* `items-start`, NIE domyślne rozciąganie: kolumna ma być wysoka na
+            tyle, ile ma zadań. Bez tego wszystkie dostają wysokość najwyższej
+            i obrys kolumny z czterema kartami ciągnie się w pustkę.
+            Bez `h-full` z tego samego powodu — narzucona wysokość nie pozwalała
+            kontenerowi urosnąć do treści, więc karty wylewały się POZA obrys
+            (zmierzone: 426 px poniżej krawędzi). */}
+        <div className="flex items-start gap-4 p-6 min-w-max">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCorners}
@@ -350,6 +356,9 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
                 key={column.id}
                 column={column}
                 onTaskClick={setSelectedTask}
+                /* Kolumna przylega do zawartości w spoczynku, a rozciąga się
+                   dopiero przy przeciąganiu — patrz komentarz w KanbanColumn. */
+                dragging={activeTask !== null}
               />
             ))}
 

@@ -6,6 +6,7 @@ import { verifyToken } from '@/lib/apiAuth'
 import { syncPortalIndex, type SyncResult } from '@/lib/taskIndex'
 import { recordCronRun } from '@/lib/cronRuns'
 import { purgeOldRead, purgeOldEventKeys } from '@/lib/notificationStore'
+import { purgeOldSitepingLog } from '@/lib/siteping/log'
 import { acquireCronLock } from '@/lib/cronLock'
 
 export const dynamic = 'force-dynamic'
@@ -146,6 +147,24 @@ async function runIndex(request: NextRequest): Promise<NextResponse> {
     console.error('[cron/task-index] sprzątanie kluczy powtórek nie powiodło się:', e)
   }
 
+  /**
+   * RETENCJA LOGU SITEPINGA, trzecia rzecz doczepiona do tego przebiegu.
+   *
+   * 30 dni: log odpowiada na „czemu TERAZ nie dziala", a starsze wiersze niosa
+   * juz tylko dane z cudzych stron (adresy podstron, prefiksy IP). Tutaj,
+   * a nie we wlasnym cronie, bo kazdy nowy wpis w crontabie serwera to kolejna
+   * rzecz do pamietania przy odtwarzaniu maszyny.
+   *
+   * Osobny try/catch, jak dwa powyzej: nieudane sprzatanie nie moze przewrocic
+   * indeksowania, po ktore klient siega w Historii.
+   */
+  let purgedSitepingLog: number | null = null
+  try {
+    purgedSitepingLog = await purgeOldSitepingLog(30)
+  } catch (e) {
+    console.error('[cron/task-index] sprzątanie logu SitePinga nie powiodło się:', e)
+  }
+
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     budget,
@@ -154,6 +173,7 @@ async function runIndex(request: NextRequest): Promise<NextResponse> {
     contentPendingTotal: pending,
     purgedNotifications,
     purgedEventKeys,
+    purgedSitepingLog,
     portals: results,
   })
 }

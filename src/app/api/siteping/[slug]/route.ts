@@ -7,6 +7,7 @@ import { createClickUpSitepingStore } from '@/lib/siteping/store'
 import { checkRateLimit } from '@/lib/siteping/rateLimit'
 import { clampAnnotationRanges } from '@/lib/siteping/clampPayload'
 import { isFromAllowedDomain, corsOrigins } from '@/lib/siteping/origin'
+import { logSitepingRequest, outcomeForStatus } from '@/lib/siteping/log'
 
 export const runtime = 'nodejs'
 
@@ -21,17 +22,31 @@ interface ResolvedPortal {
 }
 
 /**
- * Portal utworzony przez SitePing (flaga + domeny + domyslna lista) albo
- * null — kazdy null-case konczy sie 404, nie 403, zeby nie zdradzac
- * istnienia portalu komus, kto zna/zgadnie slug.
+ * Wynik szukania portalu dla sluga.
+ *
+ * TRZY STANY, NIE DWA, i to jest zmiana wprowadzona razem z logiem
+ * diagnostycznym. Odpowiedz na zewnatrz jest dalej ta sama (404 w kazdym
+ * przypadku, zeby nie zdradzac istnienia portalu komus, kto zgadl slug), ale
+ * po naszej stronie „portalu nie ma" i „portal jest, tylko ma niepelna
+ * konfiguracje" to dwie rozne sprawy: tej drugiej mamy do czego przypiac wpis
+ * w logu i to ona odpowiada na „czemu klientowi nie dochodza zgloszenia".
  */
-async function resolvePortal(slug: string): Promise<ResolvedPortal | null> {
+type PortalLookup =
+  | { kind: 'ready'; portal: ResolvedPortal }
+  | { kind: 'incomplete'; portalId: string; reason: string }
+  | { kind: 'unknown' }
+
+async function resolvePortal(slug: string): Promise<PortalLookup> {
   const rows = await db.select().from(portals).where(eq(portals.slug, slug)).limit(1)
   const portal = rows[0]
-  if (!portal || !portal.sitepingEnabled || !portal.siteDomains) return null
+  if (!portal) return { kind: 'unknown' }
 
-  const siteDomains = portal.siteDomains.split(',').map(d => d.trim()).filter(Boolean)
-  if (siteDomains.length === 0) return null
+  const incomplete = (reason: string): PortalLookup => ({ kind: 'incomplete', portalId: portal.id, reason })
+
+  if (!portal.sitepingEnabled) return incomplete('przełącznik SitePinga jest wyłączony')
+
+  const siteDomains = (portal.siteDomains ?? '').split(',').map(d => d.trim()).filter(Boolean)
+  if (siteDomains.length === 0) return incomplete('lista domen jest pusta, endpoint jest zamknięty')
 
   const lists = await db
     .select()
@@ -39,16 +54,19 @@ async function resolvePortal(slug: string): Promise<ResolvedPortal | null> {
     .where(eq(portalLists.portalId, portal.id))
     .orderBy(portalLists.sortOrder)
   const defaultList = lists.find(l => l.isDefault) ?? lists[0]
-  if (!defaultList) return null
+  if (!defaultList) return incomplete('projekt nie ma listy ClickUp, nie ma gdzie założyć zadania')
 
   return {
-    id: portal.id,
-    slug: portal.slug,
-    name: portal.name,
-    clickupFolderId: portal.clickupFolderId,
-    defaultListId: defaultList.clickupListId,
-    defaultAssigneeId: portal.defaultAssigneeId,
-    siteDomains,
+    kind: 'ready',
+    portal: {
+      id: portal.id,
+      slug: portal.slug,
+      name: portal.name,
+      clickupFolderId: portal.clickupFolderId,
+      defaultListId: defaultList.clickupListId,
+      defaultAssigneeId: portal.defaultAssigneeId,
+      siteDomains,
+    },
   }
 }
 
@@ -96,12 +114,45 @@ function verifiedSiteOrigin(request: NextRequest, portal: ResolvedPortal): strin
   return origin ?? null
 }
 
-function buildHandler(portal: ResolvedPortal, request: NextRequest): SitepingHandler {
+/**
+ * Co udalo sie ustalic o przebiegu zadania — do wpisu w logu diagnostycznym.
+ *
+ * Zbieramy to ze SKLEPU, a nie z cialem odpowiedzi, bo cialo da sie odczytac
+ * tylko raz i podgladanie go znaczyloby sklejanie odpowiedzi od nowa przy
+ * kazdym zgloszeniu. Poza tym pakiet zwraca zglaszajacemu generyczne
+ * „Internal server error" (`actionableErrorMessage` nie przepuszcza tresci),
+ * wiec powod awarii istnieje WYLACZNIE tutaj.
+ */
+interface Trace {
+  clickupTaskId: string | null
+  error: string | null
+}
+
+function tracedStore(store: ReturnType<typeof createClickUpSitepingStore>, trace: Trace) {
+  return {
+    ...store,
+    async createFeedback(...args: Parameters<typeof store.createFeedback>) {
+      try {
+        const record = await store.createFeedback(...args)
+        trace.clickupTaskId = record.id
+        return record
+      } catch (error) {
+        trace.error = error instanceof Error ? error.message : String(error)
+        throw error
+      }
+    },
+  }
+}
+
+function buildHandler(portal: ResolvedPortal, request: NextRequest, trace: Trace): SitepingHandler {
   return createSitepingHandler({
-    store: createClickUpSitepingStore({
-      ...portal,
-      siteOrigin: verifiedSiteOrigin(request, portal),
-    }),
+    store: tracedStore(
+      createClickUpSitepingStore({
+        ...portal,
+        siteOrigin: verifiedSiteOrigin(request, portal),
+      }),
+      trace
+    ),
     allowedOrigins: corsOrigins(request, portal.siteDomains),
     apiKey: process.env.SITEPING_API_KEY,
     // POST: widget submits from an unauthenticated browser. GET: the
@@ -111,26 +162,80 @@ function buildHandler(portal: ResolvedPortal, request: NextRequest): SitepingHan
   })
 }
 
+/**
+ * Wpis do logu diagnostycznego dla jednego wyjscia z trasy.
+ *
+ * BEST-EFFORT i tak jest zbudowany `logSitepingRequest`: zaden blad zapisu nie
+ * wraca tutaj, wiec zgloszenie klienta nie zalezy od tego, czy log dziala.
+ */
+async function zapiszWpis(
+  request: NextRequest,
+  portalId: string,
+  status: number,
+  startedAt: number,
+  extra: { detail?: string | null; clickupTaskId?: string | null } = {}
+): Promise<void> {
+  await logSitepingRequest({
+    portalId,
+    method: request.method,
+    status,
+    outcome: outcomeForStatus(status),
+    // Surowy naglowek, nie wynik naszej walidacji: przy odmowie chodzi
+    // wlasnie o to, ZEBY zobaczyc adres, ktory sie nie zgadza z konfiguracja.
+    origin: request.headers.get('origin') ?? request.headers.get('referer'),
+    ip: clientIp(request),
+    durationMs: Date.now() - startedAt,
+    detail: extra.detail ?? null,
+    clickupTaskId: extra.clickupTaskId ?? null,
+  })
+}
+
 async function withPortal(
   request: NextRequest,
   slug: string,
   run: (handler: SitepingHandler) => Promise<Response>,
   guard?: (portal: ResolvedPortal) => Response | null
 ): Promise<Response> {
-  const portal = await resolvePortal(slug)
-  if (!portal) return new Response('Not found', { status: 404 })
+  const startedAt = Date.now()
+  const lookup = await resolvePortal(slug)
 
+  // Slug bez portalu NIE trafia do logu: nie ma projektu, do ktorego mozna by
+  // wpis przypiac, a dopisanie go „gdziekolwiek" zanieczyscilo by log
+  // przypadkowego klienta zgadywaniem obcego bota.
+  if (lookup.kind === 'unknown') return new Response('Not found', { status: 404 })
+
+  if (lookup.kind === 'incomplete') {
+    await zapiszWpis(request, lookup.portalId, 404, startedAt, { detail: lookup.reason })
+    return new Response('Not found', { status: 404 })
+  }
+
+  const portal = lookup.portal
   const blocked = guard?.(portal)
-  if (blocked) return blocked
+  if (blocked) {
+    await zapiszWpis(request, portal.id, blocked.status, startedAt)
+    return blocked
+  }
 
+  const trace: Trace = { clickupTaskId: null, error: null }
   try {
-    return await run(buildHandler(portal, request))
+    const response = await run(buildHandler(portal, request, trace))
+    await zapiszWpis(request, portal.id, response.status, startedAt, {
+      clickupTaskId: trace.clickupTaskId,
+      // Przy 500 pakiet oddaje zglaszajacemu generyczny komunikat, wiec to
+      // jedyne miejsce, w ktorym powod awarii (najczesciej odpowiedz ClickUpa)
+      // w ogole istnieje poza konsola serwera.
+      detail: response.ok ? null : trace.error,
+    })
+    return response
   } catch (error) {
     // Most likely cause: SITEPING_API_KEY missing in production (Global
     // Constraints, third bullet) — createSitepingHandler throws
     // synchronously in that case. A 500 here is far better than an
     // unhandled crash with no response at all.
     console.error(`[siteping] handler construction failed for portal ${slug}:`, error)
+    await zapiszWpis(request, portal.id, 500, startedAt, {
+      detail: error instanceof Error ? error.message : String(error),
+    })
     return Response.json({ error: 'SitePing misconfigured' }, { status: 500 })
   }
 }

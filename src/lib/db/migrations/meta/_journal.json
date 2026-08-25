@@ -218,6 +218,13 @@
       "when": 1787655204748,
       "tag": "0030_melted_lyja",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787674781045,
+      "tag": "0031_brave_husk",
+      "breakpoints": true
     }
   ]
 }

@@ -9,30 +9,60 @@ import { cn } from '@/lib/utils'
 interface KanbanColumnProps {
   column: KanbanColumnType
   onTaskClick: (task: ClickUpTask) => void
+  /** Czy w tej chwili przeciągane jest JAKIEKOLWIEK zadanie na tablicy. */
+  dragging?: boolean
 }
 
-export function KanbanColumn({ column, onTaskClick }: KanbanColumnProps) {
+export function KanbanColumn({ column, onTaskClick, dragging = false }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
 
   return (
     <div className="flex flex-col min-w-[280px] max-w-[280px]">
-      {/* Column header */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: column.color }} />
-        <h3 className="text-sm font-semibold text-foreground capitalize">
+      {/* Nagłówek WEWNĄTRZ obrysu kolumny (px-2), żeby kropka statusu i pierwsza
+          karta stały w jednej linii pionowej. Wcześniej nagłówek wisiał nad
+          kontenerem i lewe krawędzie się nie zgadzały — drobiazg, ale to on
+          decyduje, czy tablica wygląda na złożoną z kolumn, czy z luźnych
+          elementów. */}
+      <div className="mb-2 flex items-center gap-2 px-2">
+        <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: column.color }} />
+        <h3 className="text-[13px] font-semibold text-foreground capitalize">
           {column.title}
         </h3>
-        <span className="ml-auto text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+        {/* Licznik bez tła: wypełniona plakietka przy każdej z pięciu kolumn
+            konkurowała wagą z nazwą kolumny, a jest informacją drugorzędną. */}
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
           {column.tasks.length}
         </span>
       </div>
 
       {/* Drop zone */}
+      {/**
+        * WYSOKOŚĆ KOLUMNY: przylega do zawartości, ale TYLKO w spoczynku.
+        *
+        * Tu są dwie sprzeczne potrzeby i obie są prawdziwe. Wygląd chce, żeby
+        * kolumna kończyła się pod ostatnią kartą — rozciągnięty pusty obrys
+        * pod czterema zadaniami czyta się jak błąd (zgłoszone przez Łukasza).
+        * Przeciąganie chce czegoś odwrotnego: celu na tyle dużego, żeby dało
+        * się upuścić kartę w kolumnie, która ma jedno zadanie albo zero.
+        *
+        * Rozstrzygamy CZASEM, nie kompromisem w wysokości: dopóki nikt nic nie
+        * przeciąga, kolumna przylega do treści; gdy przeciąganie się zaczyna,
+        * WSZYSTKIE kolumny rosną do pełnej wysokości i stają się łatwym celem.
+        * Dlatego prop nazywa się `dragging`, a nie `isOver` — `isOver` wymagałby
+        * najpierw trafienia w wąski pasek, czyli rozwiązywałby problem dopiero
+        * po tym, jak już przestał istnieć.
+        */}
       <div
         ref={setNodeRef}
         className={cn(
-          'flex flex-col gap-2 flex-1 min-h-[120px] rounded-lg p-2 transition-colors',
-          isOver ? 'bg-primary/5 ring-2 ring-primary/20' : 'bg-muted/30'
+          'flex flex-col gap-2 rounded-xl border p-2 transition-colors',
+          // Cel przy przeciąganiu robimy MINIMALNĄ WYSOKOŚCIĄ, nie `flex-1`:
+          // `flex-1` działa tylko wtedy, gdy rodzic ma narzuconą wysokość, a
+          // ta narzucona wysokość była właśnie przyczyną wylewania się kart.
+          dragging ? 'min-h-[60vh]' : 'min-h-[64px]',
+          isOver
+            ? 'border-primary/30 bg-primary/5'
+            : 'border-border/60 bg-muted/20'
         )}
       >
         <SortableContext items={column.tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>

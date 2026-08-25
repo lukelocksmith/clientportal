@@ -3,6 +3,7 @@ import { db } from './db'
 import { auditLog } from './db/schema'
 import { createTask, addTaskAttachment } from './clickup'
 import { withReporterFooter } from './reporter'
+import { assigneesField } from './assignee'
 
 /**
  * Pomysły klientów na ulepszenie portalu.
@@ -59,6 +60,8 @@ export async function submitIdea(input: {
   portalSlug: string
   authorEmail: string
   authorName: string | null
+  /** Kto ma dostać zadanie w ClickUpie. Null = zapas agencji (lib/assignee.ts). */
+  defaultAssigneeId?: number | null
   text: string
   /** Zrzuty ekranu dolaczone do pomyslu. Ide bez tekstu nie ma — obraz jest dodatkiem. */
   files?: File[]
@@ -84,6 +87,7 @@ export async function submitIdea(input: {
     const firstLine = text.split('\n')[0].slice(0, 80)
     const task = await createTask(listId, {
       name: `[portal ${input.portalSlug}] ${firstLine}`,
+      ...assigneesField(input.defaultAssigneeId),
       // Ta sama stopka, co przy zadaniach klienta (lib/reporter.ts). Dwa
       // formaty „kto zgłosił" w jednym ClickUpie różniłyby się z czasem.
       description: withReporterFooter(text, {

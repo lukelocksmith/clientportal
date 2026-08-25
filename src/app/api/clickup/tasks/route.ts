@@ -9,6 +9,7 @@ import { getAllTasksForFolder, getAllTasksForLists, getRecentlyClosedTasksForFol
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { withReporterFooter } from '@/lib/reporter'
+import { assigneesField } from '@/lib/assignee'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 
@@ -85,6 +86,10 @@ export async function POST(request: NextRequest) {
 
   const task = await createTask(list[0].clickupListId, {
     name,
+    // Kto to podejmie: ustawienie projektu, a w zapasie osoba agencji
+    // (lib/assignee.ts). Brak jednego i drugiego zostawia zadanie
+    // nieprzypisane — widoczne na tablicy, więc nie ginie.
+    ...assigneesField(portal.defaultAssigneeId),
     // Stopka z autorem. Zespół pracuje w ClickUpie i tam musi widzieć, kto
     // zgłosił, bo wszystkie zadania z portalu tworzy jedno konto serwisowe
     // agencji, więc pole „autor" w ClickUpie zawsze pokazuje nas.

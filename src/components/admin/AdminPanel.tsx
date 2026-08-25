@@ -32,6 +32,9 @@ type Portal = {
   autoTags: string | null
   /** Macierz powiadomień projektu (lib/notifyConfig.ts). `null` = wyłączone. */
   notificationConfig: unknown
+  hourlyRateNet: number | null
+  notionProjectUrl: string | null
+  defaultAssigneeId: number | null
 } & PortalFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {

@@ -113,6 +113,28 @@ export const portals = pgTable('portals', {
    */
   hourlyRateNet: integer('hourly_rate_net'),
   /**
+   * Adres projektu w CRM (Notion), skąd pochodzi stawka. Pokazywany w panelu
+   * jako link „popraw w CRM", żeby zmiana stawki nie wymagała szukania
+   * właściwej strony po nazwie.
+   *
+   * Wypełnia go ten sam skrypt, co stawkę. Null znaczy, że projektu nie
+   * znaleziono w CRM — wtedy panel mówi to wprost, zamiast dawać martwy link.
+   */
+  notionProjectUrl: text('notion_project_url'),
+  /**
+   * Kto z zespołu dostaje zadania zakładane Z PORTALU (formularz, AI-chat,
+   * pomysł, widget SitePing). Id użytkownika ClickUpa.
+   *
+   * Null znaczy „zapas agencji", czyli osoba z `CLICKUP_DEFAULT_ASSIGNEE_ID`.
+   * Dzięki temu nowy projekt trafia do właściwej osoby bez konfigurowania
+   * czegokolwiek, a projekt z własnym opiekunem (WDF, EFF) nadpisuje to jednym
+   * ustawieniem.
+   *
+   * ALARM ma własną regułę i jej NIE nadpisujemy: tam zadanie idzie do osoby
+   * dyżurnej, bo liczy się czas reakcji, a nie przypisanie projektowe.
+   */
+  defaultAssigneeId: integer('default_assignee_id'),
+  /**
    * Domeny, z ktorych /api/siteping/[slug] przyjmuje zgloszenia — SAME NAZWY
    * HOSTOW po przecinku (np. "wdf.important.is,wodadlafirmy.pl"), bez schematu
    * i bez sciezki. Klient moze miec staging i produkcje jako dwie realne,

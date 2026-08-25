@@ -497,6 +497,39 @@ export async function verifyTaskBelongsToFolder(
  */
 let cachedMemberIds: string[] | null = null
 
+/**
+ * Osoby z workspace, z imionami — źródło wyboru „kogo przypisywać" w panelu.
+ *
+ * Osobno od `getWorkspaceMemberIds`, bo tamto służy do WALIDACJI (czy takie id
+ * w ogóle istnieje) i celowo zwraca same identyfikatory. Tutaj potrzebna jest
+ * nazwa do pokazania człowiekowi, a lista jest krótka i pobierana raz na
+ * otwarcie panelu.
+ */
+export async function getWorkspaceMembers(): Promise<Array<{ id: number; username: string; email: string | null }>> {
+  const teamId = process.env.CLICKUP_TEAM_ID
+  if (!teamId) throw new Error('Brak CLICKUP_TEAM_ID w env')
+
+  const data = await clickupFetch<{
+    teams: Array<{
+      id: string
+      members: Array<{ user: { id: number; username?: string | null; email?: string | null } }>
+    }>
+  }>('/team')
+
+  const team = data.teams?.find(t => t.id === teamId)
+  if (!team) throw new Error(`ClickUp: workspace ${teamId} niedostępny dla tego tokena`)
+
+  return team.members
+    .map(m => ({
+      id: m.user.id,
+      // Konto serwisowe bywa bez nazwy; adres jest wtedy jedyną rzeczą,
+      // po której człowiek rozpozna, kogo wybiera.
+      username: m.user.username?.trim() || m.user.email?.trim() || `#${m.user.id}`,
+      email: m.user.email?.trim() || null,
+    }))
+    .sort((a, b) => a.username.localeCompare(b.username, 'pl'))
+}
+
 export async function getWorkspaceMemberIds(): Promise<string[]> {
   if (cachedMemberIds) return cachedMemberIds
 

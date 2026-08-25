@@ -31,7 +31,7 @@ import { formatujStawke } from '../src/lib/money'
 /** Baza „B: PROJEKT" w Notion: nazwa projektu, `Godzinówka`, `ID clickup`. */
 const BAZA_PROJEKTY = 'e237c852-46fe-4ed0-bc6c-58b303eff615'
 
-type Projekt = { nazwa: string; folderId: string; stawkaZl: number | null }
+type Projekt = { nazwa: string; folderId: string; stawkaZl: number | null; url: string }
 
 async function pobierzProjekty(token: string): Promise<Projekt[]> {
   const out: Projekt[] = []
@@ -55,7 +55,9 @@ async function pobierzProjekty(token: string): Promise<Projekt[]> {
       const f = p.properties?.['ID clickup']?.formula
       const folderId = f ? String(f.string ?? f.number ?? '') : ''
       const stawkaZl = p.properties?.['Godzinówka']?.number ?? null
-      if (folderId) out.push({ nazwa, folderId, stawkaZl })
+      // `url` prowadzi wprost do strony projektu w Notion — panel pokazuje go
+      // jako „Popraw w CRM", żeby zmiana stawki nie wymagała szukania po nazwie.
+      if (folderId) out.push({ nazwa, folderId, stawkaZl, url: p.url ?? '' })
     }
 
     cursor = json.has_more ? json.next_cursor : undefined
@@ -81,6 +83,7 @@ async function main() {
       slug: portals.slug,
       folderId: portals.clickupFolderId,
       teraz: portals.hourlyRateNet,
+      terazUrl: portals.notionProjectUrl,
     })
     .from(portals)
 
@@ -101,7 +104,7 @@ async function main() {
     }
 
     const grosze = Math.round(crm.stawkaZl * 100)
-    if (grosze === portal.teraz) {
+    if (grosze === portal.teraz && crm.url === portal.terazUrl) {
       console.log(`  ${portal.slug.padEnd(12)} = ${formatujStawke(grosze)} (bez zmian)`)
       continue
     }
@@ -110,7 +113,10 @@ async function main() {
     console.log(`  ${portal.slug.padEnd(12)} ${bylo} → ${formatujStawke(grosze)}   [${crm.nazwa}]`)
 
     if (zapis) {
-      await db.update(portals).set({ hourlyRateNet: grosze }).where(eq(portals.id, portal.id))
+      await db
+        .update(portals)
+        .set({ hourlyRateNet: grosze, notionProjectUrl: crm.url || null })
+        .where(eq(portals.id, portal.id))
     }
     zmienione++
   }

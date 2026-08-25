@@ -27,6 +27,7 @@ import {
   addComment,
 } from '@/lib/clickup'
 import type { ClickUpTask } from '@/lib/types'
+import { assigneesField } from '@/lib/assignee'
 import { buildDiagnosticsComment } from './diagnostics'
 import {
   extractClientIdFromDescription,
@@ -92,6 +93,8 @@ interface PortalContext {
   name: string
   clickupFolderId: string
   defaultListId: string
+  /** Kto ma dostac zadanie w ClickUpie. Null = zapas agencji (lib/assignee.ts). */
+  defaultAssigneeId?: number | null
   /**
    * Origin strony klienta (`https://wodadlafirmy.pl`), z ktorego przyszlo
    * zgloszenie. Potrzebny, bo widget przysyla sama sciezke, a link w zadaniu
@@ -348,6 +351,7 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
 
       const task = await createTask(portal.defaultListId, {
         name: buildFeedbackTitle(data.message),
+        ...assigneesField(portal.defaultAssigneeId),
         description: describe(null),
         // Dwa tagi: `siteping` mowi SKAD to przyszlo, rodzaj mowi CZEGO dotyczy.
         // Filtrowanie po obu naraz jest tym, po co zespol siega do tagow.

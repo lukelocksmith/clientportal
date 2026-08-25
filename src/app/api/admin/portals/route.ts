@@ -11,6 +11,7 @@ import { isSafeLogoUrl, normalizeHexColor } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { serializeContactMemberIds, TEAM_MEMBERS } from '@/lib/team'
 import { stawkaNaGrosze } from '@/lib/money'
+import { parseAssigneeId } from '@/lib/assignee'
 import { serializeAutoTags } from '@/lib/autoTags'
 import { parseNotificationConfig, serializeNotificationConfig } from '@/lib/notifyConfig'
 
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest) {
       autoTags: portals.autoTags,
       notificationConfig: portals.notificationConfig,
       hourlyRateNet: portals.hourlyRateNet,
+      notionProjectUrl: portals.notionProjectUrl,
+      defaultAssigneeId: portals.defaultAssigneeId,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,
@@ -181,6 +184,17 @@ const UpdatePortalSchema = z
       .unknown()
       .optional()
       .transform(v => (v === undefined ? undefined : stawkaNaGrosze(v))),
+    /** Adres projektu w CRM, skąd pochodzi stawka. Wypełnia go skrypt synchronizacji. */
+    notionProjectUrl: z.string().url().max(500).nullable().optional(),
+    /**
+     * Kto dostaje zadania z portalu. Id użytkownika ClickUpa albo `null`
+     * („jak w agencji"). Śmieć wypada na `null`, nie na błąd żądania —
+     * reguła siedzi w `parseAssigneeId` i ma własne testy.
+     */
+    defaultAssigneeId: z
+      .unknown()
+      .optional()
+      .transform(v => (v === undefined ? undefined : parseAssigneeId(v))),
     contactName: z
       .string()
       .max(120)
@@ -275,6 +289,8 @@ export async function PATCH(request: NextRequest) {
       autoTags: portals.autoTags,
       notificationConfig: portals.notificationConfig,
       hourlyRateNet: portals.hourlyRateNet,
+      notionProjectUrl: portals.notionProjectUrl,
+      defaultAssigneeId: portals.defaultAssigneeId,
       siteDomains: portals.siteDomains,
       logoUrl: portals.logoUrl,
       brandColor: portals.brandColor,

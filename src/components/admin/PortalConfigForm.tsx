@@ -15,6 +15,8 @@ import {
 import { ProjectLinksForm } from './ProjectLinksForm'
 import { AutoTagsPicker } from './AutoTagsPicker'
 import { NotificationMatrix } from './NotificationMatrix'
+import { AssigneePicker } from './AssigneePicker'
+import { formatujStawke } from '@/lib/money'
 
 /**
  * Konfiguracja projektu: marka (logo, kolor) i kontakt opiekuna.
@@ -36,6 +38,9 @@ interface Props {
     clickupSpaceId: string
     autoTags: string | null
     notificationConfig: unknown
+    hourlyRateNet: number | null
+    notionProjectUrl: string | null
+    defaultAssigneeId: number | null
   }
   onSaved: (changes: Partial<Props['portal']>) => void
 }
@@ -57,6 +62,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const [notify, setNotify] = useState<NotificationConfig>(() =>
     parseNotificationConfig(portal.notificationConfig)
   )
+  const [assignee, setAssignee] = useState<number | null>(portal.defaultAssigneeId)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -88,7 +94,10 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
   const autoTagsDirty =
     savedAutoTags.length !== autoTags.length || savedAutoTags.some(t => !autoTags.includes(t))
 
+  const assigneeDirty = (portal.defaultAssigneeId ?? null) !== assignee
+
   const dirty =
+    assigneeDirty ||
     membersDirty ||
     autoTagsDirty ||
     notifyDirty ||
@@ -143,6 +152,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         contactEmail: cEmail.trim() === '' ? null : cEmail.trim(),
         contactPhone: cPhone.trim() === '' ? null : cPhone.trim(),
         autoTags,
+        defaultAssigneeId: assignee,
         notificationConfig: serializeNotificationConfig(notify),
       }
       const res = await fetch('/api/admin/portals', {
@@ -169,6 +179,7 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         contactEmail: data.portal?.contactEmail ?? null,
         contactPhone: data.portal?.contactPhone ?? null,
         autoTags: data.portal?.autoTags ?? null,
+        defaultAssigneeId: data.portal?.defaultAssigneeId ?? null,
         notificationConfig: data.portal?.notificationConfig ?? null,
       })
       setSaved(true)
@@ -384,6 +395,52 @@ export function PortalConfigForm({ portal, onSaved }: Props) {
         <div className="mt-2">
           <AutoTagsPicker spaceId={portal.clickupSpaceId} selected={autoTags} onChange={setAutoTags} />
         </div>
+      </div>
+
+      {/* Kto podejmuje zgłoszenia z portalu. */}
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Kto dostaje zadania z portalu
+        </p>
+        <div className="mt-2">
+          <AssigneePicker value={assignee} onChange={setAssignee} />
+        </div>
+      </div>
+
+      {/* Stawka godzinowa: TYLKO DO ODCZYTU, bo źródłem prawdy jest CRM.
+          Pole do wpisania tutaj dałoby dwa miejsca z tą samą liczbą i pewność,
+          że kiedyś się rozjadą — a rozjazd dotyczyłby kwoty na fakturze. */}
+      <div className="mt-3 border-t border-border/60 pt-3">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          Stawka godzinowa (raport czasu pracy)
+        </p>
+        <p className="mt-1 text-sm text-foreground">
+          {portal.hourlyRateNet === null ? (
+            <span className="text-muted-foreground">
+              Brak stawki — raport pokazuje klientowi same godziny, bez kwoty.
+            </span>
+          ) : (
+            <>
+              <span className="font-medium">{formatujStawke(portal.hourlyRateNet)}</span>
+              <span className="text-muted-foreground"> netto</span>
+            </>
+          )}
+        </p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Pochodzi z CRM (Notion), nie ustawia się jej tutaj.{' '}
+          {portal.notionProjectUrl ? (
+            <a
+              href={portal.notionProjectUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline hover:text-foreground"
+            >
+              Popraw w CRM →
+            </a>
+          ) : (
+            <span>Tego projektu nie znaleziono w CRM po ID folderu ClickUp.</span>
+          )}
+        </p>
       </div>
 
       {/* Powiadomienia dla klienta. Wszystko odznaczone znaczy „ten projekt nie

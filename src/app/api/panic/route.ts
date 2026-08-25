@@ -15,6 +15,7 @@ import {
 import { buildPanicSmsText, isWithinThrottleWindow, PANIC_SMS_THROTTLE_MINUTES } from '@/lib/sms'
 import { DUTY_ASSIGNEE_ID } from '@/lib/panicDuty'
 import { createTask } from '@/lib/clickup'
+import { assigneesField } from '@/lib/assignee'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { AWARIA_TAG, TASK_STATUS_INITIAL } from '@/lib/utils'
 
@@ -113,6 +114,8 @@ async function createAlarmTask(input: {
   portalName: string
   portalSlug: string
   folderId: string
+  /** Opiekun projektu — zapas, gdy nie ma dyzurnego (lib/assignee.ts). */
+  defaultAssigneeId: number | null
   message: string
   // `name` bywa nullem: zaproszenie mogło pójść bez imienia (patrz Reporter).
   session: { userId: string; email: string; name: string | null }
@@ -150,9 +153,16 @@ async function createAlarmTask(input: {
       priority: 1,
       tags: [AWARIA_TAG],
       status: TASK_STATUS_INITIAL,
-      // Osoba dyżurna od razu przy tworzeniu. Zadanie bez właściciela czeka na
-      // to, aż ktoś je zobaczy, a alarm nie ma czasu na „ktoś to weźmie".
-      ...(dyzurny ? { assignees: [dyzurny] } : {}),
+      /**
+       * Osoba dyżurna od razu przy tworzeniu. Zadanie bez właściciela czeka na
+       * to, aż ktoś je zobaczy, a alarm nie ma czasu na „ktoś to weźmie".
+       *
+       * DYŻURNY WYGRYWA z ustawieniem projektu i tak ma zostać: przy alarmie
+       * liczy się czas reakcji, a nie to, kto zwykle prowadzi ten projekt.
+       * Opiekun projektu wchodzi dopiero jako zapas, gdy dyżuru nie ustawiono —
+       * to i tak lepiej niż alarm bez nikogo.
+       */
+      ...(dyzurny ? { assignees: [dyzurny] } : assigneesField(input.defaultAssigneeId)),
     })
 
     // Id zadania w naszej tabeli, bo bez niego eskalacja po 25 minutach nie ma
@@ -238,6 +248,7 @@ export async function POST(request: NextRequest) {
       portalName: portal.name,
       portalSlug: portal.slug,
       folderId: portal.clickupFolderId,
+      defaultAssigneeId: portal.defaultAssigneeId,
       message: message.trim(),
       session: { userId: session.userId, email: session.email, name: session.name },
       alertId: alert.id,

@@ -16,6 +16,7 @@ interface ResolvedPortal {
   name: string
   clickupFolderId: string
   defaultListId: string
+  defaultAssigneeId: number | null
   siteDomains: string[]
 }
 
@@ -46,6 +47,7 @@ async function resolvePortal(slug: string): Promise<ResolvedPortal | null> {
     name: portal.name,
     clickupFolderId: portal.clickupFolderId,
     defaultListId: defaultList.clickupListId,
+    defaultAssigneeId: portal.defaultAssigneeId,
     siteDomains,
   }
 }

@@ -12,6 +12,7 @@ import { requirePortalApi } from '@/lib/apiSession'
 import { createTask } from '@/lib/clickup'
 import { computeCost } from '@/lib/aiPricing'
 import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
+import { assigneesField } from '@/lib/assignee'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { isAwaria, TASK_STATUS_INITIAL } from '@/lib/utils'
@@ -138,6 +139,9 @@ export async function POST(request: NextRequest) {
 
       const task = await createTask(targetListId, {
         name,
+        // Ta sama reguła co przy formularzu (lib/assignee.ts): ustawienie
+        // projektu, a w zapasie osoba agencji.
+        ...assigneesField(portal.defaultAssigneeId),
         // Stopkę dokleja serwer, nie model. Prompt prosi o „zgłaszającego" w
         // opisie, ale to jest tekst generowany, więc podlega halucynacji i
         // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym

@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
     authorEmail: session.email,
     authorName: session.name,
     text,
+    defaultAssigneeId: portal.defaultAssigneeId,
     files,
   })
 

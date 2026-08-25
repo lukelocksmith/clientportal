@@ -202,6 +202,55 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
     })
   })
 
+  describe('kto dostaje zadanie z portalu', () => {
+    /**
+     * Sprawdzamy, ze ustawienie z panelu FAKTYCZNIE dociera do ClickUpa.
+     * Sama regula ma testy jednostkowe (src/lib/assignee.test.ts), ale zielone
+     * testy reguly nie dowodza, ze ktokolwiek ja wola — a to byl juz raz realny
+     * blad w tym projekcie (martwy system powiadomien, 24.08).
+     */
+    afterEach(async () => {
+      await db.update(portals).set({ defaultAssigneeId: null }).where(eq(portals.id, portalA.id))
+    })
+
+    it('USTAWIENIE PROJEKTU trafia do ClickUpa jako assignees', async () => {
+      await db.update(portals).set({ defaultAssigneeId: 222 }).where(eq(portals.id, portalA.id))
+      await loginClient()
+      clickup.createTask.mockResolvedValue({ id: 'z-przypisaniem', name: 'X', url: 'u' })
+
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'X' }))
+
+      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].assignees, [222])
+    })
+
+    it('bez ustawienia projektu idzie ZAPAS agencji z env', async () => {
+      vi.stubEnv('CLICKUP_DEFAULT_ASSIGNEE_ID', '111')
+      await loginClient()
+      clickup.createTask.mockResolvedValue({ id: 'zapas', name: 'X', url: 'u' })
+
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'X' }))
+
+      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].assignees, [111])
+      vi.unstubAllEnvs()
+    })
+
+    it('bez ustawienia i bez zapasu zadanie NADAL powstaje, tylko bez przypisania', async () => {
+      // Zgloszenie klienta ma trafic do ClickUpa zawsze. Nieprzypisane widac na
+      // tablicy, a odrzucone z powodu braku konfiguracji ginie bez sladu.
+      vi.stubEnv('CLICKUP_DEFAULT_ASSIGNEE_ID', '')
+      await loginClient()
+      clickup.createTask.mockResolvedValue({ id: 'bez-nikogo', name: 'X', url: 'u' })
+
+      const res = await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'X' }))
+
+      assert.strictEqual(res.status, 200)
+      // Brak POLA, nie pusta tablica: pusta jest dla ClickUpa poleceniem
+      // „zdejmij przypisanych" i kasuje ich wlasna automatyke.
+      assert.strictEqual('assignees' in clickup.createTask.mock.calls[0][1], false)
+      vi.unstubAllEnvs()
+    })
+  })
+
   describe('POST /api/clickup/tasks (nowe zadanie)', () => {
     it('tworzy zadanie na domyslnej liscie i zapisuje zdarzenie do historii', async () => {
       await loginClient()

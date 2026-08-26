@@ -8,6 +8,7 @@ import { checkRateLimit } from '@/lib/siteping/rateLimit'
 import { clampAnnotationRanges } from '@/lib/siteping/clampPayload'
 import { isFromAllowedDomain, corsOrigins } from '@/lib/siteping/origin'
 import { logSitepingRequest, outcomeForStatus } from '@/lib/siteping/log'
+import { verifyIdentityToken } from '@/lib/siteping/identityToken'
 
 export const runtime = 'nodejs'
 
@@ -144,12 +145,41 @@ function tracedStore(store: ReturnType<typeof createClickUpSitepingStore>, trace
   }
 }
 
-function buildHandler(portal: ResolvedPortal, request: NextRequest, trace: Trace): SitepingHandler {
+/**
+ * Dowod tozsamosci nadawcy, ZAMIAST wiary w pole `authorEmail` z cialka.
+ *
+ * `sp_token` z linku „Pokaz na stronie" jest juz raz zweryfikowany przez
+ * `/api/siteping/identity` (serwer strony klienta), ktora odsyla go
+ * NIEZMIENIONEGO w odpowiedzi. Mu-plugin doklada go do configu widgetu jako
+ * naglowek `Authorization: Bearer <token>` — jedyny wlasny naglowek, ktory
+ * pakiet przepuszcza przez CORS (`Access-Control-Allow-Headers` w
+ * `dist/index.js` jest na sztywno `Content-Type, Authorization`).
+ *
+ * Weryfikujemy go TUTAJ PONOWNIE (podpis, wygasniecie, przypisanie do sluga)
+ * zamiast ufac, ze skoro naglowek przyszedl, to znaczy, ze jest prawdziwy —
+ * inaczej dowolny POST z reki mogby dolozyc dowolny tekst w `Authorization`
+ * i miec to samo prawo co prawdziwy token.
+ */
+async function resolveVerifiedIdentityEmail(request: NextRequest, slug: string): Promise<string | null> {
+  const header = request.headers.get('authorization')
+  if (!header?.startsWith('Bearer ')) return null
+  const token = header.slice('Bearer '.length).trim()
+  if (!token) return null
+  const identity = await verifyIdentityToken(token, slug)
+  return identity?.email ?? null
+}
+
+async function buildHandler(
+  portal: ResolvedPortal,
+  request: NextRequest,
+  trace: Trace
+): Promise<SitepingHandler> {
   return createSitepingHandler({
     store: tracedStore(
       createClickUpSitepingStore({
         ...portal,
         siteOrigin: verifiedSiteOrigin(request, portal),
+        verifiedIdentityEmail: await resolveVerifiedIdentityEmail(request, portal.slug),
       }),
       trace
     ),
@@ -218,7 +248,7 @@ async function withPortal(
 
   const trace: Trace = { clickupTaskId: null, error: null }
   try {
-    const response = await run(buildHandler(portal, request, trace))
+    const response = await run(await buildHandler(portal, request, trace))
     await zapiszWpis(request, portal.id, response.status, startedAt, {
       clickupTaskId: trace.clickupTaskId,
       // Przy 500 pakiet oddaje zglaszajacemu generyczny komunikat, wiec to

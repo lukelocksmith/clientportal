@@ -103,6 +103,16 @@ describe('buildWordPressSnippet', () => {
   it('ZAWSZE ma deepLink', () => {
     assert.match(s, /'deepLink'\s*=>\s*true/)
   })
+
+  it('doklada token jako Authorization, nie do identity', () => {
+    // `[slug]/route.ts` weryfikuje ten token PONOWNIE (podpis + slug), zeby
+    // odblokowac zgloszenie jako admin@important.is — bez tego naglowka
+    // Łukasz nie moze przetestowac wlasnego flow z panelu (store.ts).
+    assert.match(s, /\$config\['headers'\]\s*=\s*\['Authorization' => 'Bearer ' \. \$identity\['token'\]\]/)
+    assert.match(s, /if \(!empty\(\$identity\['token'\]\)\)/)
+    // identity samo w sobie ograniczone do imienia i maila, token NIE trafia tam
+    assert.match(s, /\$config\['identity'\] = \['name' => \$identity\['name'\], 'email' => \$identity\['email'\]\]/)
+  })
 })
 
 describe('oba warianty', () => {

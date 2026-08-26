@@ -103,7 +103,14 @@ add_action('wp_footer', function () {
         'captureDiagnostics' => true,
     ];
     if ($identity) {
-        $config['identity'] = $identity;
+        $config['identity'] = ['name' => $identity['name'], 'email' => $identity['email']];
+        // Dowod tozsamosci dla trasy [slug]: token jest juz raz zweryfikowany
+        // przez /api/siteping/identity, ktora go odeslala niezmienionego.
+        // Bez tego zgloszenie jako admin@important.is (np. test Łukasza z
+        // panelu) trafia w blokade podszywania sie — patrz store.ts.
+        if (!empty($identity['token'])) {
+            $config['headers'] = ['Authorization' => 'Bearer ' . $identity['token']];
+        }
     }
     ?>
     <script src="${base}/siteping/widget.js"></script>

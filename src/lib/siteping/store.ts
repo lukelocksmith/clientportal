@@ -102,6 +102,13 @@ interface PortalContext {
    * pokazuje sama sciezke zamiast polamanego adresu.
    */
   siteOrigin?: string | null
+  /**
+   * Mail zweryfikowany podpisem tokenu tozsamosci (patrz
+   * `[slug]/route.ts::resolveVerifiedIdentityEmail`), NIE pole z cialka.
+   * Jedyny sposob, w jaki `assertNotImpersonatingAdmin` przepuszcza
+   * `ADMIN_ACTOR_EMAIL` — samo `authorEmail` w danych nigdy nie wystarcza.
+   */
+  verifiedIdentityEmail?: string | null
 }
 
 function isSitepingTask(task: ClickUpTask): boolean {
@@ -252,6 +259,13 @@ function sitepingEventMeta(data: FeedbackCreateInput, taskName: string): Record<
  * Odrzucamy CALE zgloszenie zamiast po cichu podmieniac adres: zadanie
  * podpisane inaczej, niz prosil zglaszajacy, byloby trudniejsze do
  * wytlumaczenia niz brak zadania.
+ *
+ * WYJATEK: `verifiedIdentityEmail`. Gdy nadawca przyszedl przez „Pokaz na
+ * stronie" (Łukasz zalogowany w portalu jako admin bypass), trasa
+ * `[slug]/route.ts` zdazyla juz PONOWNIE zweryfikowac podpisany token
+ * tozsamosci z naglowka `Authorization` — to nie jest to samo, co uwierzyc
+ * polu `authorEmail`, bo tokenu nie da sie podrobic bez `JWT_SECRET`. Bez
+ * tego wyjatku admin nie moglby nigdy przetestowac wlasnego flow z portalu.
  */
 class SitepingImpersonationError extends Error {
   constructor() {
@@ -260,8 +274,13 @@ class SitepingImpersonationError extends Error {
   }
 }
 
-function assertNotImpersonatingAdmin(data: FeedbackCreateInput, portalSlug: string): void {
+function assertNotImpersonatingAdmin(
+  data: FeedbackCreateInput,
+  portalSlug: string,
+  verifiedIdentityEmail: string | null | undefined
+): void {
   if (data.authorEmail.trim().toLowerCase() !== ADMIN_ACTOR_EMAIL.toLowerCase()) return
+  if (verifiedIdentityEmail?.trim().toLowerCase() === ADMIN_ACTOR_EMAIL.toLowerCase()) return
 
   console.warn(
     `[siteping] odrzucono zgłoszenie podszywające się pod ${ADMIN_ACTOR_EMAIL} (portal ${portalSlug})`
@@ -294,7 +313,7 @@ function warnIfTagMissing(task: ClickUpTask, portalSlug: string): void {
 export function createClickUpSitepingStore(portal: PortalContext): SitepingStore {
   return {
     async createFeedback(data: FeedbackCreateInput): Promise<FeedbackRecord> {
-      assertNotImpersonatingAdmin(data, portal.slug)
+      assertNotImpersonatingAdmin(data, portal.slug, portal.verifiedIdentityEmail)
 
       const match = await findTaskByClientId(portal.clickupFolderId, data.clientId)
       if (match) {

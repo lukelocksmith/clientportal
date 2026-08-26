@@ -522,3 +522,53 @@ describe('verifyProjectOwnership', () => {
     assert.strictEqual(await store().verifyProjectOwnership!('cudze', 'wdf'), false)
   })
 })
+
+describe('podszywanie sie pod admina', () => {
+  it('odrzuca authorEmail=admin@important.is bez zweryfikowanego tokenu', async () => {
+    await assert.rejects(
+      () => store().createFeedback(input({ authorEmail: 'admin@important.is' })),
+      /zastrzeżony/
+    )
+    assert.strictEqual(clickup.createTask.mock.calls.length, 0)
+  })
+
+  it('odrzuca, gdy zweryfikowany mail nalezy do KOGOS INNEGO niz admin', async () => {
+    // Atakujacy wpisuje admin@important.is w formularz, ale trasa zweryfikowala
+    // jego WLASNY token tozsamosci (inny mail) — dwa mejle sie nie zgadzaja,
+    // wiec to dalej podszywanie sie.
+    const zPortalem = createClickUpSitepingStore({ ...PORTAL, verifiedIdentityEmail: 'ktos@klient.pl' })
+
+    await assert.rejects(
+      () => zPortalem.createFeedback(input({ authorEmail: 'admin@important.is' })),
+      /zastrzeżony/
+    )
+    assert.strictEqual(clickup.createTask.mock.calls.length, 0)
+  })
+
+  it('przepuszcza admina, gdy trasa juz zweryfikowala jego token tozsamosci', async () => {
+    const zPortalem = createClickUpSitepingStore({
+      ...PORTAL,
+      verifiedIdentityEmail: 'admin@important.is',
+    })
+
+    await zPortalem.createFeedback(input({ authorEmail: 'admin@important.is' }))
+
+    assert.strictEqual(clickup.createTask.mock.calls.length, 1)
+  })
+
+  it('mail admina jest porownywany bez rozroznienia wielkosci liter', async () => {
+    const zPortalem = createClickUpSitepingStore({
+      ...PORTAL,
+      verifiedIdentityEmail: 'Admin@Important.is',
+    })
+
+    await zPortalem.createFeedback(input({ authorEmail: 'ADMIN@IMPORTANT.IS' }))
+
+    assert.strictEqual(clickup.createTask.mock.calls.length, 1)
+  })
+
+  it('zwykli zgloszajacy przechodza bez zadnego tokenu tozsamosci', async () => {
+    await store().createFeedback(input({ authorEmail: 'anna@klient.pl' }))
+    assert.strictEqual(clickup.createTask.mock.calls.length, 1)
+  })
+})

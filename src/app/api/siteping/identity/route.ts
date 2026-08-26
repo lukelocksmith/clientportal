@@ -39,7 +39,11 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json(
-    { name: tozsamosc.name, email: tozsamosc.email },
+    // `token` wraca NIEZMIENIONY: skoro `verifyIdentityToken` go dopiero co
+    // zweryfikował dla tego sluga, mu-plugin może go doczepić do configu
+    // widgetu jako dowod tozsamosci (naglowek `Authorization` przy zgloszeniu),
+    // zamiast kazac trasie [slug] ufac samemu polu `authorEmail` z cialka.
+    { name: tozsamosc.name, email: tozsamosc.email, token },
     { headers: { 'Cache-Control': 'no-store' } }
   )
 }

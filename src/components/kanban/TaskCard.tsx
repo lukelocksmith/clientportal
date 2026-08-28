@@ -34,16 +34,19 @@ function Badge({
   children, tone = 'plain', title,
 }: {
   children: ReactNode
-  tone?: 'plain' | 'filled' | 'alarm' | 'late'
+  tone?: 'plain' | 'alarm' | 'late'
   title?: string
 }) {
-  /* Każdy wariant ma obrys, także wypełnione: bez tego treść wewnątrz
-     przesuwa się o piksel względem sąsiadów i wiersz przestaje być równy.
-     Wypełnienie bierze `accent`, NIE `muted`: w ciemnym motywie `--muted`
-     i `--card` to ten sam #252525, więc plakietka na karcie była niewidoczna. */
+  /* Wypełnienie tła NIE odróżnia już Track Time od estymaty (uwaga Łukasza
+     28.08): dwie plakietki tej samej rangi, jedna z tłem, czytały się jak dwa
+     różne rodzaje informacji. Zostaje jeden obrys dla wszystkiego, co jest
+     zwykłą metadaną, a różnicę niesie ikona i tooltip.
+
+     Tło zostało wyłącznie tam, gdzie ma krzyczeć: alarm. Także wersje z tłem
+     mają obrys (przezroczysty), bo inaczej treść wewnątrz przesuwa się o
+     piksel względem sąsiadów i wiersz przestaje być równy. */
   const tones = {
     plain: 'border border-border text-muted-foreground',
-    filled: 'border border-transparent bg-accent text-muted-foreground',
     alarm: 'border border-transparent bg-destructive/15 text-destructive font-semibold',
     late: 'border border-destructive/40 text-destructive',
   }
@@ -168,12 +171,11 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
             </Badge>
           )}
 
-          {/* PLAN (estymata) w obrysie, WYKONANIE (Track Time) w wypełnieniu.
-              Dwie plakietki obok siebie różnią się nie kolorem, tylko wagą tła,
-              więc para czyta się jako „ile planowaliśmy / ile zeszło" bez
-              ani jednego dodatkowego słowa. Track Time NIE jest już czerwony:
+          {/* Estymata i Track Time: ten sam obrys, różne ikony (zegar kontra
+              stoper). Track Time nie jest ani czerwony, ani wypełniony:
               czerwień na karcie klienta ma znaczyć kłopot, a przepracowane
-              godziny kłopotem nie są. */}
+              godziny kłopotem nie są; osobne tło robiło z nich informację
+              innego rodzaju niż sąsiedzi, choć są tej samej rangi. */}
           {estimate && (
             <Badge title="Szacowany czas">
               <Clock className={ICON} aria-hidden />
@@ -181,7 +183,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
             </Badge>
           )}
           {tracked && (
-            <Badge tone="filled" title="Track Time (tygodniowy)">
+            <Badge title="Track Time (tygodniowy)">
               <Timer className={ICON} aria-hidden />
               {tracked}
             </Badge>

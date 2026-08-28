@@ -77,6 +77,37 @@ export const portals = pgTable('portals', {
    */
   estimateReportEnabled: boolean('estimate_report_enabled').notNull().default(false),
   /**
+   * Widgety „Stan strony" na Dashboardzie: dostępność, wynik testów
+   * i szybkość ładowania. Domyslnie false, jak kazda nowa funkcja portalu.
+   *
+   * Ta flaga jest czyms wiecej niz przelacznikiem widoku: pokazanie klientowi
+   * dostepnosci jest ZOBOWIAZANIEM. Klient zobaczy nasze przerwy pierwszy,
+   * zanim ktokolwiek z nas zdazy zadzwonic (w sierpniu 2026 dwie domeny lezaly
+   * czternascie dni). Wlaczamy wiec tam, gdzie mamy utrzymanie w umowie,
+   * i osobna decyzja per projekt.
+   *
+   * Zrodlem danych jest SuperCheck (`tests.important.is`), dopasowany do
+   * projektu po `site_domains`, oraz PageSpeed Insights. Bez ustawionych domen
+   * flaga nie ma czego pokazac — widget powie to wprost, zamiast milczec.
+   */
+  monitoringEnabled: boolean('monitoring_enabled').notNull().default(false),
+  /**
+   * Token API SuperChecka DLA TEGO PROJEKTU (`sck_live_...`).
+   *
+   * Osobny na projekt, bo SuperCheck nie ma globalnego klucza: token CLI jest
+   * zakresowany do projektu i dziedziczy uprawnienia konta, które go wydało
+   * (uwaga Łukasza 28.08, potwierdzone w dokumentacji API SuperChecka).
+   * Jeden klucz w zmiennej środowiskowej nie pokryłby wszystkich klientów.
+   *
+   * To jest SEKRET: nie wolno go zwracać do przeglądarki ani wstawiać do
+   * payloadów panelu. Trasa administracyjna oddaje wyłącznie informację
+   * „ustawiony / nieustawiony", tak samo jak przy hasłach.
+   *
+   * Null = widgety „Stan strony" powiedzą wprost, że projekt nie jest podpięty,
+   * zamiast pokazać puste kafle albo zera.
+   */
+  supercheckToken: text('supercheck_token'),
+  /**
    * Tagi ClickUp doklejane automatycznie do zadan zalozonych przez AI-chat w
    * portalu (np. "asana", zeby zadzialala istniejaca automatyzacja ClickUp →
    * Asana po tagu). Tekst z tagami po przecinku, parsowany przez

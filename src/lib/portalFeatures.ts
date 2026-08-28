@@ -20,6 +20,7 @@ export type PortalFeatureKey =
   | 'estimateReportEnabled'
   | 'statusControlsEnabled'
   | 'sitepingEnabled'
+  | 'monitoringEnabled'
 
 export type PortalFeatureFlags = Record<PortalFeatureKey, boolean>
 
@@ -43,6 +44,11 @@ export const PORTAL_FEATURES: ReadonlyArray<{
     key: 'sitepingEnabled',
     label: 'Widget na stronie klienta',
     hint: 'Zgłoszenia z widgetu SitePing. Wymaga też ustawionych domen.',
+  },
+  {
+    key: 'monitoringEnabled',
+    label: 'Stan strony',
+    hint: 'Kafle na Dashboardzie: dostępność, wynik testów i szybkość ładowania. Wymaga ustawionych domen. Uwaga: klient zobaczy też nasze przerwy.',
   },
 ]
 

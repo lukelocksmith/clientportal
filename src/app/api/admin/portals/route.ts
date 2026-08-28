@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { portals, portalLists } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { ensureAdminUser } from '@/lib/adminUser'
 import { DEFAULT_CLICKUP_SPACE_ID } from '@/lib/clickupSpace'
@@ -31,6 +31,12 @@ export async function GET(request: NextRequest) {
       sitepingEnabled: portals.sitepingEnabled,
       statusControlsEnabled: portals.statusControlsEnabled,
       estimateReportEnabled: portals.estimateReportEnabled,
+      monitoringEnabled: portals.monitoringEnabled,
+      /* Sam TOKEN nie wychodzi z serwera nigdy. Panel potrzebuje wyłącznie
+         odpowiedzi „ustawiony czy nie", więc liczymy to w SQL-u zamiast
+         wybierać kolumnę i filtrować ją potem w kodzie — pole, którego się nie
+         pobiera, nie wycieknie przez przypadkowy `...spread`. */
+      hasSupercheckToken: sql<boolean>`${portals.supercheckToken} IS NOT NULL`,
       // Potrzebne w adminie do pobrania listy tagów tej przestrzeni ClickUp
       // dla checkboxów autoTags (patrz /api/admin/portals/tags).
       clickupSpaceId: portals.clickupSpaceId,
@@ -64,6 +70,20 @@ const UpdatePortalSchema = z
     sitepingEnabled: z.boolean().optional(),
     statusControlsEnabled: z.boolean().optional(),
     estimateReportEnabled: z.boolean().optional(),
+    monitoringEnabled: z.boolean().optional(),
+    /**
+     * Token API SuperChecka DLA TEGO PROJEKTU (`sck_live_...`).
+     *
+     * Pusty ciąg CZYŚCI pole — to jedyny sposób odpięcia projektu bez
+     * kasowania tokenu po tamtej stronie. Wartości nie zwracamy nigdzie
+     * z powrotem: lista i szczegóły projektu oddają wyłącznie
+     * `hasSupercheckToken`, tak samo jak przy hasłach.
+     */
+    supercheckToken: z
+      .string()
+      .max(200)
+      .regex(/^$|^sck_(live|test)_[a-f0-9]{32}$/, 'Token musi mieć postać sck_live_… albo być pusty')
+      .optional(),
     /**
      * Domeny, z których endpoint SitePing przyjmuje zgłoszenia — SAME NAZWY
      * HOSTÓW po przecinku (`wdf.important.is,wodadlafirmy.pl`), bez schematu
@@ -283,6 +303,12 @@ export async function PATCH(request: NextRequest) {
       sitepingEnabled: portals.sitepingEnabled,
       statusControlsEnabled: portals.statusControlsEnabled,
       estimateReportEnabled: portals.estimateReportEnabled,
+      monitoringEnabled: portals.monitoringEnabled,
+      /* Sam TOKEN nie wychodzi z serwera nigdy. Panel potrzebuje wyłącznie
+         odpowiedzi „ustawiony czy nie", więc liczymy to w SQL-u zamiast
+         wybierać kolumnę i filtrować ją potem w kodzie — pole, którego się nie
+         pobiera, nie wycieknie przez przypadkowy `...spread`. */
+      hasSupercheckToken: sql<boolean>`${portals.supercheckToken} IS NOT NULL`,
       // Potrzebne w adminie do pobrania listy tagów tej przestrzeni ClickUp
       // dla checkboxów autoTags (patrz /api/admin/portals/tags).
       clickupSpaceId: portals.clickupSpaceId,

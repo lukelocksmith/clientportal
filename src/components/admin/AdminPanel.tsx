@@ -6,6 +6,7 @@ import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PORTAL_FEATURES, type PortalFeatureKey, type PortalFeatureFlags } from '@/lib/portalFeatures'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'
 import { SitepingTab } from '@/components/admin/SitepingTab'
+import { MonitoringConfigSection } from '@/components/admin/MonitoringConfigSection'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserActivityDialog } from '@/components/admin/UserActivityDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -34,6 +35,8 @@ type Portal = {
   hourlyRateNet: number | null
   notionProjectUrl: string | null
   defaultAssigneeId: number | null
+  /** Czy projekt ma zapisany token SuperChecka. Sam token NIE wychodzi z serwera. */
+  hasSupercheckToken?: boolean
 } & PortalFlags & PortalFeatureFlags
 type Stat = { calls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }
 type Stats = {
@@ -495,6 +498,18 @@ export default function AdminPanel() {
                       </label>
                     ))}
                   </div>
+
+                  {/* Podpięcie monitoringu: token SuperChecka tego projektu.
+                      Obok flag, bo bez tokenu flaga „Stan strony" nie ma czego
+                      pokazać, a to najczęstsze pytanie „czemu puste". */}
+                  <MonitoringConfigSection
+                    portal={portal}
+                    onSaved={changes =>
+                      setPortals(prev =>
+                        prev.map(p => (p.id === portal.id ? { ...p, ...changes } : p))
+                      )
+                    }
+                  />
 
                   {/* Marka projektu nad listą userów: to konfiguracja projektu,
                       nie użytkownika. Zapis idzie tą samą trasą PATCH co flagi. */}

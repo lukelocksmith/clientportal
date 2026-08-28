@@ -5,6 +5,8 @@ import { isTabEnabled, visibleTabs } from '@/lib/portalTabs'
 import { getRecentlyClosed } from '@/lib/taskIndex'
 import { getProjectLinks } from '@/lib/projectLinksStore'
 import { getPortalForSession } from '@/lib/portalSession'
+import { getSiteStatus } from '@/lib/monitoring'
+import { SiteStatus } from '@/components/dashboard/SiteStatus'
 import { contactEnv, phoneHref, resolveContacts } from '@/lib/portalContact'
 import { getTimeEntries } from '@/lib/clickup'
 import type { ClickUpTimeEntry } from '@/lib/types'
@@ -51,6 +53,23 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
     getRecentlyClosed(portal.id, 5),
     getProjectLinks(portal.id),
   ])
+
+  /**
+   * Stan strony (dostępność, testy, szybkość) — TYLKO za flagą projektu.
+   *
+   * Pobranie idzie przez cache i nigdy nie rzuca (lib/monitoring), więc awaria
+   * panelu testów nie ma prawa zabrać klientowi Dashboardu. Bez flagi nie
+   * odpytujemy nikogo: żadnego ruchu do cudzego API dla projektów, które tego
+   * nie mają włączonego.
+   */
+  const siteStatus = portal.monitoringEnabled
+    ? await getSiteStatus({
+        id: portal.id,
+        name: portal.name,
+        siteDomains: portal.siteDomains,
+        supercheckToken: portal.supercheckToken,
+      })
+    : null
 
   /**
    * Godziny w tym tygodniu, od poniedziałku.
@@ -165,6 +184,11 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
             </p>
           </div>
         )}
+
+        {/* Stan strony: za flagą per projekt, bo pokazanie dostępności jest
+            zobowiązaniem, nie tylko liczbą (patrz komentarz przy kolumnie
+            monitoring_enabled w schema.ts). */}
+        {siteStatus && <SiteStatus status={siteStatus} />}
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <section className="rounded-xl border border-border bg-card p-5">

@@ -2,6 +2,8 @@
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext } from '@dnd-kit/sortable'
 import { TaskCard } from '@/components/kanban/TaskCard'
+import { KanbanColumn } from '@/components/kanban/KanbanColumn'
+import { getStatusColor, statusSide } from '@/lib/utils'
 import type { ClickUpTask } from '@/lib/types'
 
 const ms = (iso: string) => String(new Date(iso).getTime())
@@ -97,6 +99,29 @@ export function KartaPodglad() {
       {/* Stałe `id`: bez niego dnd-kit numeruje `aria-describedby` licznikiem
           globalnym, który po stronie serwera i klienta wychodzi inny, i React
           zgłasza rozjazd hydratacji. Dotyczy tej strony, nie karty. */}
+      {/* Nagłówki kolumn: podpis „po stronie" przy statusach, które bez niego
+          znaczą dla klienta to samo. Nazwa projektu podstawiona (tu: Onyx). */}
+      <h2 className="mt-8 text-sm font-semibold">Nagłówki kolumn</h2>
+      <DndContext id="podglad-kolumn">
+        <div className="mt-3 flex gap-4">
+          {['przegląd', 'weryfikacja', 'w trakcie'].map(status => (
+            <KanbanColumn
+              key={status}
+              column={{
+                id: status,
+                title: status,
+                color: getStatusColor(status),
+                type: 'custom',
+                tasks: [],
+                side: statusSide(status, 'Onyx'),
+              }}
+              onTaskClick={() => {}}
+            />
+          ))}
+        </div>
+      </DndContext>
+
+      <h2 className="mt-8 text-sm font-semibold">Karty</h2>
       <DndContext id="podglad-karty">
         <SortableContext items={ZADANIA.map(t => t.id)}>
           <div className="mt-6 w-[360px] space-y-2 rounded-xl bg-muted/40 p-2">

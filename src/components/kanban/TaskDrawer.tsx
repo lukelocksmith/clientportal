@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MarkdownLite } from './MarkdownLite'
 import { CommentBody } from './CommentBody'
+import { TaskWatchers } from './TaskWatchers'
 import { publicCommentBlocks, AGENCY_SENDER } from '@/lib/publicComments'
 import { useImageAttachments } from '@/components/shared/useImageAttachments'
 
@@ -53,6 +54,14 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
   const [commentsError, setCommentsError] = useState(false)
   /** Zmiana wartości wymusza ponowne pobranie (przycisk retry przy błędzie). */
   const [refreshKey, setRefreshKey] = useState(0)
+  /**
+   * Konta, których zdjęcie nie dało się wczytać. Trzymamy to na wątek, nie na
+   * komentarz: ta sama osoba wraca w rozmowie wielokrotnie, a jeden nieudany
+   * obrazek znaczy „to konto nie ma czym się pokazać", nie „ten jeden
+   * komentarz". Bez tego przeglądarka próbowałaby przy każdym komentarzu
+   * osobno i mrugała inicjałami.
+   */
+  const [brakZdjecia, setBrakZdjecia] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     async function loadComments() {
@@ -406,7 +415,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
               </div>
             </div>
 
-            {(task.date_due || task.date_start) && (
+            {(Boolean(task.date_due) || Boolean(task.date_start)) && (
               <div className="flex items-center gap-4 text-sm">
                 {task.date_start && (
                   <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -425,7 +434,12 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
               </div>
             )}
 
-            {(task.time_estimate || task.trackedTimeMs) && (
+            {/* Warunek przez `Boolean`, nie przez samo `||`. ClickUp oddaje puste
+                czasy jako `0`, a `(0 || 0) && ...` daje `0`, ktore React rysuje
+                w szufladzie jako samotne zero pod wierszem „Zgłoszone" (zgłoszone
+                przez Łukasza 28.08). Napis brał się z guarda, nie z danych, więc
+                żadna wartość w ClickUpie tego nie tłumaczyła. */}
+            {(Boolean(task.time_estimate) || Boolean(task.trackedTimeMs)) && (
               <div className="flex items-center gap-4 text-sm">
                 {task.time_estimate ? (
                   <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -444,6 +458,11 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                 ) : null}
               </div>
             )}
+
+            {/* Kto POZA zgłaszającym dostanie maila o tej sprawie. Stoi w bloku
+                nagłówka, przy datach i czasach, bo to jest ten sam rodzaj
+                informacji: fakty o zadaniu, nie rozmowa. */}
+            <TaskWatchers key={task.id} slug={slug} taskId={task.id} />
 
           </div>
 
@@ -579,11 +598,27 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                   const isEditing = editingCommentId === comment.id
                   return (
                     <div key={comment.id} className="flex gap-3">
+                      {/* Zdjęcie autora, a inicjały jako spód, nie jako plan B
+                          dorysowany warunkiem: kółko z inicjałami stoi zawsze,
+                          obrazek kładzie się na nim. Gdy zdjęcia nie ma, obrazka
+                          nie renderujemy wcale (serwer nie przysyła wtedy
+                          `avatarUserId`), a gdy jest, ale nie dojdzie, `onError`
+                          go zdejmuje i znów widać inicjały. Nigdy nie zostaje
+                          pusta dziura w miejscu twarzy. */}
                       <div
-                        className="h-7 w-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                        className="relative h-7 w-7 flex-shrink-0 overflow-hidden rounded-full flex items-center justify-center text-white text-xs font-bold"
                         style={{ backgroundColor: bgColor }}
                       >
-                        {initials}
+                        <span aria-hidden>{initials}</span>
+                        {comment.avatarUserId && !brakZdjecia.has(comment.avatarUserId) && (
+                          /* eslint-disable-next-line @next/next/no-img-element -- data URI z naszej trasy, bez optymalizacji Next */
+                          <img
+                            src={`/api/avatar?slug=${encodeURIComponent(slug)}&userId=${encodeURIComponent(comment.avatarUserId)}`}
+                            alt=""
+                            className="absolute inset-0 h-full w-full object-cover"
+                            onError={() => setBrakZdjecia(prev => new Set(prev).add(comment.avatarUserId!))}
+                          />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2 mb-1">

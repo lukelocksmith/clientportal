@@ -164,3 +164,83 @@ describe('statusKind', () => {
     assert.strictEqual(statusKind('weryfikacja'), 'status')
   })
 })
+
+describe('obserwatorzy zadania', () => {
+  it('obserwator dostaje maila OBOK zglaszajacego, nie zamiast niego', () => {
+    // Do 28.08 poczta szla wylacznie do autora zgloszenia, wiec osoba dopisana
+    // do sprawy nie miala jak dowiedziec sie o odpowiedzi bez wchodzenia do
+    // portalu. To jest cala funkcja obserwatora.
+    const r = chooseRecipients({
+      users: ZESPOL,
+      kind: 'comment',
+      actorUserId: null,
+      ownerUserId: 'dorota',
+      watcherUserIds: ['marek'],
+    })
+
+    assert.strictEqual(mailOf(r, 'dorota'), 'instant', 'zglaszajaca dalej dostaje maila')
+    assert.strictEqual(mailOf(r, 'marek'), 'instant', 'obserwator dostaje maila')
+    assert.strictEqual(mailOf(r, 'anna'), null, 'osoba spoza sprawy dalej bez maila')
+  })
+
+  it('wlasne „nigdy" obserwatora jest silniejsze niz obserwowanie', () => {
+    // Obserwowanie to zgoda na wiedze o sprawie, nie zgoda na poczte wbrew
+    // ustawieniu konta.
+    const cichy = user('marek', { notifyImportant: 'never', notifyBoard: 'never' })
+    const r = chooseRecipients({
+      users: [DOROTA, cichy],
+      kind: 'comment',
+      ownerUserId: 'dorota',
+      watcherUserIds: ['marek'],
+    })
+
+    assert.strictEqual(mailOf(r, 'marek'), null)
+  })
+
+  it('obserwator, ktory WLASNIE cos zrobil, nie dostaje maila o sobie', () => {
+    const r = chooseRecipients({
+      users: ZESPOL,
+      kind: 'comment',
+      actorUserId: 'marek',
+      ownerUserId: 'dorota',
+      watcherUserIds: ['marek'],
+    })
+
+    assert.strictEqual(r.find(x => x.userId === 'marek'), undefined, 'aktor wypada z listy w calosci')
+    assert.strictEqual(mailOf(r, 'dorota'), 'instant')
+  })
+
+  it('nieaktywne konto nie dostaje niczego, nawet gdy obserwuje', () => {
+    const zwolniony = user('marek', { isActive: false })
+    const r = chooseRecipients({
+      users: [DOROTA, zwolniony],
+      kind: 'comment',
+      ownerUserId: 'dorota',
+      watcherUserIds: ['marek'],
+    })
+
+    assert.strictEqual(r.find(x => x.userId === 'marek'), undefined)
+  })
+
+  it('brak obserwatorow zachowuje sie DOKLADNIE jak przed zmiana', () => {
+    // Regula domyslna nie moze sie ruszyc: to ona decyduje o poczcie dla
+    // wszystkich dzisiejszych projektow.
+    const bez = chooseRecipients({ users: ZESPOL, kind: 'comment', ownerUserId: 'dorota' })
+    const zPusta = chooseRecipients({ users: ZESPOL, kind: 'comment', ownerUserId: 'dorota', watcherUserIds: [] })
+
+    assert.deepStrictEqual(zPusta, bez)
+    assert.strictEqual(mailOf(bez, 'marek'), null)
+  })
+
+  it('zadanie agencji: mail i tak do wszystkich, obserwator niczego nie psuje', () => {
+    const r = chooseRecipients({
+      users: ZESPOL,
+      kind: 'status',
+      ownerUserId: null,
+      watcherUserIds: ['marek'],
+    })
+
+    assert.deepStrictEqual(byId(r), ['anna', 'dorota', 'marek'])
+    assert.strictEqual(mailOf(r, 'anna'), 'daily', 'reszta dalej dostaje wg wlasnych ustawien')
+  })
+})

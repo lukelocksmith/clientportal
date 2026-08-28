@@ -37,3 +37,17 @@ describe('link "Zobacz wiecej"', () => {
     assert.strictEqual(screen.queryByRole('link', { name: /Zobacz więcej/ }), null)
   })
 })
+
+describe('naglowek kolumny: po czyjej stronie', () => {
+  it('kolumna z podpisem pokazuje „po stronie X"', () => {
+    render(<KanbanColumn column={kolumna({ id: 'weryfikacja', title: 'weryfikacja', side: 'Onyx' })} onTaskClick={vi.fn()} />)
+
+    assert.ok(screen.getByText('po stronie Onyx'))
+  })
+
+  it('kolumna bez podpisu nie rysuje pustego wiersza', () => {
+    render(<KanbanColumn column={kolumna({ id: 'w trakcie', title: 'w trakcie', side: null })} onTaskClick={vi.fn()} />)
+
+    assert.strictEqual(screen.queryByText(/po stronie/), null)
+  })
+})

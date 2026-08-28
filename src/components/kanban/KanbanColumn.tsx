@@ -28,16 +28,31 @@ export function KanbanColumn({ column, onTaskClick, dragging = false }: KanbanCo
           kontenerem i lewe krawędzie się nie zgadzały — drobiazg, ale to on
           decyduje, czy tablica wygląda na złożoną z kolumn, czy z luźnych
           elementów. */}
-      <div className="mb-2 flex items-center gap-2 px-2">
-        <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: column.color }} />
-        <h3 className="text-[13px] font-semibold text-foreground capitalize">
-          {column.title}
-        </h3>
-        {/* Licznik bez tła: wypełniona plakietka przy każdej z pięciu kolumn
-            konkurowała wagą z nazwą kolumny, a jest informacją drugorzędną. */}
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {column.tasks.length}
-        </span>
+      {/* STAŁA wysokość nagłówka. Podpis „po stronie" ma tylko część kolumn,
+          a bez zarezerwowanego miejsca kolumny bez podpisu zaczynały listę
+          wyżej niż sąsiedzi i tablica wyglądała na krzywą. */}
+      <div className="mb-2 h-8 px-2">
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: column.color }} />
+          <h3 className="text-[13px] font-semibold text-foreground capitalize">
+            {column.title}
+          </h3>
+          {/* Licznik bez tła: wypełniona plakietka przy każdej z pięciu kolumn
+              konkurowała wagą z nazwą kolumny, a jest informacją drugorzędną. */}
+          <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+            {column.tasks.length}
+          </span>
+        </div>
+        {/* Po czyjej stronie stoi piłka. „Przegląd" i „weryfikacja" brzmią
+            niemal tak samo, a znaczą coś przeciwnego, więc bez tego podpisu
+            klient nie ma jak odróżnić „sprawdzamy" od „czekamy na Ciebie".
+            Wyrównane do nazwy statusu, nie do kropki: kropka jest znacznikiem
+            koloru, a nie początkiem tekstu. */}
+        {column.side && (
+          <p className="mt-0.5 pl-4 text-[11px] leading-none text-muted-foreground">
+            po stronie {column.side}
+          </p>
+        )}
       </div>
 
       {/* Drop zone */}

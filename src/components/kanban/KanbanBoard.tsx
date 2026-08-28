@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/core'
 import { useSearchParams } from 'next/navigation'
 import type { ClickUpTask, KanbanColumn } from '@/lib/types'
-import { getStatusColor, STATUS_COLUMNS, TASK_STATUS_CLOSED } from '@/lib/utils'
+import { getStatusColor, statusSide, STATUS_COLUMNS, TASK_STATUS_CLOSED } from '@/lib/utils'
 import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
@@ -72,7 +72,9 @@ const CLOSED_COLUMN_LIMIT = 5
 export function buildColumns(
   tasks: ClickUpTask[],
   closedMoreHref: string | null,
-  applyClosedLimit: boolean
+  applyClosedLimit: boolean,
+  /** Nazwa projektu, do podpisu „po stronie ..." przy statusie weryfikacji. */
+  portalName = ''
 ): KanbanColumn[] {
   const tasksByStatus: Record<string, ClickUpTask[]> = {}
 
@@ -112,6 +114,7 @@ export function buildColumns(
       type: tasks.find(t => t.status.status === status)?.status.type ?? 'open',
       tasks: columnTasks,
       moreHref: isClosedColumn ? closedMoreHref : null,
+      side: statusSide(status, portalName),
     }
   })
 }
@@ -186,7 +189,7 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
     ? `/${slug}/historia?status=${encodeURIComponent(CLOSED_STATUS)}`
     : null
 
-  const columns = buildColumns(tasks, closedMoreHref, statusControlsEnabled)
+  const columns = buildColumns(tasks, closedMoreHref, statusControlsEnabled, portalName)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),

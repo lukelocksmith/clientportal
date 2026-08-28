@@ -88,6 +88,21 @@ export type ChooseInput = {
    * kategoria nie powiadomiłaby nigdy nikogo.
    */
   ownerUserId?: string | null
+  /**
+   * Kto DODATKOWO obserwuje to zadanie. Ci dostają maila niezależnie od tego,
+   * kto sprawę zgłosił.
+   *
+   * Powód istnienia: do 28.08 poczta chodziła wyłącznie do autora zgłoszenia,
+   * więc osoba dopisana do sprawy (szef, druga osoba z zespołu klienta,
+   * ktokolwiek zainteresowany) nie miała jak się dowiedzieć o odpowiedzi bez
+   * wchodzenia do portalu. Obserwator to jawny wybór człowieka przy konkretnym
+   * zadaniu, nie globalna preferencja, więc stoi obok `ownerUserId`, a nie
+   * zamiast niego.
+   *
+   * Własne preferencje obserwatora nadal obowiązują: `never` znaczy „nie
+   * chcę poczty" i obserwowanie tego nie przełamuje.
+   */
+  watcherUserIds?: readonly string[]
 }
 
 /**
@@ -97,7 +112,8 @@ export type ChooseInput = {
  * dzwonek. Pole `mail` mówi dodatkowo, czy i jak szybko idzie poczta.
  */
 export function chooseRecipients(input: ChooseInput): Recipient[] {
-  const { users, kind, actorUserId = null, ownerUserId = null } = input
+  const { users, kind, actorUserId = null, ownerUserId = null, watcherUserIds = [] } = input
+  const watchers = new Set(watcherUserIds)
 
   const audience = users.filter(u => u.isActive && u.id !== actorUserId)
 
@@ -109,7 +125,12 @@ export function chooseRecipients(input: ChooseInput): Recipient[] {
   const mailToEveryone = ownerUserId == null
 
   return audience.map(user => {
-    const wantsMail = mailToEveryone || (ownerIsAudience && user.id === ownerUserId)
+    // Obserwator dostaje pocztę OBOK zwykłej reguły, nie zamiast niej. Aktor
+    // nadal nic nie dostaje: odfiltrowany jest wyżej, przy `audience`, więc
+    // dopisanie siebie do obserwowanych nie zaczyna wysyłać maili o własnych
+    // ruchach.
+    const wantsMail =
+      mailToEveryone || (ownerIsAudience && user.id === ownerUserId) || watchers.has(user.id)
     if (!wantsMail) return { userId: user.id, mail: null }
 
     const mode = modeFor(user, kind)

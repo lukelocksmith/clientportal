@@ -114,3 +114,7 @@ main().catch(e => {
   console.error(e)
   process.exit(1)
 })
+
+// Modul, nie skrypt globalny: inaczej `main` koliduje z innymi skryptami
+// w tym katalogu (TS widzi je w jednym projekcie).
+export {}

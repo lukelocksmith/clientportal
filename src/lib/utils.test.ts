@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert'
-import { formatDate, formatDateRange, getStatusColor, isAwaria, isOverdue, sortOldestFirst, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
+import { formatDate, formatDateRange, getStatusColor, isAwaria, isOverdue, sortOldestFirst, statusSide, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
 
 /** ClickUp podaje daty jako milisekundy w łańcuchu znaków. */
 const ms = (iso: string) => String(new Date(iso).getTime())
@@ -158,6 +158,35 @@ describe('STATUS_COLUMNS kontra STATUS_COLORS', () => {
  * P2=high, P3=normal), wiec jedynym nosnikiem jest tag. Jesli to rozpoznanie
  * zawiedzie, alarm wyglada na tablicy jak zwykle pilne zadanie.
  */
+describe('po czyjej stronie stoi status', () => {
+  it('przeglad jest po naszej stronie, weryfikacja po stronie klienta', () => {
+    // Te dwie nazwy brzmia niemal tak samo, a znacza cos przeciwnego. To jest
+    // caly powod istnienia tego podpisu.
+    assert.strictEqual(statusSide('przegląd', 'Onyx'), 'important.is')
+    assert.strictEqual(statusSide('weryfikacja', 'Onyx'), 'Onyx')
+  })
+
+  it('nazwa klienta jest PODSTAWIANA z projektu, nie ogolna', () => {
+    assert.strictEqual(statusSide('weryfikacja', 'WDF'), 'WDF')
+    assert.strictEqual(statusSide('weryfikacja', 'Woda dla Firmy'), 'Woda dla Firmy')
+  })
+
+  it('pozostale statusy nie dostaja podpisu', () => {
+    // Przy „w trakcie" czy „zablokowane" strona bywa rozna i wpisanie jednej
+    // byloby zgadywaniem za zespol.
+    for (const s of ['backlog', 'do zrobienia', 'w trakcie', 'zablokowane', 'zamknięte']) {
+      assert.strictEqual(statusSide(s, 'Onyx'), null, `status „${s}" nie powinien miec strony`)
+    }
+    assert.strictEqual(statusSide('status spoza listy', 'Onyx'), null)
+  })
+
+  it('brak nazwy projektu nie zostawia „po stronie" bez konca zdania', () => {
+    // Kolumna dopisuje „po stronie {X}". Pusty X dalby urwane zdanie.
+    assert.strictEqual(statusSide('weryfikacja', ''), null)
+    assert.strictEqual(statusSide('weryfikacja', '   '), null)
+  })
+})
+
 describe('isAwaria', () => {
   it('lapie tag niezaleznie od wielkosci liter i spacji', () => {
     // Tag nadaje tez czlowiek recznie w ClickUpie, a tam nikt nie pilnuje

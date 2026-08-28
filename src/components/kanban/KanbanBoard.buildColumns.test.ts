@@ -100,3 +100,21 @@ describe('buildColumns', () => {
     assert.strictEqual(kolumnaZamkniete.moreHref, null, 'bez linku przy wylaczonej fladze')
   })
 })
+
+describe('podpis „po stronie" na kolumnach', () => {
+  it('przeglad dostaje nas, weryfikacja nazwe projektu, reszta nic', () => {
+    const kolumny = buildColumns([], null, true, 'Onyx')
+
+    assert.strictEqual(kolumny.find(k => k.id === 'przegląd')!.side, 'important.is')
+    assert.strictEqual(kolumny.find(k => k.id === 'weryfikacja')!.side, 'Onyx')
+    assert.strictEqual(kolumny.find(k => k.id === 'w trakcie')!.side, null)
+  })
+
+  it('bez nazwy projektu weryfikacja NIE dostaje urwanego podpisu', () => {
+    // Domyslny pusty argument istnieje dla starszych wywolan; ma dawac brak
+    // podpisu, a nie „po stronie ".
+    const kolumny = buildColumns([], null, true)
+    assert.strictEqual(kolumny.find(k => k.id === 'weryfikacja')!.side, null)
+    assert.strictEqual(kolumny.find(k => k.id === 'przegląd')!.side, 'important.is')
+  })
+})

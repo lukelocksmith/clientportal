@@ -40,6 +40,17 @@ describe('formatowanie liczb', () => {
     assert.strictEqual(fmtNum(0), '0')
   })
 
+  it('brak liczby to myslnik, nie wysypany panel', () => {
+    // Dane ida z JSON-a, wiec `undefined` przechodzi przez typ `number` bez
+    // ostrzezenia, a `undefined.toFixed()` wywala caly widok zuzycia, nie
+    // jedna komorke.
+    const brak = undefined as unknown as number
+    assert.strictEqual(fmtUsd(brak), '—')
+    assert.strictEqual(fmtNum(brak), '—')
+    assert.strictEqual(fmtUsd(null as unknown as number), '—')
+    assert.strictEqual(fmtUsd(NaN), '—')
+  })
+
   it('brak daty to myslnik, nie „Invalid Date"', () => {
     assert.strictEqual(fmtDate(null), '—')
     assert.strictEqual(fmtDate('to nie jest data'), '—')

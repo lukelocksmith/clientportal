@@ -82,10 +82,14 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('wczytywanie watku', () => {
-  it('REGRESJA: OBA wywolania niosa ?slug, nie tylko jedno', async () => {
+  it('REGRESJA: KAZDE wywolanie szuflady niesie ?slug, nie tylko jedno', async () => {
+    // Liczba wywolan rosnie razem z szuflada (komentarze, zalaczniki,
+    // obserwatorzy), wiec test pilnuje WARUNKU, nie liczby: sluga musi miec
+    // kazde z nich. Wersja liczaca do dwoch przestala by cokolwiek sprawdzac
+    // przy pierwszym nowym pobraniu.
     render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
 
-    await waitFor(() => assert.strictEqual(fetchMock.mock.calls.length, 2))
+    await waitFor(() => assert.ok(fetchMock.mock.calls.length >= 3, 'komentarze, zalaczniki, obserwatorzy'))
 
     const adresy = fetchMock.mock.calls.map(c => c[0] as string)
     // Bez sluga przy komentarzach admin widzial pusty watek obok dzialajacych
@@ -94,6 +98,7 @@ describe('wczytywanie watku', () => {
       assert.match(adres, /slug=wdf/, `brak sluga w ${adres}`)
     }
     assert.ok(adresy.some(a => a.includes('/comments')), 'watek komentarzy pobrany')
+    assert.ok(adresy.some(a => a.includes('/watchers')), 'lista powiadamianych pobrana')
   })
 
   it('slug jest kodowany, wiec znaki specjalne nie rozbijaja adresu', async () => {
@@ -675,6 +680,81 @@ describe('zglaszajacy', () => {
     await screen.findByText('Brak komentarzy')
 
     assert.strictEqual(screen.queryByText('Anna Klient') === null, true)
+  })
+})
+
+describe('zdjecie autora przy komentarzu', () => {
+  it('komentarz z avatarUserId dostaje obrazek z naszej trasy, ze slugiem', async () => {
+    odpowiadaj({
+      komentarze: [
+        { id: 'k1', comment_text: 'Poprawione', sender: 'Łukasz Ślusarski', date: '1700000000000', avatarUserId: 'u-1' },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    await screen.findByText('Poprawione')
+    const img = document.querySelector('img[src*="/api/avatar"]') as HTMLImageElement | null
+    assert.ok(img, 'brak obrazka zdjecia autora')
+    assert.match(img.getAttribute('src') ?? '', /userId=u-1/, 'brak userId w adresie')
+    assert.match(img.getAttribute('src') ?? '', /slug=wdf/, 'brak sluga: trasa avatara odbija 401 bez niego')
+  })
+
+  it('bez avatarUserId zostaja inicjaly i ZERO strzalow po obrazek', async () => {
+    // Kazde konto bez zdjecia to inaczej jeden 404 na komentarz.
+    odpowiadaj({
+      komentarze: [
+        { id: 'k1', comment_text: 'Dziekuje', sender: 'Klient testowy', date: '1700000000000' },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    await screen.findByText('Dziekuje')
+    assert.strictEqual(document.querySelector('img[src*="/api/avatar"]'), null)
+    assert.ok(screen.getByText('KL'), 'inicjaly musza zostac')
+  })
+
+  it('inicjaly stoja POD obrazkiem, wiec nieudane zdjecie nie zostawia dziury', async () => {
+    odpowiadaj({
+      komentarze: [
+        { id: 'k1', comment_text: 'Tresc', sender: 'Łukasz Ślusarski', date: '1700000000000', avatarUserId: 'u-1' },
+      ],
+    })
+    render(<TaskDrawer task={zadanie()} {...wlasciwosci} />)
+
+    await screen.findByText('Tresc')
+    // Inicjaly sa w drzewie ROWNOCZESNIE z obrazkiem, nie zamiast niego.
+    assert.ok(screen.getByText('ŁU'), 'inicjaly musza byc pod obrazkiem')
+    assert.ok(document.querySelector('img[src*="/api/avatar"]'), 'obrazek tez')
+  })
+})
+
+describe('blok czasow i dat w naglowku', () => {
+  it('REGRESJA: zerowe czasy z ClickUpa NIE rysuja samotnego „0"', async () => {
+    // ClickUp oddaje puste czasy jako 0, nie null. Warunek
+    // `(0 || 0) && (...)` daje 0, a React rysuje zero jako tekst: pod wierszem
+    // „Zgłoszone" wisiala goła cyfra, ktorej nie tlumaczyla zadna wartosc
+    // w zadaniu. Zglosil Lukasz 28.08, patrzac na produkcje.
+    render(<TaskDrawer task={zadanie({ time_estimate: 0, trackedTimeMs: 0 })} {...wlasciwosci} />)
+
+    await screen.findByText('Brak komentarzy')
+
+    const zera = screen.queryAllByText('0')
+    assert.strictEqual(zera.length, 0, `szuflada rysuje samotne zero (${zera.length} razy)`)
+  })
+
+  it('zerowe daty tez nie zostawiaja smiecia w naglowku', async () => {
+    render(<TaskDrawer task={zadanie({ date_due: '', date_start: '' })} {...wlasciwosci} />)
+
+    await screen.findByText('Brak komentarzy')
+    assert.strictEqual(screen.queryByText('Termin:'), null, 'pusty termin nie moze sie pokazac')
+  })
+
+  it('prawdziwe czasy nadal sie pokazuja', async () => {
+    render(<TaskDrawer task={zadanie({ time_estimate: 5400_000, trackedTimeMs: 3600_000 })} {...wlasciwosci} />)
+
+    await screen.findByText('Brak komentarzy')
+    assert.ok(screen.getByText(/Szacowany:/), 'estymata musi byc widoczna')
+    assert.ok(screen.getByText(/Track Time:/), 'Track Time musi byc widoczny')
   })
 })
 

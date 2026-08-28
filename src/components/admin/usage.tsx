@@ -12,8 +12,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
  * zawsze rozjedzie się w tę stronę, w której nikt nie patrzy.
  */
 
-export const fmtNum = (n: number) => Math.round(n).toLocaleString('pl-PL')
-export const fmtUsd = (n: number) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
+/**
+ * Liczby z API zużycia bywają puste: nowy dostawca bez wyceny, wiersz zliczony
+ * przed wpisaniem stawki, pole, którego zapytanie nie policzyło. `undefined`
+ * przechodzi przez typ `number` bez ostrzeżenia (dane idą z JSON-a), a
+ * `undefined.toFixed()` wysypuje CAŁY panel, nie jedną komórkę. Dlatego obie
+ * funkcje odsiewają wartości nieliczbowe i rysują myślnik, tak samo jak
+ * `fmtDate` przy braku daty.
+ */
+const liczba = (n: unknown): number | null =>
+  typeof n === 'number' && Number.isFinite(n) ? n : null
+
+export const fmtNum = (n: number) => {
+  const v = liczba(n)
+  return v === null ? '—' : Math.round(v).toLocaleString('pl-PL')
+}
+
+export const fmtUsd = (n: number) => {
+  const v = liczba(n)
+  return v === null ? '—' : '$' + (v < 1 ? v.toFixed(4) : v.toFixed(2))
+}
 
 export function fmtDate(iso: string | null): string {
   if (!iso) return '—'

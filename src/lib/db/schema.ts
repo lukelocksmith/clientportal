@@ -623,6 +623,37 @@ export const taskComments = pgTable('task_comments', {
   taskIdx: index('task_comments_task_idx').on(t.portalId, t.clickupTaskId, t.publishedAt),
 }))
 
+/**
+ * Obserwatorzy zadania: kto POZA zgłaszającym ma dostawać maila o sprawie.
+ *
+ * Powstało 28.08, bo poczta o komentarzu i zmianie statusu szła wyłącznie do
+ * autora zgłoszenia (lib/notifications.ts, chooseRecipients). Druga osoba
+ * zainteresowana sprawą, choćby przełożony albo ktoś, komu zadanie przekazano,
+ * nie miała jak się dowiedzieć o odpowiedzi bez wchodzenia do portalu.
+ *
+ * To NIE jest lustro watcherów z ClickUpa. ClickUp ma własne obserwowanie,
+ * którego publiczne API nie pozwala ustawiać, więc obie listy żyją osobno:
+ * ta rozstrzyga wyłącznie o naszych powiadomieniach dla klienta.
+ *
+ * Zadanie jest identyfikowane po `clickup_task_id`, nie po kluczu obcym: tak
+ * samo jak w `task_comments` i `task_index`, bo zadania nie mają wiersza we
+ * własnej bazie. Para (zadanie, konto) jest unikalna, więc dopisanie tej samej
+ * osoby drugi raz nie tworzy duplikatu ani drugiego maila.
+ */
+export const taskWatchers = pgTable('task_watchers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  clickupTaskId: text('clickup_task_id').notNull(),
+  /** Kto obserwuje. Usunięcie konta kasuje obserwowanie razem z nim. */
+  userId: uuid('user_id').notNull().references(() => portalUsers.id, { onDelete: 'cascade' }),
+  /** Kto dopisał. NULL dla sesji admina, która nie jest wierszem w portal_users. */
+  addedBy: uuid('added_by').references(() => portalUsers.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  unikat: uniqueIndex('task_watchers_task_user_idx').on(t.portalId, t.clickupTaskId, t.userId),
+  taskIdx: index('task_watchers_task_idx').on(t.portalId, t.clickupTaskId),
+}))
+
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   /** NULL dla sesji admina (nie jest wierszem w portal_users) i po usunięciu konta. */

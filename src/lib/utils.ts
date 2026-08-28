@@ -233,6 +233,34 @@ export const STATUS_COLORS: Record<string, string> = {
 }
 
 /**
+ * Po czyjej stronie stoi zadanie w danym statusie.
+ *
+ * Nazwy statusów są z ClickUpa i takie zostają (portal odwzorowuje źródło,
+ * nie wymyśla własnego słownictwa), ale sama nazwa nie mówi klientowi rzeczy
+ * najważniejszej: czy piłka jest u nas, czy u niego. „Przegląd" i
+ * „weryfikacja" brzmią niemal tak samo, a znaczą coś przeciwnego:
+ *
+ *   - przegląd    — robota jest po naszej stronie, sprawdza ją zespół,
+ *   - weryfikacja — czekamy na klienta, dopóki nie potwierdzi.
+ *
+ * Zwracamy nazwę strony, nie gotowe zdanie, żeby to widok decydował, jak ją
+ * napisać. Nazwa klienta jest podstawiana z projektu, więc w portalu Onyx
+ * stoi „Onyx", a nie ogólne „klient": u klienta w portalu ogólnik czyta się
+ * jak cudzy tekst, nie jak informacja o jego sprawie.
+ *
+ * Pozostałe statusy zwracają `null`, czyli „nie dopisujemy nic". Świadomie:
+ * przy „w trakcie" czy „zablokowane" strona bywa różna i wpisanie jednej
+ * byłoby zgadywaniem za zespół.
+ */
+export const AGENCY_SIDE = 'important.is'
+
+export function statusSide(status: string, portalName: string): string | null {
+  if (status === 'przegląd') return AGENCY_SIDE
+  if (status === 'weryfikacja') return portalName.trim() || null
+  return null
+}
+
+/**
  * Szary dla statusu, którego nie znamy. Celowo taki sam jak kolor backlogu:
  * nieznany status i tak ląduje w kanbanie w kolumnie "backlog", więc pigułka
  * w innym kolorze niż kolumna wyglądałaby na błąd renderowania.

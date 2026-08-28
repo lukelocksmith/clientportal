@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull } from 'drizzle-orm'
 import { db } from './db'
 import { portalUsers } from './db/schema'
 
@@ -72,6 +72,21 @@ export async function getAvatarDataUri(userId: string, portalId: string): Promis
     .where(and(eq(portalUsers.id, userId), eq(portalUsers.portalId, portalId)))
     .limit(1)
   return row?.avatarUrl ?? null
+}
+
+/**
+ * Konta TEGO portalu, które mają wgrane zdjęcie. Tylko `id` i `name`.
+ *
+ * Zapytanie celowo NIE bierze kolumny `avatar_url`: to data URI, dziesiątki
+ * kilobajtów na wiersz, a tutaj potrzebna jest wyłącznie informacja „ma
+ * zdjęcie". Zdjęcie idzie osobno, trasą `/api/avatar`, i tam podlega cache
+ * przeglądarki (patrz komentarz przy kolumnie `avatar_url` w schemacie).
+ */
+export async function listAvatarOwners(portalId: string): Promise<Array<{ id: string; name: string | null }>> {
+  return db
+    .select({ id: portalUsers.id, name: portalUsers.name })
+    .from(portalUsers)
+    .where(and(eq(portalUsers.portalId, portalId), isNotNull(portalUsers.avatarUrl)))
 }
 
 /**

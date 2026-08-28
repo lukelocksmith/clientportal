@@ -5,6 +5,7 @@ import { portals, portalUsers } from './db/schema'
 import { resolveBranding } from './branding'
 import { sendMail } from './mailer'
 import { chooseRecipients } from './notifications'
+import { watcherUserIds } from './taskWatchers'
 import { claimEvent, releaseEvent, createNotifications } from './notificationStore'
 import {
   channelEnabled,
@@ -193,9 +194,12 @@ async function deliver(
   const bellOn = channelEnabled(config, input.event, 'bell')
   const mailOn = channelEnabled(config, input.event, 'mail')
 
-  const [actorUserId, ownerUserId, users] = await Promise.all([
+  const [actorUserId, ownerUserId, watchers, users] = await Promise.all([
     detectActor(input),
     reporterUserId(input.portalId, input.taskId),
+    // Obserwatorzy TEGO zadania: dostają pocztę obok autora zgłoszenia.
+    // Zapytanie idzie równolegle z resztą, bo nic od nich nie zależy.
+    watcherUserIds(input.portalId, input.taskId),
     db
       .select({
         id: portalUsers.id,
@@ -213,12 +217,14 @@ async function deliver(
     kind: input.event,
     actorUserId,
     ownerUserId,
+    watcherUserIds: watchers,
   })
   if (recipients.length === 0) return { bell: 0, mailed: 0, reason: 'no-audience' }
 
   /**
    * Kto dostaje maila: ci, którym `chooseRecipients` przypisał kanał poczty,
-   * czyli autor zgłoszenia (albo wszyscy, gdy zadanie założyła agencja).
+   * czyli autor zgłoszenia (albo wszyscy, gdy zadanie założyła agencja) oraz
+   * osoby dopisane do tego zadania jako obserwatorzy.
    *
    * TRYB `daily` traktujemy tu jak `instant`, bo digestu jeszcze nie ma. Gdyby
    * `daily` znaczyło „nie wysyłaj teraz", ruch na tablicy nie powiadamiałby

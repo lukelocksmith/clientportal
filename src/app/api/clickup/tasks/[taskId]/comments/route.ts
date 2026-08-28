@@ -9,6 +9,8 @@ import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
 import { filterPublicComments, buildOwnComment, PUBLIC_PREFIX, AGENCY_SENDER } from '@/lib/publicComments'
 import { logEvent, getOwnedCommentIds, EVENT_COMMENT_ADDED } from '@/lib/portalEvents'
 import { recordClientComment } from '@/lib/taskComments'
+import { listAvatarOwners } from '@/lib/profileStore'
+import { buildAvatarIndex, avatarUserIdForSender } from '@/lib/commentAvatars'
 import { sortOldestFirst } from '@/lib/utils'
 
 export async function GET(
@@ -46,10 +48,18 @@ export async function GET(
     },
   })
 
+  /**
+   * Zdjęcia autorów: z nazwy w podpisie na konto portalu, po stronie serwera.
+   * Jedno zapytanie na wątek, bo w rozmowie ta sama osoba wraca wielokrotnie.
+   * Do przeglądarki idzie identyfikator, nie obrazek (patrz commentAvatars.ts).
+   */
+  const avatarIndex = buildAvatarIndex(await listAvatarOwners(portal.id))
+
   return NextResponse.json({
     comments: visible.map(c => ({
       ...c,
       isOwn: ownedIds.has(c.id),
+      avatarUserId: avatarUserIdForSender(avatarIndex, c.sender),
       blocks: c.blocks ? applyTaskMentions(c.blocks, names) : undefined,
     })),
   })
@@ -127,5 +137,14 @@ export async function POST(
     console.error(`[comments] zapis do task_comments dla ${created.id} nie powiódł się:`, e)
   }
 
-  return NextResponse.json({ comment })
+  /**
+   * Zdjęcie też przy świeżo dodanym komentarzu. Bez tego własna wypowiedź
+   * stała z inicjałami do pierwszego odświeżenia wątku, choć zdjęcie było
+   * w profilu: szuflada renderuje ten obiekt od razu, bez ponownego GET-a.
+   */
+  const avatarIndex = buildAvatarIndex(await listAvatarOwners(session.portalId))
+
+  return NextResponse.json({
+    comment: { ...comment, avatarUserId: avatarUserIdForSender(avatarIndex, comment.sender) },
+  })
 }

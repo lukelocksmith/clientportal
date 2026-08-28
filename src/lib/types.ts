@@ -57,6 +57,14 @@ export type ClickUpComment = {
   /** Czy TEN zalogowany dodal ten komentarz z portalu — steruje przyciskami edycji/usuwania. */
   isOwn?: boolean
   /**
+   * Konto portalu, którego zdjęcie ma stanąć przy komentarzu, albo brak.
+   * Rozstrzyga serwer, po nazwie autora (patrz lib/commentAvatars.ts): sam
+   * komentarz z ClickUpa nie wie, kto z portalu go napisał. Nie jest to adres
+   * obrazka, tylko identyfikator dla trasy `/api/avatar`, bo data URI
+   * w payloadzie wątku to dziesiątki kilobajtów na komentarz.
+   */
+  avatarUserId?: string | null
+  /**
    * Treść jako drzewo bloków, gotowa do wyświetlenia: formatowanie z ClickUpa,
    * zdjęty znacznik `[P]`, wzmianki o zadaniach rozwiązane po stronie serwera
    * (nazwa tylko dla zadań z tego portalu). Dokłada `filterPublicComments`.
@@ -164,6 +172,12 @@ export type KanbanColumn = {
   tasks: ClickUpTask[]
   /** Link "Zobacz wiecej" pod lista — dziś tylko kolumna "zamkniete", i tylko gdy Historia jest wlaczona. Null = bez linku. */
   moreHref?: string | null
+  /**
+   * Po czyjej stronie stoi zadanie w tej kolumnie: „important.is" albo nazwa
+   * projektu. Null dla statusów, przy których strona bywa różna (patrz
+   * `statusSide` w lib/utils.ts). Nagłówek kolumny dopisuje to pod nazwą.
+   */
+  side?: string | null
 }
 
 // Chat message

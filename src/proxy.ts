@@ -123,6 +123,14 @@ export function proxy(request: NextRequest) {
    */
   if (isSitepingWidgetPath(pathname)) return next()
 
+  /**
+   * Podglądy deweloperskie (`/dev/...`) nie mają sesji portalu i mieć jej nie
+   * mogą: to strony na danych z palca, do patrzenia na wygląd bez bazy. Same
+   * strony w produkcji nie istnieją (`notFound()`), a ten wyjątek dodatkowo
+   * działa TYLKO poza produkcją, więc nie otwiera niczego na zewnątrz.
+   */
+  if (process.env.NODE_ENV !== 'production' && pathname.startsWith('/dev/')) return next()
+
   // Extract slug from path like /wdf or /wdf/chat
   const slugMatch = pathname.match(/^\/([a-z0-9-]+)(\/.*)?$/)
   if (!slugMatch) return next()

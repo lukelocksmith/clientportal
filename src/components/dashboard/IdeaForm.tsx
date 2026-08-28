@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { CheckCircle2, Loader2, Lightbulb, Paperclip, X } from 'lucide-react'
+import { CheckCircle2, Loader2, Lightbulb, Paperclip, X } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { useImageAttachments } from '@/components/shared/useImageAttachments'
 

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { ShieldAlert } from 'lucide-react'
+import { ShieldAlert } from '@/lib/icons'
 import { getPortalForSession } from '@/lib/portalSession'
 import { normalizeActorId } from '@/lib/reporter'
 import { avatarInitials } from '@/lib/profile'

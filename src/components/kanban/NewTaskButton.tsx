@@ -1,5 +1,5 @@
 'use client'
-import { Plus, ChevronDown, PenLine, MessageSquare } from 'lucide-react'
+import { Plus, ChevronDown, PenLine, MessageSquare } from '@/lib/icons'
 import {
   DropdownMenu,
   DropdownMenuTrigger,

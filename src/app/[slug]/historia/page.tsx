@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ChevronRight, Clock } from 'lucide-react'
+import { ChevronRight, Clock } from '@/lib/icons'
 import { getHistoryFacets, queryHistory } from '@/lib/taskIndex'
 import { getLastSuccessfulRun } from '@/lib/cronRuns'
 import { isTabEnabled } from '@/lib/portalTabs'

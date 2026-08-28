@@ -72,6 +72,62 @@ export function formatDate(dateString: string | null | undefined, now: Date = ne
 }
 
 /**
+ * Zakres „start i termin" w jednej plakietce, bez powtarzania miesiąca:
+ * „26–28 sie" zamiast „26 sie – 28 sie".
+ *
+ * Powód jest przestrzenny i twardy: karta ma jeden wiersz metadanych w kolumnie
+ * o stałej szerokości, a powtórzony miesiąc zabiera tyle miejsca, że przy karcie
+ * z pełnym zestawem (alarm, priorytet, obie daty, estymata, Track Time) wiersz
+ * przestaje się mieścić i zawija. Skracamy tylko wtedy, gdy końcówki są
+ * identyczne, więc „26 sie – 3 wrz" i „28 gru – 4 sty 2027" zostają w całości.
+ *
+ * Brak startu daje sam termin, bo tak wygląda większość naszych zadań. Brak
+ * terminu daje „od 26 sie", żeby data nie czytała się jako deadline.
+ */
+export function formatDateRange(
+  start: string | null | undefined,
+  due: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  const s = formatDate(start, now)
+  const d = formatDate(due, now)
+  if (!d) return s ? `od ${s}` : ''
+  if (!s) return d
+  const cut = (v: string) => {
+    const i = v.indexOf(' ')
+    return i === -1 ? { day: v, rest: '' } : { day: v.slice(0, i), rest: v.slice(i + 1) }
+  }
+  const a = cut(s)
+  const b = cut(d)
+  return a.rest && a.rest === b.rest ? `${a.day}\u2013${d}` : `${s} \u2013 ${d}`
+}
+
+/**
+ * Czy termin już minął, licząc CAŁYMI DNIAMI.
+ *
+ * Zadanie z terminem „dziś" nie jest spóźnione o godzinie 14:00, bo termin
+ * dotyczy dnia, nie chwili; ClickUp trzyma godzinę tylko dlatego, że wszystko
+ * trzyma jako znacznik czasu. Porównanie na surowych milisekundach zapalałoby
+ * czerwień od rana w dniu terminu, czyli mówiłoby klientowi, że jesteśmy
+ * spóźnieni, kiedy nie jesteśmy.
+ *
+ * Zadania zamknięte nigdy nie są spóźnione: skoro rzecz jest zrobiona, termin
+ * przestaje być informacją o ryzyku.
+ */
+export function isOverdue(
+  dateDue: string | null | undefined,
+  statusType: string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!dateDue || statusType === 'closed' || statusType === 'done') return false
+  const due = new Date(Number(dateDue))
+  if (Number.isNaN(due.getTime())) return false
+  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate())
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return dueDay.getTime() < today.getTime()
+}
+
+/**
  * Nazwy priorytetów, po polsku, ale to nazwy Z CLICKUPA, nie z umowy.
  *
  * Portal odwzorowuje ClickUp i nie wprowadza własnego słownictwa dla cudzych

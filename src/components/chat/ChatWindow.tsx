@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
-import { Send, Loader2, Bot, X, Plus, Paperclip } from 'lucide-react'
+import { Send, Loader2, Bot, X, Plus, Paperclip } from '@/lib/icons'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useImageAttachments } from '@/components/shared/useImageAttachments'
 

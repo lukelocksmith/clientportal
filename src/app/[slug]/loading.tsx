@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2 } from '@/lib/icons'
 
 /**
  * Szkielet ładowania dla wszystkich zakładek portalu. Strony tego segmentu

@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ExternalLink, Lightbulb, MessageSquare, Plus } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Lightbulb, MessageSquare, Plus } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 

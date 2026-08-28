@@ -12,7 +12,7 @@ import {
   MessageSquare,
   Monitor,
   Plus,
-} from 'lucide-react'
+} from '@/lib/icons'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { deviceLabel } from '@/lib/deviceLabel'
 

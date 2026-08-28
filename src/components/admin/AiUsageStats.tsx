@@ -1,5 +1,5 @@
 'use client'
-import { BarChart3 } from 'lucide-react'
+import { BarChart3 } from '@/lib/icons'
 import { Breakdown, BreakdownRow, Metric, fmtNum, fmtUsd } from '@/components/admin/usage'
 
 /**

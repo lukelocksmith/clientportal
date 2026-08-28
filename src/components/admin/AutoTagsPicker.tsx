@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, Loader2, X } from 'lucide-react'
+import { Check, ChevronDown, Loader2, X } from '@/lib/icons'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 

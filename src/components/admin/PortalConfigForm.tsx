@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Check, Loader2, Upload, X } from 'lucide-react'
+import { Check, Loader2, Upload, X } from '@/lib/icons'
 import { DEFAULT_BRAND_COLOR, normalizeHexColor, readableForeground, isSafeLogoUrl } from '@/lib/branding'
 import { isPlausibleEmail, normalizePhone } from '@/lib/portalContact'
 import { Button } from '@/components/ui/button'

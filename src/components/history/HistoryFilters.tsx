@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { ChevronDown, X } from 'lucide-react'
+import { ChevronDown, X } from '@/lib/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,

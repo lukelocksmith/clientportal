@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useState } from 'react'
-import { Paperclip, MessageSquare, CornerDownRight, Loader2 } from 'lucide-react'
+import { Paperclip, MessageSquare, CornerDownRight, Loader2 } from '@/lib/icons'
 import {
   Table,
   TableBody,

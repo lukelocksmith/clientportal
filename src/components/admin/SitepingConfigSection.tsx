@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { ChevronDown, Copy, Check, AlertTriangle } from 'lucide-react'
+import { ChevronDown, Copy, Check, AlertTriangle } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { buildHtmlSnippet, buildWordPressSnippet } from '@/lib/siteping/snippet'

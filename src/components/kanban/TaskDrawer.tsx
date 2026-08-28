@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import type { ClickUpTask, ClickUpComment, ClickUpAttachment } from '@/lib/types'
-import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria, STATUS_COLUMNS } from '@/lib/utils'
-import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, ChevronDown, Paperclip, FileText, User, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { formatDate, formatDuration, getPriorityColor, getPriorityLabel, getStatusColor, isAwaria, isOverdue, STATUS_COLUMNS } from '@/lib/utils'
+import { X, Calendar, MessageSquare, Send, Loader2, CheckSquare, Clock, Timer, ChevronLeft, ChevronRight, ChevronDown, Paperclip, FileText, User, AlertTriangle, Pencil, Trash2 } from '@/lib/icons'
 import { toast } from 'sonner'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
@@ -253,6 +253,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
 
   const priorityColor = getPriorityColor(task.priority?.priority)
   const statusColor = getStatusColor(task.status.status)
+  const overdue = isOverdue(task.date_due, task.status.type)
 
   return (
     // Sheet to ten sam Radix Dialog co modale, tylko z animacja wysuwania z
@@ -414,7 +415,9 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                   </div>
                 )}
                 {task.date_due && (
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                  /* Minięty termin na czerwono, dokładnie jak na karcie: to jedna
+                     reguła w dwóch miejscach, nie dwie różne. */
+                  <div className={`flex items-center gap-1.5 ${overdue ? 'text-destructive' : 'text-muted-foreground'}`}>
                     <Calendar className="h-3.5 w-3.5" />
                     <span>Termin: {formatDate(task.date_due)}</span>
                   </div>
@@ -431,7 +434,10 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                   </div>
                 ) : null}
                 {task.trackedTimeMs ? (
-                  <div className="flex items-center gap-1.5 text-primary/80" title="Zamrożone w piątek rano">
+                  /* Track Time NIE jest czerwony. Czerwień w portalu znaczy kłopot
+                     (awaria, spóźniony termin), a przepracowane godziny kłopotem
+                     nie są; na karcie odróżnia go wypełnienie plakietki. */
+                  <div className="flex items-center gap-1.5 text-muted-foreground" title="Zamrożone w piątek rano">
                     <Timer className="h-3.5 w-3.5" />
                     <span>Track Time: {formatDuration(task.trackedTimeMs)}</span>
                   </div>
@@ -483,7 +489,7 @@ export function TaskDrawer({ task, slug, onClose, onNavigate, statusControlsEnab
                         </span>
                       )}
                       {subTracked && (
-                        <span className="text-xs text-primary/80 flex items-center gap-0.5 flex-shrink-0">
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5 flex-shrink-0">
                           <Timer className="h-3 w-3" />{subTracked}
                         </span>
                       )}

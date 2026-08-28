@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck, FilePlus2, X } from 'lucide-react'
+import { Bell, MessageSquare, ArrowRightLeft, CheckCircle2, ShieldCheck, FilePlus2, X } from '@/lib/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -1,7 +1,7 @@
 'use client'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight } from '@/lib/icons'
 import type { KanbanColumn as KanbanColumnType, ClickUpTask } from '@/lib/types'
 import { TaskCard } from './TaskCard'
 import { cn } from '@/lib/utils'
@@ -16,8 +16,13 @@ interface KanbanColumnProps {
 export function KanbanColumn({ column, onTaskClick, dragging = false }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
 
+  // Kolumna ma 360 px, wcześniej 280. Urosła, bo w 280 px karta z pełnym
+  // zestawem plakietek (alarm, priorytet, start i termin, estymata, Track Time)
+  // fizycznie nie wchodziła w jedną linię i zawijała się na dwie, a jeden
+  // wiersz metadanych był celem zmiany z 28.08. Cena: mniej statusów widocznych
+  // bez przewijania w poziomie.
   return (
-    <div className="flex flex-col min-w-[280px] max-w-[280px]">
+    <div className="flex flex-col min-w-[360px] max-w-[360px]">
       {/* Nagłówek WEWNĄTRZ obrysu kolumny (px-2), żeby kropka statusu i pierwsza
           karta stały w jednej linii pionowej. Wcześniej nagłówek wisiał nad
           kontenerem i lewe krawędzie się nie zgadzały — drobiazg, ale to on

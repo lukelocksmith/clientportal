@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronDown } from '@/lib/icons'
 import {
   DropdownMenu,
   DropdownMenuContent,

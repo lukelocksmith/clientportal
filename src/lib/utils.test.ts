@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'vitest'
 import assert from 'node:assert'
-import { formatDate, getStatusColor, isAwaria, sortOldestFirst, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
+import { formatDate, formatDateRange, getStatusColor, isAwaria, isOverdue, sortOldestFirst, STATUS_COLORS, STATUS_COLUMNS } from '@/lib/utils'
 
 /** ClickUp podaje daty jako milisekundy w łańcuchu znaków. */
 const ms = (iso: string) => String(new Date(iso).getTime())
@@ -41,6 +41,65 @@ describe('formatDate', () => {
     assert.strictEqual(formatDate(undefined), '')
     assert.strictEqual(formatDate(''), '')
     assert.strictEqual(formatDate('nie liczba', TERAZ), '')
+  })
+})
+
+describe('formatDateRange', () => {
+  it('ten sam miesiac skraca sie do jednego miesiaca', () => {
+    // Powtorzony miesiac zabiera miejsce, ktorego wiersz plakietek na karcie
+    // nie ma: przy pelnym zestawie metadanych linia zawija sie na dwie.
+    const out = formatDateRange(ms('2026-07-26T08:00:00Z'), ms('2026-07-28T08:00:00Z'), TERAZ)
+    assert.strictEqual(out.match(/lip/g)?.length, 1, `miesiac ma byc raz, bylo: ${out}`)
+    assert.ok(out.startsWith('26'), `zakres zaczyna sie dniem startu, bylo: ${out}`)
+    assert.ok(out.includes('28'), `brak dnia terminu: ${out}`)
+  })
+
+  it('roznych miesiecy nie skraca', () => {
+    const out = formatDateRange(ms('2026-07-26T08:00:00Z'), ms('2026-08-03T08:00:00Z'), TERAZ)
+    assert.ok(/lip/.test(out) && /sie/.test(out), `oba miesiace musza zostac, bylo: ${out}`)
+  })
+
+  it('rozne lata zostaja w calosci, mimo tego samego miesiaca', () => {
+    // Ta sama nazwa miesiaca w dwoch latach to pulapka skracania: „28-4 sty"
+    // ukrywa, ze termin jest w nastepnym roku.
+    const out = formatDateRange(ms('2026-01-28T08:00:00Z'), ms('2027-01-04T08:00:00Z'), TERAZ)
+    assert.ok(out.includes('2027'), `rok terminu musi zostac, bylo: ${out}`)
+    assert.strictEqual(out.match(/sty/g)?.length, 2, `oba miesiace zostaja, bylo: ${out}`)
+  })
+
+  it('sam termin daje date, sam start daje „od"', () => {
+    const tylkoTermin = formatDateRange(null, ms('2026-07-28T08:00:00Z'), TERAZ)
+    assert.strictEqual(tylkoTermin, formatDate(ms('2026-07-28T08:00:00Z'), TERAZ))
+
+    const tylkoStart = formatDateRange(ms('2026-07-26T08:00:00Z'), null, TERAZ)
+    assert.ok(tylkoStart.startsWith('od '), `start bez terminu nie moze czytac sie jak deadline, bylo: ${tylkoStart}`)
+  })
+
+  it('brak obu dat i smieci daja pusty ciag', () => {
+    assert.strictEqual(formatDateRange(null, null, TERAZ), '')
+    assert.strictEqual(formatDateRange('nie liczba', 'tez nie', TERAZ), '')
+  })
+})
+
+describe('isOverdue', () => {
+  it('termin dzisiejszy NIE jest spozniony, choc godzina minela', () => {
+    // Termin dotyczy dnia. Czerwien od poludnia w dniu terminu mowilaby
+    // klientowi, ze jestesmy spoznieni, kiedy nie jestesmy.
+    assert.strictEqual(isOverdue(ms('2026-07-30T09:00:00Z'), 'open', TERAZ), false)
+  })
+
+  it('wczorajszy termin jest spozniony', () => {
+    assert.strictEqual(isOverdue(ms('2026-07-29T09:00:00Z'), 'open', TERAZ), true)
+  })
+
+  it('zadanie zamkniete nigdy nie jest spoznione', () => {
+    assert.strictEqual(isOverdue(ms('2026-07-01T09:00:00Z'), 'closed', TERAZ), false)
+    assert.strictEqual(isOverdue(ms('2026-07-01T09:00:00Z'), 'done', TERAZ), false)
+  })
+
+  it('brak terminu i smieci to nie spoznienie', () => {
+    assert.strictEqual(isOverdue(null, 'open', TERAZ), false)
+    assert.strictEqual(isOverdue('nie liczba', 'open', TERAZ), false)
   })
 })
 

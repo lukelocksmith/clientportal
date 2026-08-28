@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Plus, X } from 'lucide-react'
+import { Check, Loader2, Plus, X } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { isSafeHttpUrl, MAX_LINKS_PER_PORTAL, type ProjectLink } from '@/lib/projectLinks'

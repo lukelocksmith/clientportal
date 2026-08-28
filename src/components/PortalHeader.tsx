@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { UserRound } from 'lucide-react'
+import { UserRound } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { visibleTabs, type PortalFlags } from '@/lib/portalTabs'
 import type { PortalBranding } from '@/lib/branding'

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowRight, Check, ExternalLink, Mail, Phone } from 'lucide-react'
+import { ArrowRight, Check, ExternalLink, Mail, Phone } from '@/lib/icons'
 import { isTabEnabled, visibleTabs } from '@/lib/portalTabs'
 import { getRecentlyClosed } from '@/lib/taskIndex'
 import { getProjectLinks } from '@/lib/projectLinksStore'

@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { CheckCircle2, XCircle, Minus, Loader2, Stethoscope } from 'lucide-react'
+import { CheckCircle2, XCircle, Minus, Loader2, Stethoscope } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import type { CheckRow, CheckState } from '@/lib/siteping/check'
 

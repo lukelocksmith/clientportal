@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
-import { Loader2, Trash2, Upload } from 'lucide-react'
+import { Loader2, Trash2, Upload } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { AVATAR_SIZE } from '@/lib/profile'
 import { checkAvatarFile, scaleToAvatarDataUri } from '@/lib/avatarImage'

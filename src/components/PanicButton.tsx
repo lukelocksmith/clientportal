@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { AlertTriangle, Send, CheckCircle2, XCircle } from 'lucide-react'
+import { AlertTriangle, Send, CheckCircle2, XCircle } from '@/lib/icons'
 import {
   Dialog,
   DialogContent,

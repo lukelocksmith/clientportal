@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Sun, Moon } from 'lucide-react'
+import { Sun, Moon } from '@/lib/icons'
 import {
   odczytajMotyw,
   przeciwny,

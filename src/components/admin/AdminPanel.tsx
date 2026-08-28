@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, Send, Loader2, History } from 'lucide-react'
+import { UserPlus, LogOut, RefreshCw, ToggleLeft, ToggleRight, KeyRound, Trash2, FolderPlus, Send, Loader2, History } from '@/lib/icons'
 import { PORTAL_TABS, type PortalFlags } from '@/lib/portalTabs'
 import { PORTAL_FEATURES, type PortalFeatureKey, type PortalFeatureFlags } from '@/lib/portalFeatures'
 import { PortalConfigForm } from '@/components/admin/PortalConfigForm'

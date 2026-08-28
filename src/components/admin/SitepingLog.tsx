@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { CheckCircle2, XCircle, AlertTriangle, RefreshCw } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertTriangle, RefreshCw } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 

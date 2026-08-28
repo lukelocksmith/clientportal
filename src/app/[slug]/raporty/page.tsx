@@ -14,7 +14,6 @@ import {
 } from '@/lib/timeReports'
 import { buildEstimateReport, type EstimateReport } from '@/lib/estimateReport'
 import { ReportView } from '@/components/reports/ReportView'
-import { EstimateReportView } from '@/components/reports/EstimateReportView'
 import { PortalHeader } from '@/components/PortalHeader'
 import { isTabEnabled } from '@/lib/portalTabs'
 import { getPortalForSession } from '@/lib/portalSession'
@@ -100,7 +99,9 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
         flags={flags}
         branding={branding}
       />
-      {estimateReport && <EstimateReportView report={estimateReport} />}
+      {/* JEDEN widok: czas w okresie i pozostała estymacja w tej samej liście.
+          Wcześniej były to dwie sekcje jedna pod drugą, z tymi samymi
+          zadaniami w obu (uwaga Łukasza 28.08). */}
       <ReportView
         branding={branding}
         slug={slug}
@@ -109,6 +110,7 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
         periods={periods}
         period={period}
         report={report}
+        estimateReport={estimateReport}
         olderKey={shiftPeriod(period, -1)?.key ?? null}
         newerKey={shiftPeriod(period, 1)?.key ?? null}
       />

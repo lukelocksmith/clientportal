@@ -1,5 +1,6 @@
 import type { ClickUpTask, ClickUpComment, ClickUpStatus, ClickUpTimeEntry } from './types'
 import { taskBelongsToPortal } from './portalScope'
+import { visibleAttachments } from './attachments'
 
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 const TOKEN = process.env.CLICKUP_API_TOKEN!
@@ -327,8 +328,18 @@ export function buildTaskTree(flat: ClickUpTask[]): ClickUpTask[] {
   return roots
 }
 
+/**
+ * Jedno zadanie z ClickUpa, BEZ załączników wewnętrznych.
+ *
+ * Filtr stoi tutaj, a nie w widoku, bo to jedyne miejsce, przez które
+ * załączniki wchodzą do portalu: czyta stąd szuflada zadania, lustro zadań
+ * (`taskIndex`, czyli licznik i wyszukiwarka w Historii) i trasa szczegółów.
+ * Odcięcie ich w komponencie zostawiłoby pliki w odpowiedzi API.
+ * Reguła: patrz lib/attachments.ts.
+ */
 export async function getTask(taskId: string): Promise<ClickUpTask> {
-  return clickupFetch<ClickUpTask>(`/task/${taskId}`)
+  const task = await clickupFetch<ClickUpTask>(`/task/${taskId}`)
+  return task.attachments ? { ...task, attachments: visibleAttachments(task.attachments) } : task
 }
 
 export async function createTask(

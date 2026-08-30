@@ -18,6 +18,21 @@ afterEach(cleanup)
 
 const ms = (iso: string) => String(new Date(iso).getTime())
 
+/**
+ * Daty liczone WZGLEDEM DZIS, nie wpisane na sztywno.
+ *
+ * Pierwsza wersja testu miala tu 26 i 28 sierpnia, wiec 30 sierpnia zaczela
+ * padac sama z siebie: termin minal, plakietka zmienila tytul na „Termin
+ * minal" i test szukal czegos, czego juz nie ma. Test daty musi sam ustawiac
+ * sie w czasie, inaczej jest bomba zegarowa, a nie asercja.
+ */
+const zaDni = (dni: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() + dni)
+  d.setHours(9, 0, 0, 0)
+  return String(d.getTime())
+}
+
 function zadanie(nadpisz: Partial<ClickUpTask> = {}): ClickUpTask {
   return {
     id: 'abc',
@@ -45,17 +60,19 @@ describe('metadane na karcie', () => {
     // Dwie osobne plakietki dat nie mieszcza sie w wierszu razem z priorytetem,
     // estymata i Track Time — a jeden wiersz jest celem tego ukladu.
     render(<TaskCard task={zadanie({
-      date_start: ms('2026-08-26T09:00:00Z'),
-      date_due: ms('2026-08-28T09:00:00Z'),
+      date_start: zaDni(1),
+      date_due: zaDni(3),
     })} onClick={vi.fn()} />)
 
+    const dzienStartu = new Date(Number(zaDni(1))).getDate()
+    const dzienTerminu = new Date(Number(zaDni(3))).getDate()
     const daty = screen.getByTitle('Start i termin')
-    assert.match(daty.textContent ?? '', /26/, 'brak dnia startu')
-    assert.match(daty.textContent ?? '', /28/, 'brak dnia terminu')
+    assert.match(daty.textContent ?? '', new RegExp(`\\b${dzienStartu}\\b`), 'brak dnia startu')
+    assert.match(daty.textContent ?? '', new RegExp(`\\b${dzienTerminu}\\b`), 'brak dnia terminu')
   })
 
   it('sam termin bez startu tez sie pokazuje', () => {
-    render(<TaskCard task={zadanie({ date_due: ms('2026-08-28T09:00:00Z') })} onClick={vi.fn()} />)
+    render(<TaskCard task={zadanie({ date_due: zaDni(3) })} onClick={vi.fn()} />)
     assert.ok(screen.getByTitle(/Start i termin|Termin minął/), 'termin musi byc widoczny bez startu')
   })
 
@@ -116,8 +133,8 @@ describe('metadane na karcie', () => {
     render(<TaskCard task={zadanie({
       tags: [{ name: 'awaria' }],
       priority: { priority: 'urgent', color: '#f87171', id: '1', orderindex: '1' },
-      date_start: ms('2026-08-26T09:00:00Z'),
-      date_due: ms('2026-08-28T09:00:00Z'),
+      date_start: zaDni(1),
+      date_due: zaDni(3),
       time_estimate: 4 * 3600_000,
       trackedTimeMs: 2.5 * 3600_000,
     })} onClick={vi.fn()} />)

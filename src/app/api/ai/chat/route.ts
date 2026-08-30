@@ -6,7 +6,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { db } from '@/lib/db'
-import { portalLists, aiUsage } from '@/lib/db/schema'
+import { portalLists, aiUsage, aiChatLogs } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
 import { createTask } from '@/lib/clickup'
@@ -17,6 +17,7 @@ import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { isAwaria, TASK_STATUS_INITIAL } from '@/lib/utils'
 import { buildAiChatTags } from '@/lib/autoTags'
+import { buildTranscript, transcriptOutcome } from '@/lib/aiTranscript'
 import {
   buildNewTaskPrompt,
   taskInputSchema,
@@ -137,36 +138,46 @@ export async function POST(request: NextRequest) {
 
       const awaria = isAwaria((tags ?? []).map(name => ({ name })))
 
-      const task = await createTask(targetListId, {
-        name,
-        // Ta sama reguła co przy formularzu (lib/assignee.ts): ustawienie
-        // projektu, a w zapasie osoba agencji.
-        ...assigneesField(portal.defaultAssigneeId),
-        // Stopkę dokleja serwer, nie model. Prompt prosi o „zgłaszającego" w
-        // opisie, ale to jest tekst generowany, więc podlega halucynacji i
-        // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym
-        // sposobem dla wszystkich kanałów.
-        description: withReporterFooter(description, {
-          name: session.name,
-          email: session.email,
-          portalName: portal.name,
-          portalSlug: portal.slug,
-          source: 'ai',
-        }),
-        priority: priority ?? null,
-        due_date: due_date ?? null,
-        // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii,
-        // doklejony do tagów skonfigurowanych dla portalu (np. "asana", pod
-        // istniejącą automatyzację ClickUp → Asana). Model dostaje tu swobodne
-        // pole tekstowe, a tagi w ClickUpie są wspólne dla całej przestrzeni
-        // klientów: bez tego filtra halucynacja albo podpowiedź z rozmowy
-        // klienta zakładałaby zespołowi śmieci w słowniku tagów.
-        tags: buildAiChatTags(portal.autoTags, awaria),
-        // Client-submitted tasks land in the initial column ("do zrobienia"),
-        // not the default backlog, so the team sees incoming requests instead
-        // of them being buried.
-        status: TASK_STATUS_INITIAL,
-      })
+      // Wyjątek z `execute` SDK oddaje modelowi jako wynik narzędzia i NIE
+      // zostawia po sobie nic w logach: awaria ClickUpa wyglądała stąd
+      // dokładnie tak samo jak cisza. Łapiemy sami, żeby w logach kontenera
+      // i w zapisie rozmowy stała treść błędu.
+      let task: Awaited<ReturnType<typeof createTask>>
+      try {
+        task = await createTask(targetListId, {
+          name,
+          // Ta sama reguła co przy formularzu (lib/assignee.ts): ustawienie
+          // projektu, a w zapasie osoba agencji.
+          ...assigneesField(portal.defaultAssigneeId),
+          // Stopkę dokleja serwer, nie model. Prompt prosi o „zgłaszającego" w
+          // opisie, ale to jest tekst generowany, więc podlega halucynacji i
+          // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym
+          // sposobem dla wszystkich kanałów.
+          description: withReporterFooter(description, {
+            name: session.name,
+            email: session.email,
+            portalName: portal.name,
+            portalSlug: portal.slug,
+            source: 'ai',
+          }),
+          priority: priority ?? null,
+          due_date: due_date ?? null,
+          // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii,
+          // doklejony do tagów skonfigurowanych dla portalu (np. "asana", pod
+          // istniejącą automatyzację ClickUp → Asana). Model dostaje tu swobodne
+          // pole tekstowe, a tagi w ClickUpie są wspólne dla całej przestrzeni
+          // klientów: bez tego filtra halucynacja albo podpowiedź z rozmowy
+          // klienta zakładałaby zespołowi śmieci w słowniku tagów.
+          tags: buildAiChatTags(portal.autoTags, awaria),
+          // Client-submitted tasks land in the initial column ("do zrobienia"),
+          // not the default backlog, so the team sees incoming requests instead
+          // of them being buried.
+          status: TASK_STATUS_INITIAL,
+        })
+      } catch (error) {
+        console.error('[ai/chat] ClickUp odrzucil utworzenie zadania:', error)
+        return { error: `Nie udało się utworzyć zadania w ClickUpie: ${error instanceof Error ? error.message : String(error)}` }
+      }
 
       // Bez tego klient zglosilby zadanie przez asystenta, odswiezyl strone
       // i nie zobaczyl go na tablicy przez kilkadziesiat sekund.
@@ -197,7 +208,39 @@ export async function POST(request: NextRequest) {
     messages,
     stopWhen: isStepCount(6),
     tools: { createTask: createTaskTool },
-    onFinish: async ({ usage }) => {
+    // `onError` jest jedynym miejscem, w którym widać awarię SAMEGO
+    // strumienia (odmowa dostawcy modelu, zerwane połączenie). Bez tego
+    // nieudana rozmowa nie zostawiała żadnego śladu — ani w logach, ani
+    // w zużyciu, bo `onEnd` wtedy nie leci.
+    onError: ({ error }) => {
+      console.error('[ai/chat] strumień modelu przerwany:', error)
+    },
+    // `onFinish` jest w ai 7 przestarzałe, zastąpione przez `onEnd`.
+    onEnd: async ({ usage, steps, finishReason }) => {
+      // Zapis rozmowy przed zużyciem: to on odpowiada na pytanie „czemu
+      // zadanie nie powstało", a zużycie jest tylko liczbą (patrz
+      // lib/aiTranscript.ts i komentarz przy tabeli ai_chat_logs).
+      try {
+        const transcript = buildTranscript(uiMessages, steps)
+        const { outcome, taskId, taskName } = transcriptOutcome(transcript)
+        await db.insert(aiChatLogs).values({
+          portalId: portal.id,
+          // Ta sama normalizacja co przy zużyciu: sesja admina ma userId
+          // 'admin', a kolumna jest typu uuid.
+          userId: normalizeActorId(session.userId),
+          userEmail: session.email,
+          provider,
+          model: modelId,
+          outcome,
+          taskId,
+          taskName,
+          finishReason: typeof finishReason === 'string' ? finishReason : null,
+          transcript,
+        })
+      } catch (e) {
+        console.error('ai_chat_log zapis nieudany:', e)
+      }
+
       try {
         const u = usage as { inputTokens?: number; outputTokens?: number; totalTokens?: number; promptTokens?: number; completionTokens?: number } | undefined
         const input = u?.inputTokens ?? u?.promptTokens ?? 0

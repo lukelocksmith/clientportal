@@ -12,6 +12,7 @@
  * linię KOŃCZY, a nie na jej treści. Dlatego parser zbiera bieżącą linię do
  * bufora i dopiero na znaku końca linii wie, czym ta linia była.
  */
+import { isInternalFile } from './attachments'
 
 export type InlineNode =
   | { kind: 'text'; text: string; bold?: true; italic?: true; strike?: true; code?: true; link?: string }
@@ -272,6 +273,9 @@ export function parseCommentBlocks(raw: unknown): BlockNode[] {
         : typeof meta.name === 'string' && meta.name
           ? meta.name
           : fileNameFromUrl(url)
+      // Plik wewnętrzny (nazwa od podkreślenia) wypada z komentarza tak samo
+      // jak z załączników zadania — patrz lib/attachments.ts.
+      if (isInternalFile(name)) continue
       flushLine()
       blocks.push({
         kind: 'image',
@@ -288,6 +292,7 @@ export function parseCommentBlocks(raw: unknown): BlockNode[] {
       const url = safeUrl(meta.url)
       if (!url) continue
       const name = typeof meta.title === 'string' && meta.title ? meta.title : fileNameFromUrl(url)
+      if (isInternalFile(name)) continue
       flushLine()
       blocks.push(looksLikeImage(meta, name) ? { kind: 'image', url, name } : { kind: 'file', url, name })
       continue

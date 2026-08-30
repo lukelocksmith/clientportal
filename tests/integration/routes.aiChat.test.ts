@@ -2,7 +2,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, aiUsage, portals } from '@/lib/db/schema'
+import { auditLog, aiUsage, aiChatLogs, portals } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -35,7 +35,7 @@ const { cookieJar, ai, clickup, cache, providers } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   ai: {
     przechwycone: { tools: undefined as Record<string, NarzedzieTworzenia> | undefined, opcje: undefined as Record<string, unknown> | undefined },
-    onFinish: undefined as ((arg: { usage: unknown }) => Promise<void>) | undefined,
+    onEnd: undefined as ((arg: { usage: unknown; steps?: unknown; finishReason?: string }) => Promise<void>) | undefined,
   },
   clickup: { createTask: vi.fn() },
   cache: { invalidateFolderTasks: vi.fn() },
@@ -59,7 +59,10 @@ vi.mock('ai', () => ({
   streamText: (opcje: Record<string, unknown>) => {
     ai.przechwycone.tools = opcje.tools as Record<string, NarzedzieTworzenia>
     ai.przechwycone.opcje = opcje
-    ai.onFinish = opcje.onFinish as (arg: { usage: unknown }) => Promise<void>
+    // `onFinish` jest w ai 7 przestarzale; trasa uzywa `onEnd`. Bierzemy
+    // jedno albo drugie, zeby test nie przestal niczego sprawdzac po cichu,
+    // gdyby nazwa znow sie zmienila.
+    ai.onEnd = (opcje.onEnd ?? opcje.onFinish) as (arg: { usage: unknown; steps?: unknown }) => Promise<void>
     return { toUIMessageStreamResponse: () => new Response('strumien') }
   },
 }))
@@ -112,7 +115,7 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
     cookieJar.clear()
     vi.clearAllMocks()
     ai.przechwycone.tools = undefined
-    ai.onFinish = undefined
+    ai.onEnd = undefined
     clickup.createTask.mockResolvedValue({ id: 'ai-1', name: 'Zadanie z czatu', url: 'https://cu.test/1' })
     cache.invalidateFolderTasks.mockResolvedValue(undefined)
   })
@@ -344,8 +347,8 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       await zaloguj()
       await chatPOST(zadanie(rozmowa(portalA.slug)))
 
-      assert.ok(ai.onFinish, 'trasa podpiela sie pod zakonczenie strumienia')
-      await ai.onFinish!({ usage: { inputTokens: 1000, outputTokens: 500, totalTokens: 1500 } })
+      assert.ok(ai.onEnd, 'trasa podpiela sie pod zakonczenie strumienia')
+      await ai.onEnd!({ usage: { inputTokens: 1000, outputTokens: 500, totalTokens: 1500 } })
 
       const [wpis] = await db.select().from(aiUsage).where(eq(aiUsage.portalId, portalA.id))
       assert.ok(wpis, 'zuzycie odnotowane')
@@ -361,7 +364,7 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
 
       // Pakiet `ai` zmienial nazwy tych pol miedzy wersjami. Ciche zero
       // w rozliczeniu byloby gorsze od bledu, bo wygladaloby na brak uzycia.
-      await ai.onFinish!({ usage: { promptTokens: 700, completionTokens: 300 } })
+      await ai.onEnd!({ usage: { promptTokens: 700, completionTokens: 300 } })
 
       const wpisy = await db.select().from(aiUsage).where(eq(aiUsage.portalId, portalA.id))
       const ostatni = wpisy[wpisy.length - 1]
@@ -375,8 +378,98 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       // Ksztalt, ktorego kolumny nie przyjma.
-      await assert.doesNotReject(() => ai.onFinish!({ usage: { inputTokens: 'duzo' } }))
+      await assert.doesNotReject(() => ai.onEnd!({ usage: { inputTokens: 'duzo' } }))
 
+      errorSpy.mockRestore()
+    })
+  })
+
+  /**
+   * ZAPIS ROZMOWY. Powstal 30.08, po zgloszeniu, ktore zniknelo: rozmowa byla
+   * (widac ja w ai_usage), zadania w ClickUpie nie bylo, a ustalic dlaczego
+   * nie sposob, bo z rozmowy nie zostawalo NIC poza liczba tokenow.
+   */
+  describe('zapis rozmowy do weryfikacji', () => {
+    /** Krok modelu z wywolaniem narzedzia i jego wynikiem, jak w SDK. */
+    const krokZNarzedziem = (output: unknown) => [
+      {
+        text: 'Dodaje zadanie.',
+        toolCalls: [{ toolCallId: 'c1', toolName: 'createTask', input: { name: 'Poprawic przycisk' } }],
+        toolResults: [{ toolCallId: 'c1', toolName: 'createTask', output }],
+      },
+    ]
+
+    async function ostatniZapis(portalId: string) {
+      const wpisy = await db.select().from(aiChatLogs).where(eq(aiChatLogs.portalId, portalId))
+      return wpisy[wpisy.length - 1]
+    }
+
+    it('rozmowa BEZ wywolania narzedzia tez zostawia slad', async () => {
+      await zaloguj()
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Zadanie zostalo dodane.' }],
+        finishReason: 'stop',
+      })
+
+      const wpis = await ostatniZapis(portalA.id)
+      assert.ok(wpis, 'rozmowa zapisana')
+      // To jest DOKLADNIE przypadek z 30.08: model twierdzi, ze dodal, a
+      // narzedzia nie tknal. Bez tego wiersza nie da sie tego zobaczyc.
+      assert.strictEqual(wpis.outcome, 'rozmowa')
+      assert.strictEqual(wpis.taskId, null)
+      const tury = wpis.transcript as Array<{ role: string; text?: string }>
+      assert.ok(tury.some(t => t.role === 'user' && t.text === 'przycisk nie dziala'), 'pytanie klienta w zapisie')
+      assert.ok(tury.some(t => t.role === 'assistant' && t.text === 'Zadanie zostalo dodane.'), 'odpowiedz modelu w zapisie')
+    })
+
+    it('udane utworzenie zapisuje sie z identyfikatorem zadania', async () => {
+      await zaloguj()
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: krokZNarzedziem({ success: true, taskId: 'ai-1', taskName: 'Zadanie z czatu' }),
+      })
+
+      const wpis = await ostatniZapis(portalA.id)
+      assert.strictEqual(wpis.outcome, 'zadanie')
+      assert.strictEqual(wpis.taskId, 'ai-1')
+      assert.strictEqual(wpis.taskName, 'Zadanie z czatu')
+    })
+
+    it('odmowa narzedzia zapisuje sie jako blad, z trescia bledu', async () => {
+      await zaloguj()
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: krokZNarzedziem({ error: 'Nie udalo sie utworzyc zadania w ClickUpie: 401' }),
+      })
+
+      const wpis = await ostatniZapis(portalA.id)
+      assert.strictEqual(wpis.outcome, 'blad')
+      const tury = wpis.transcript as Array<{ role: string; tool?: { error?: string } }>
+      assert.ok(
+        tury.some(t => t.role === 'tool' && t.tool?.error?.includes('401')),
+        'tresc bledu jest w zapisie, a nie tylko sam fakt bledu'
+      )
+    })
+
+    it('padniety ClickUp oddaje modelowi blad, zamiast wywracac narzedzie po cichu', async () => {
+      await zaloguj()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      clickup.createTask.mockRejectedValueOnce(new Error('ClickUp error 401: token'))
+      const t = await narzedzie(portalA.slug)
+
+      const wynik = await t.execute({ name: 'X', description: 'y' })
+
+      // SDK zjada wyjatek z `execute` i oddaje go modelowi jako wynik, wiec
+      // bez wlasnego catch awaria ClickUpa nie zostawiala sladu NIGDZIE.
+      assert.match(String((wynik as { error?: string }).error), /401/)
+      assert.ok(errorSpy.mock.calls.length > 0, 'awaria trafia do logow kontenera')
       errorSpy.mockRestore()
     })
   })

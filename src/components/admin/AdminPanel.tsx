@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { UserActivityDialog } from '@/components/admin/UserActivityDialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ProjectAiStats } from '@/components/admin/ProjectAiStats'
+import { ProjectAiChats } from '@/components/admin/ProjectAiChats'
 import { AiUsageStats } from '@/components/admin/AiUsageStats'
 import { AdminLoginScreen } from '@/components/admin/AdminLoginScreen'
 import { ProjectEvents } from '@/components/admin/ProjectEvents'
@@ -621,6 +622,16 @@ export default function AdminPanel() {
                       Ładowanie statystyk...
                     </p>
                   )}
+                </div>
+
+                {/* Zużycie mówi ILE, zapis rozmów mówi CO. Pod statystykami,
+                    bo to jest widok dochodzeniowy: zagląda się tu wtedy, gdy
+                    zgłoszenie przez asystenta nie doszło (30.08). */}
+                <div className="mt-4">
+                  <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Rozmowy z asystentem
+                  </h4>
+                  <ProjectAiChats slug={portal.slug} />
                 </div>
               </TabsContent>
 

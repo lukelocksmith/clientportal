@@ -593,3 +593,22 @@ describe('blocksToText', () => {
     assert.strictEqual(blocksToText([]), '')
   })
 })
+
+describe('pliki wewnętrzne (nazwa od podkreślenia)', () => {
+  it('obrazek z podkreśleniem nie wchodzi do komentarza', () => {
+    const bloki = parseCommentBlocks([
+      { type: 'image', image: { url: 'https://t.clickup.com/1/_notatka.png', title: '_notatka.png' } },
+      { type: 'image', image: { url: 'https://t.clickup.com/2/zrzut.png', title: 'zrzut.png' } },
+    ])
+    const obrazki = bloki.filter(b => b.kind === 'image')
+    assert.equal(obrazki.length, 1)
+    assert.equal(obrazki[0].kind === 'image' ? obrazki[0].name : null, 'zrzut.png')
+  })
+
+  it('załącznik z podkreśleniem nie wchodzi do komentarza', () => {
+    const bloki = parseCommentBlocks([
+      { type: 'attachment', attachment: { url: 'https://t.clickup.com/3/_wersja.pdf', title: '_wersja.pdf' } },
+    ])
+    assert.equal(bloki.filter(b => b.kind === 'file' || b.kind === 'image').length, 0)
+  })
+})

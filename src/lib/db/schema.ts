@@ -431,6 +431,42 @@ export const aiUsage = pgTable('ai_usage', {
 })
 
 /**
+ * Pełny zapis rozmowy z asystentem AI, do weryfikacji przez człowieka.
+ *
+ * PO CO (30.08): zgłoszenie przez asystenta zniknęło. Rozmowa się odbyła
+ * (widać ją w `ai_usage`), zadania w ClickUpie nie było, wpisu w historii
+ * projektu też nie. Nie dało się ustalić, czy model nie wywołał narzędzia,
+ * czy narzędzie poleciało błędem — bo z rozmowy nie zostawało nic poza liczbą
+ * tokenów. Zużycie mówi ILE, ten zapis mówi CO.
+ *
+ * Osobna tabela, nie kolumna w `ai_usage`: tamta jest wąska i czytana
+ * zbiorczo (sumy w panelu), a tu leży jsonb liczony w kilobajtach, po który
+ * sięgamy pojedynczo i rzadko.
+ *
+ * `outcome` odpowiada na jedyne pytanie zadawane od progu: czy z tej rozmowy
+ * powstało zadanie („zadanie"), czy narzędzie się wywróciło („blad"), czy nie
+ * było w niej próby zakładania („rozmowa"). Wartości liczy lib/aiTranscript.ts.
+ */
+export const aiChatLogs = pgTable('ai_chat_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  // Adres zdenormalizowany, jak w ai_usage: zapis ma przeżyć skasowanie konta.
+  userEmail: text('user_email'),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  outcome: text('outcome').notNull(),
+  taskId: text('task_id'),
+  taskName: text('task_name'),
+  finishReason: text('finish_reason'),
+  /** Tury rozmowy: TranscriptTurn[] z lib/aiTranscript.ts. */
+  transcript: jsonb('transcript').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  portalCreatedIdx: index('ai_chat_logs_portal_created_idx').on(t.portalId, t.createdAt),
+}))
+
+/**
  * Lustro zadań folderu klienta, pod zakładkę Historia i wyszukiwarkę.
  *
  * Po co lustro, a nie odpytywanie ClickUpa na żywo: ClickUp nie zwraca

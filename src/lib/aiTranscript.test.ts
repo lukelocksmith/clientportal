@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildTranscript,
+  claimsTaskCreated,
   stepTurns,
   textFromParts,
   transcriptOutcome,
@@ -76,12 +77,30 @@ describe('stepTurns', () => {
 })
 
 describe('transcriptOutcome', () => {
-  it('rozmowa bez narzędzia to nie jest awaria, ale to widać', () => {
+  it('samo dopytywanie to zwykła rozmowa, nie awaria', () => {
     const wynik = transcriptOutcome([
       { role: 'user', text: 'przycisk nie działa' },
-      { role: 'assistant', text: 'Zadanie zostało dodane.' },
+      { role: 'assistant', text: 'Na której stronie? Wklej link, jeśli możesz.' },
     ])
     expect(wynik).toEqual({ outcome: 'rozmowa', taskId: null, taskName: null })
+  })
+
+  it('obietnica bez wywołania narzędzia to „podejrzane", nie „rozmowa"', () => {
+    // Dokładnie zdarzenie z 30.08: klient czyta „dodane", zamyka okno i czeka
+    // na coś, czego nie ma.
+    const wynik = transcriptOutcome([
+      { role: 'user', text: 'przycisk nie działa' },
+      { role: 'assistant', text: 'Zadanie zostało dodane. Pojawi się na tablicy.' },
+    ])
+    expect(wynik.outcome).toBe('podejrzane')
+  })
+
+  it('gdy narzędzie zadziałało, obietnica jest prawdą i nic nie jest podejrzane', () => {
+    const wynik = transcriptOutcome([
+      { role: 'assistant', text: 'Zgłaszam to jako P2.' },
+      { role: 'tool', tool: { name: 'createTask', input: {}, output: { success: true, taskId: '1', taskName: 'X' } } },
+    ])
+    expect(wynik.outcome).toBe('zadanie')
   })
 
   it('udane utworzenie zwraca identyfikator zadania', () => {
@@ -102,5 +121,29 @@ describe('transcriptOutcome', () => {
       { role: 'tool', tool: { name: 'createTask', input: {}, error: 'ClickUp 401' } },
     ])
     expect(wynik.outcome).toBe('blad')
+  })
+})
+
+describe('claimsTaskCreated', () => {
+  it('rozpoznaje obietnicę w czasie przeszłym i teraźniejszym', () => {
+    expect(claimsTaskCreated('Zadanie zostało dodane.')).toBe(true)
+    expect(claimsTaskCreated('Ja w międzyczasie zapisuję to jako zadanie.')).toBe(true)
+    expect(claimsTaskCreated('dobra, zgłaszam jako P1. zadanie pojawi się za chwilę na tablicy')).toBe(true)
+    expect(claimsTaskCreated('Zgłoszenie zostało zapisane, zespół to zweryfikuje.')).toBe(true)
+  })
+
+  it('pytanie o zgodę NIE jest obietnicą', () => {
+    expect(claimsTaskCreated('Mam to zgłosić jako P2?')).toBe(false)
+    expect(claimsTaskCreated('Czy zapisuję to jako zadanie?')).toBe(false)
+  })
+
+  it('zwykłe dopytywanie nie jest obietnicą', () => {
+    expect(claimsTaskCreated('Na jakiej stronie to widzisz?')).toBe(false)
+    expect(claimsTaskCreated('')).toBe(false)
+    expect(claimsTaskCreated(null)).toBe(false)
+  })
+
+  it('pytanie na końcu nie unieważnia twierdzenia ze środka', () => {
+    expect(claimsTaskCreated('Zadanie zostało dodane. Coś jeszcze?')).toBe(true)
   })
 })

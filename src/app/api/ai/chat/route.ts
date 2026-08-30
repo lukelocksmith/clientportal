@@ -223,6 +223,14 @@ export async function POST(request: NextRequest) {
       try {
         const transcript = buildTranscript(uiMessages, steps)
         const { outcome, taskId, taskName } = transcriptOutcome(transcript)
+        if (outcome === 'podejrzane') {
+          // Do logów kontenera, nie tylko do panelu: to jest ZGUBIONE
+          // zgłoszenie klienta, a nie statystyka. Model napisał, że sprawa
+          // jest zapisana, i nie wywołał narzędzia.
+          console.warn(
+            `[ai/chat] model obiecal zgloszenie, ale NIE utworzyl zadania — portal ${portal.slug}, uzytkownik ${session.email}`
+          )
+        }
         await db.insert(aiChatLogs).values({
           portalId: portal.id,
           // Ta sama normalizacja co przy zużyciu: sesja admina ma userId

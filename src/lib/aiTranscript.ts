@@ -33,7 +33,7 @@ export type TranscriptTurn = {
   }
 }
 
-export type TranscriptOutcome = 'zadanie' | 'rozmowa' | 'blad'
+export type TranscriptOutcome = 'zadanie' | 'rozmowa' | 'blad' | 'podejrzane'
 
 /**
  * Dłuższa wypowiedź jest ucinana, nie odrzucana. Rozmowa o zgłoszeniu to
@@ -44,6 +44,43 @@ export const MAX_TEXT_CHARS = 4_000
 
 /** Górny limit tur w jednym zapisie. Trasa czatu i tak przyjmuje max 60 wiadomości. */
 export const MAX_TURNS = 140
+
+/**
+ * Zdania, którymi asystent OBIECUJE, że zgłoszenie istnieje.
+ *
+ * Po co osobna lista: brak zadania jest zły, ale brak zadania POŁĄCZONY ze
+ * zdaniem „zgłoszenie zapisane" jest gorszy. Klient, który to przeczytał,
+ * zamyka okno i czeka. Nikt nie czeka na coś, o czym wie, że nie zostało
+ * zgłoszone. Dokładnie to zdarzenie zaczęło całą tę robotę (30.08).
+ *
+ * Czas teraźniejszy („zapisuję to jako zadanie") jest tak samo wiążący jak
+ * przeszły: dla czytającego to jest deklaracja, że sprawa poszła dalej.
+ */
+const OBIETNICE_ZGLOSZENIA: readonly RegExp[] = [
+  // Granica słowa jako `\p{L}`, nie `\b`: polskie „ę" na końcu wyrazu nie jest
+  // dla `\b` znakiem słowa, więc /\bzapisuję\b/ NIE łapie „zapisuję to".
+  /(?<!\p{L})(zgłaszam|zgłosiłem|zgłosiłam|zgłoszone)(?!\p{L})/u,
+  /(?<!\p{L})(dodałem|dodałam|dodaję|utworzyłem|utworzyłam|zapisałem|zapisałam|zapisuję)(?!\p{L})/u,
+  /zadanie\s+(zostało|jest|już)\s+(dodane|zapisane|utworzone|zgłoszone|na tablicy)/,
+  /zgłoszenie\s+(zostało|jest|już)\s+(zapisane|przyjęte|dodane|utworzone)/,
+  /(pojawi się|pojawia się|jest już|są już|trafiło|trafi)[^.!?]{0,40}na tablicy/,
+]
+
+/**
+ * Czy w tej wypowiedzi asystent twierdzi, że zadanie powstało.
+ *
+ * Pytania odpadają: „mam to zgłosić?" jest prośbą o zgodę, nie obietnicą.
+ * Dlatego patrzymy zdaniami, a nie na cały tekst naraz — jedno pytanie na
+ * końcu wypowiedzi nie może unieważnić twierdzenia z jej środka ani odwrotnie.
+ */
+export function claimsTaskCreated(text: string | null | undefined): boolean {
+  if (typeof text !== 'string' || !text.trim()) return false
+  const zdania = text.toLowerCase().split(/(?<=[.!?\n])/)
+  return zdania.some(zdanie => {
+    if (zdanie.trimEnd().endsWith('?')) return false
+    return OBIETNICE_ZGLOSZENIA.some(wzor => wzor.test(zdanie))
+  })
+}
 
 function truncate(text: string): string {
   return text.length <= MAX_TEXT_CHARS ? text : `${text.slice(0, MAX_TEXT_CHARS)}… [ucięte]`
@@ -151,10 +188,11 @@ export function buildTranscript(uiMessages: unknown, steps: unknown): Transcript
 /**
  * Wynik rozmowy jednym słowem, do kolumny w panelu.
  *
- * „rozmowa" nie jest awarią: klient mógł tylko dopytać. Awarią jest „blad",
- * czyli narzędzie wywołane i nieudane, oraz sytuacja, w której model
- * TWIERDZI, że zadanie powstało, a wywołania narzędzia nie ma — tego drugiego
- * ten wynik nie rozstrzyga, od tego jest transkrypt i ludzkie oko.
+ * „rozmowa" nie jest awarią: klient mógł tylko dopytać. Awarią jest „blad"
+ * (narzędzie wywołane i nieudane) oraz „podejrzane": model NIE tknął
+ * narzędzia, a klientowi napisał, że zgłoszenie jest zapisane. To ostatnie
+ * jest najgorszym z wyników, bo klient odchodzi od ekranu przekonany, że
+ * sprawa poszła dalej.
  */
 export function transcriptOutcome(turns: readonly TranscriptTurn[]): {
   outcome: TranscriptOutcome
@@ -164,9 +202,11 @@ export function transcriptOutcome(turns: readonly TranscriptTurn[]): {
   let outcome: TranscriptOutcome = 'rozmowa'
   let taskId: string | null = null
   let taskName: string | null = null
+  let uzytoNarzedzia = false
 
   for (const turn of turns) {
     if (turn.role !== 'tool' || !turn.tool) continue
+    uzytoNarzedzia = true
     if (turn.tool.error) {
       outcome = 'blad'
       continue
@@ -177,6 +217,13 @@ export function transcriptOutcome(turns: readonly TranscriptTurn[]): {
       if (typeof output.taskId === 'string') taskId = output.taskId
       if (typeof output.taskName === 'string') taskName = output.taskName
     }
+  }
+
+  // Rozmowa, w której model NIE tknął narzędzia, ale napisał klientowi, że
+  // zgłoszenie jest zapisane. To nie jest „rozmowa", to jest cicha strata
+  // zgłoszenia i ma się rzucać w oczy w panelu.
+  if (!uzytoNarzedzia && turns.some(t => t.role === 'assistant' && claimsTaskCreated(t.text))) {
+    outcome = 'podejrzane'
   }
 
   return { outcome, taskId, taskName }

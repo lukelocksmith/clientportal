@@ -404,25 +404,40 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       return wpisy[wpisy.length - 1]
     }
 
-    it('rozmowa BEZ wywolania narzedzia tez zostawia slad', async () => {
+    it('samo dopytywanie zostawia slad jako zwykla rozmowa', async () => {
       await zaloguj()
       await chatPOST(zadanie(rozmowa(portalA.slug)))
 
       await ai.onEnd!({
         usage: { inputTokens: 10, outputTokens: 5 },
-        steps: [{ text: 'Zadanie zostalo dodane.' }],
+        steps: [{ text: 'Na ktorej stronie to widzisz?' }],
         finishReason: 'stop',
       })
 
       const wpis = await ostatniZapis(portalA.id)
       assert.ok(wpis, 'rozmowa zapisana')
-      // To jest DOKLADNIE przypadek z 30.08: model twierdzi, ze dodal, a
-      // narzedzia nie tknal. Bez tego wiersza nie da sie tego zobaczyc.
       assert.strictEqual(wpis.outcome, 'rozmowa')
       assert.strictEqual(wpis.taskId, null)
       const tury = wpis.transcript as Array<{ role: string; text?: string }>
       assert.ok(tury.some(t => t.role === 'user' && t.text === 'przycisk nie dziala'), 'pytanie klienta w zapisie')
-      assert.ok(tury.some(t => t.role === 'assistant' && t.text === 'Zadanie zostalo dodane.'), 'odpowiedz modelu w zapisie')
+      assert.ok(tury.some(t => t.role === 'assistant' && t.text === 'Na ktorej stronie to widzisz?'), 'odpowiedz modelu w zapisie')
+    })
+
+    it('obietnica bez wywolania narzedzia zapisuje sie jako PODEJRZANE', async () => {
+      await zaloguj()
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Zgłoszenie zostało zapisane, pojawi się na tablicy.' }],
+        finishReason: 'stop',
+      })
+
+      // To jest DOKLADNIE przypadek z 30.08: model twierdzi, ze zgloszenie
+      // jest, a narzedzia nie tknal. Klient zamyka okno i czeka na nic.
+      const wpis = await ostatniZapis(portalA.id)
+      assert.strictEqual(wpis.outcome, 'podejrzane')
+      assert.strictEqual(wpis.taskId, null)
     })
 
     it('udane utworzenie zapisuje sie z identyfikatorem zadania', async () => {

@@ -216,6 +216,40 @@ build`, czyli nikt nie sprawdza, czy panel się rysuje. To jest świadoma dziura
 nie przeoczenie — ale przy każdej większej zmianie w tych plikach trzeba to
 kliknąć albo dopisać test.
 
+## Asystent AI: dwa pomiary, nie testy
+
+Odpowiedź daje model, więc nie ma wartości, którą da się wpisać w `assert`.
+To są **pomiary powtarzane po każdej zmianie promptu**, nie testy do CI.
+Narzędzie `createTask` jest w obu podstawione, więc do ClickUpa nic nie leci.
+Oba kosztują parę groszy za przebieg (Gemini) i chodzą po sieci.
+
+```bash
+# Czy zadanie W OGÓLE powstaje. Klient trudny: półsłówka, „nie wiem",
+# potwierdzenie jednym „ok", dwie sprawy naraz, zniecierpliwienie.
+node --env-file=.env.local --import tsx scripts/czy-zadanie-powstaje.ts all 3
+
+# Jaki priorytet dostaje zadanie. Klient współpracujący, skala z oferty.
+node --env-file=.env.local --import tsx scripts/check-priority.ts
+```
+
+Pierwszy zwraca kod wyjścia 1, gdy któraś rozmowa skończyła się bez zadania.
+**Pojedynczy przebieg nie jest dowodem** — model jest niedeterministyczny, więc
+przy ocenie zmiany promptu puszczaj co najmniej 3 powtórzenia i patrz na
+stosunek, nie na jeden wynik.
+
+Mierzona jest jedna rzecz, której poprzedni zestaw nie mierzył: 30.08 rozmowa
+w portalu testowym przeszła sześć wymian zdań i nie powstało z niej NIC.
+`check-priority.ts` tego nie łapał, bo jego udawany klient jest wzorowo
+współpracujący. Po dodaniu twardego limitu czterech pytań do promptu:
+**14/15 rozmów kończy się zadaniem**, a jedyna nieudana była tego rodzaju, że
+model NAPISAŁ, że zgłosił, i nie zgłosił.
+
+Ten ostatni przypadek ma osobną obronę na produkcji, bo prompt go nie usuwa:
+`transcriptOutcome` (lib/aiTranscript.ts) oznacza taką rozmowę wynikiem
+`podejrzane`, wpis idzie do logów kontenera i świeci na czerwono w panelu
+admina (zakładka AI projektu). Klient, który przeczytał „zgłoszenie zapisane",
+zamyka okno i czeka — dlatego to jest gorsze niż samo niepowstanie zadania.
+
 ## Testowanie na żywym ClickUpie
 
 Do testów, które muszą dotknąć prawdziwego ClickUpa, służy **projekt testowy

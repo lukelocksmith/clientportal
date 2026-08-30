@@ -29,7 +29,7 @@ type AiChat = {
   userEmail: string | null
   provider: string
   model: string
-  outcome: 'zadanie' | 'rozmowa' | 'blad' | string
+  outcome: 'zadanie' | 'rozmowa' | 'blad' | 'podejrzane' | string
   taskId: string | null
   taskName: string | null
   finishReason: string | null
@@ -41,6 +41,9 @@ const WYNIK: Record<string, { label: string; className: string; Icon: React.Comp
   zadanie: { label: 'zadanie', className: 'text-foreground', Icon: Plus },
   rozmowa: { label: 'rozmowa', className: 'text-muted-foreground', Icon: Bot },
   blad: { label: 'błąd', className: 'text-destructive', Icon: AlertTriangle },
+  // Najgorszy wynik z całej trójki, dlatego czerwony i pogrubiony: model
+  // napisał klientowi, że zgłoszenie jest, a nie tknął narzędzia.
+  podejrzane: { label: 'obiecał, nie zgłosił', className: 'font-semibold text-destructive', Icon: AlertTriangle },
 }
 
 function fmtDate(iso: string): string {
@@ -175,8 +178,14 @@ export function ProjectAiChats({ slug }: { slug: string }) {
                 ))}
                 {chat.outcome === 'rozmowa' && (
                   <p className="text-[11px] text-muted-foreground">
-                    W tej rozmowie model NIE sięgnął po narzędzie zakładające zadanie. Jeśli mimo to napisał,
-                    że zadanie dodał, to jest właśnie ten przypadek do zgłoszenia.
+                    W tej rozmowie model nie sięgnął po narzędzie zakładające zadanie. Jeśli rozmowa na tym
+                    się urwała, klient mógł tylko dopytać.
+                  </p>
+                )}
+                {chat.outcome === 'podejrzane' && (
+                  <p className="text-[11px] font-medium text-destructive">
+                    Model napisał klientowi, że zgłoszenie jest zapisane, a narzędzia zakładającego zadanie
+                    NIE wywołał. Zadanie trzeba założyć ręcznie i odpisać klientowi.
                   </p>
                 )}
               </div>

@@ -1,9 +1,9 @@
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import assert from 'node:assert'
 import { createHmac } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, portals, taskComments } from '@/lib/db/schema'
+import { auditLog, pendingReports, portals, taskComments } from '@/lib/db/schema'
 import { AGENCY_SENDER } from '@/lib/publicComments'
 import {
   isDbReachable,
@@ -70,6 +70,7 @@ vi.mock('@/lib/clickupCache', () => ({
 import { NextRequest } from 'next/server'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { GET as tasksGET, POST as tasksPOST } from '@/app/api/clickup/tasks/route'
+import { deliverPending } from '@/lib/pendingReports'
 import { GET as taskGET, PATCH as taskPATCH } from '@/app/api/clickup/tasks/[taskId]/route'
 import { GET as commentsGET, POST as commentsPOST } from '@/app/api/clickup/tasks/[taskId]/comments/route'
 import { GET as attachmentsGET } from '@/app/api/clickup/tasks/[taskId]/attachments/route'
@@ -248,6 +249,93 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       // „zdejmij przypisanych" i kasuje ich wlasna automatyke.
       assert.strictEqual('assignees' in clickup.createTask.mock.calls[0][1], false)
       vi.unstubAllEnvs()
+    })
+  })
+
+  /**
+   * KOLEJKA ZGLOSZEN (31.08). Do tej pory padniety ClickUp oznaczal 500 dla
+   * klienta i TRESC ZGLOSZENIA GINELA, bo u nas nie zostawalo z niej nic.
+   */
+  describe('POST /api/clickup/tasks gdy ClickUp odmawia', () => {
+    it('zgloszenie ladzie w kolejce, a klient dostaje potwierdzenie', async () => {
+      await loginClient()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await db.delete(pendingReports)
+      clickup.createTask.mockRejectedValueOnce(new Error('ClickUp 503 Service Unavailable'))
+
+      const res = await tasksPOST(
+        jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'Zgubione zgloszenie', description: 'opis' })
+      )
+      const body = await res.json()
+
+      assert.strictEqual(res.status, 200, 'klient nie widzi bledu, bo zgloszenie JEST przyjete')
+      assert.strictEqual(body.queued, true)
+
+      const [wiersz] = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.ok(wiersz, 'zgloszenie czeka w kolejce')
+      assert.strictEqual(wiersz.source, 'form')
+      assert.strictEqual((wiersz.payload as { name: string }).name, 'Zgubione zgloszenie')
+      assert.ok(wiersz.lastError?.includes('503'), 'powod porazki zapisany')
+
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+    })
+
+    it('dowozenie tworzy zadanie i zamyka wiersz w kolejce', async () => {
+      await loginClient()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await db.delete(pendingReports)
+      clickup.createTask.mockRejectedValueOnce(new Error('ClickUp 503'))
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'Do dowiezienia' }))
+
+      clickup.createTask.mockResolvedValue({ id: 'dowiezione-form', name: 'Do dowiezienia', url: 'https://cu.test/7' })
+      const wynik = await deliverPending({ limit: 5 })
+
+      assert.strictEqual(wynik.delivered, 1)
+      const [wiersz] = await db
+        .select()
+        .from(pendingReports)
+        .where(eq(pendingReports.portalId, portalA.id))
+      assert.strictEqual(wiersz.deliveredTaskId, 'dowiezione-form')
+      assert.ok(wiersz.deliveredAt, 'wiersz zamkniety data dowiezienia')
+
+      // W historii projektu widac, ze zadanie przyszlo z kolejki: inaczej
+      // nikt nie zauwazy, ze przy zgloszeniu ClickUp nie odpowiedzial.
+      const wpisy = await db.select().from(auditLog).where(eq(auditLog.resourceId, 'dowiezione-form'))
+      // `audit_log.meta` to kolumna TEKSTOWA z JSON-em w środku, nie jsonb.
+      assert.strictEqual(JSON.parse(wpisy[0]?.meta ?? '{}').zKolejki, true)
+
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+    })
+
+    it('nieudane dowozenie odklada probe, zamiast krecic sie w petli', async () => {
+      await loginClient()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await db.delete(pendingReports)
+      clickup.createTask.mockRejectedValue(new Error('ClickUp 401 zly token'))
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'Zly token' }))
+
+      const wynik = await deliverPending({ limit: 5 })
+
+      assert.strictEqual(wynik.delivered, 0)
+      assert.strictEqual(wynik.failed, 1)
+      const [wiersz] = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.strictEqual(wiersz.attempts, 1)
+      assert.ok(wiersz.nextAttemptAt.getTime() > Date.now(), 'nastepna proba przesunieta w przyszlosc')
+      assert.ok(wiersz.lastError?.includes('401'))
+
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports).where(eq(pendingReports.portalId, portalA.id))
     })
   })
 

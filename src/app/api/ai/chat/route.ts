@@ -18,6 +18,7 @@ import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { isAwaria, TASK_STATUS_INITIAL } from '@/lib/utils'
 import { buildAiChatTags } from '@/lib/autoTags'
 import { buildTranscript, transcriptOutcome } from '@/lib/aiTranscript'
+import { enqueueReport } from '@/lib/pendingReports'
 import {
   buildNewTaskPrompt,
   taskInputSchema,
@@ -138,45 +139,82 @@ export async function POST(request: NextRequest) {
 
       const awaria = isAwaria((tags ?? []).map(name => ({ name })))
 
-      // Wyjątek z `execute` SDK oddaje modelowi jako wynik narzędzia i NIE
-      // zostawia po sobie nic w logach: awaria ClickUpa wyglądała stąd
-      // dokładnie tak samo jak cisza. Łapiemy sami, żeby w logach kontenera
-      // i w zapisie rozmowy stała treść błędu.
+      // Reguły (stopka z sesji, tagi, status) liczymy RAZ i tym samym
+      // obiektem karmimy ClickUpa albo kolejkę. Bez tego kolejka dowoziłaby
+      // zadanie zbudowane inaczej niż to z udanego zgłoszenia.
+      const payload = {
+        name,
+        // Ta sama reguła co przy formularzu (lib/assignee.ts): ustawienie
+        // projektu, a w zapasie osoba agencji.
+        ...assigneesField(portal.defaultAssigneeId),
+        // Stopkę dokleja serwer, nie model. Prompt prosi o „zgłaszającego" w
+        // opisie, ale to jest tekst generowany, więc podlega halucynacji i
+        // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym
+        // sposobem dla wszystkich kanałów.
+        description: withReporterFooter(description, {
+          name: session.name,
+          email: session.email,
+          portalName: portal.name,
+          portalSlug: portal.slug,
+          source: 'ai',
+        }),
+        priority: priority ?? null,
+        due_date: due_date ?? null,
+        // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii,
+        // doklejony do tagów skonfigurowanych dla portalu (np. "asana", pod
+        // istniejącą automatyzację ClickUp → Asana). Model dostaje tu swobodne
+        // pole tekstowe, a tagi w ClickUpie są wspólne dla całej przestrzeni
+        // klientów: bez tego filtra halucynacja albo podpowiedź z rozmowy
+        // klienta zakładałaby zespołowi śmieci w słowniku tagów.
+        tags: buildAiChatTags(portal.autoTags, awaria),
+        // Client-submitted tasks land in the initial column ("do zrobienia"),
+        // not the default backlog, so the team sees incoming requests instead
+        // of them being buried.
+        status: TASK_STATUS_INITIAL,
+      }
+
       let task: Awaited<ReturnType<typeof createTask>>
       try {
-        task = await createTask(targetListId, {
-          name,
-          // Ta sama reguła co przy formularzu (lib/assignee.ts): ustawienie
-          // projektu, a w zapasie osoba agencji.
-          ...assigneesField(portal.defaultAssigneeId),
-          // Stopkę dokleja serwer, nie model. Prompt prosi o „zgłaszającego" w
-          // opisie, ale to jest tekst generowany, więc podlega halucynacji i
-          // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym
-          // sposobem dla wszystkich kanałów.
-          description: withReporterFooter(description, {
-            name: session.name,
-            email: session.email,
-            portalName: portal.name,
-            portalSlug: portal.slug,
-            source: 'ai',
-          }),
-          priority: priority ?? null,
-          due_date: due_date ?? null,
-          // Z tagów proponowanych przez model przepuszczamy WYŁĄCZNIE tag awarii,
-          // doklejony do tagów skonfigurowanych dla portalu (np. "asana", pod
-          // istniejącą automatyzację ClickUp → Asana). Model dostaje tu swobodne
-          // pole tekstowe, a tagi w ClickUpie są wspólne dla całej przestrzeni
-          // klientów: bez tego filtra halucynacja albo podpowiedź z rozmowy
-          // klienta zakładałaby zespołowi śmieci w słowniku tagów.
-          tags: buildAiChatTags(portal.autoTags, awaria),
-          // Client-submitted tasks land in the initial column ("do zrobienia"),
-          // not the default backlog, so the team sees incoming requests instead
-          // of them being buried.
-          status: TASK_STATUS_INITIAL,
-        })
+        task = await createTask(targetListId, payload)
       } catch (error) {
+        /**
+         * ClickUp odmówił. Zgłoszenie idzie do NASZEJ kolejki, a nie do kosza:
+         * klient odbył całą rozmowę, opisał sprawę i nie ma go za co karać
+         * awarią cudzego API. Cron dowozi zadanie z ponawianiem.
+         *
+         * Modelowi mówimy prawdę, ale prawdę użyteczną: zgłoszenie przyjęte,
+         * na tablicy pojawi się za chwilę. Gdyby dostał tu goły błąd, zaczynałby
+         * rozmowę od nowa i klient opowiadałby wszystko drugi raz.
+         */
         console.error('[ai/chat] ClickUp odrzucil utworzenie zadania:', error)
-        return { error: `Nie udało się utworzyć zadania w ClickUpie: ${error instanceof Error ? error.message : String(error)}` }
+        const wKolejce = await enqueueReport({
+          portalId: portal.id,
+          source: 'ai',
+          clickupListId: targetListId,
+          payload,
+          actor: { userId: normalizeActorId(session.userId), email: session.email, name: session.name },
+          error,
+        })
+
+        if (!wKolejce) {
+          return { error: 'Nie udało się zapisać zgłoszenia. Poproś klienta, żeby kliknął czerwony przycisk Alarm.' }
+        }
+
+        await logEvent({
+          portalId: portal.id,
+          actor: { userId: session.userId, email: session.email, name: session.name },
+          action: EVENT_TASK_CREATED,
+          resourceId: null,
+          meta: { source: 'ai', taskName: payload.name, wKolejce: true, awaria },
+        })
+
+        return {
+          success: true,
+          queued: true,
+          taskId: null,
+          taskName: payload.name,
+          message: `✅ Zgłoszenie „${payload.name}" zostało przyjęte. Na tablicy pojawi się w ciągu kilku minut.`,
+        }
       }
 
       // Bez tego klient zglosilby zadanie przez asystenta, odswiezyl strone

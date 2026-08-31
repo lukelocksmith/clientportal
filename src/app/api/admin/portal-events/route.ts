@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdminRequest } from '@/lib/admin-auth'
 import { requireAdminPortal } from '@/lib/adminPortal'
+import { listPendingForPortal } from '@/lib/pendingReports'
 import {
   listPortalEvents,
   portalEventActors,
@@ -42,10 +43,15 @@ export async function GET(request: NextRequest) {
 
   const email = request.nextUrl.searchParams.get('email') ?? undefined
 
-  const [events, actors] = await Promise.all([
+  // Kolejka leci razem z historią, nie osobnym zapytaniem: zgłoszenie
+  // czekające na dowiezienie NALEŻY do historii zgłoszeń tego projektu, tylko
+  // jeszcze nie ma zadania w ClickUpie. Osobna zakładka znaczyłaby, że trzeba
+  // wiedzieć, gdzie zajrzeć, żeby się dowiedzieć, że coś nie dojechało.
+  const [events, actors, pending] = await Promise.all([
     listPortalEvents({ portalId: gate.portal.id, action, userEmail: email, limit: 200 }),
     portalEventActors(gate.portal.id),
+    listPendingForPortal(gate.portal.id),
   ])
 
-  return NextResponse.json({ events, actors, labels: EVENT_LABELS })
+  return NextResponse.json({ events, actors, pending, labels: EVENT_LABELS })
 }

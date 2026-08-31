@@ -27,6 +27,24 @@ type PortalEvent = {
 
 type Actor = { email: string; name: string | null; count: number; lastAt: string }
 
+/** Zgłoszenie przyjęte przez portal, którego ClickUp jeszcze nie przyjął. */
+type Pending = {
+  id: string
+  source: string
+  taskName: string
+  attempts: number
+  lastError: string | null
+  createdAt: string
+  nextAttemptAt: string
+}
+
+const KANAL: Record<string, string> = {
+  form: 'formularz',
+  ai: 'asystent AI',
+  panic: 'alarm',
+  siteping: 'widget na stronie',
+}
+
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   task_created: Plus,
   panic_alert: AlertTriangle,
@@ -66,6 +84,7 @@ function metaUrl(event: PortalEvent): string | null {
 
 export function ProjectEvents({ slug }: { slug: string }) {
   const [events, setEvents] = useState<PortalEvent[]>([])
+  const [pending, setPending] = useState<Pending[]>([])
   const [actors, setActors] = useState<Actor[]>([])
   const [email, setEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -83,9 +102,10 @@ export function ProjectEvents({ slug }: { slug: string }) {
 
     fetch(`/api/admin/portal-events?${params}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { events: PortalEvent[]; actors: Actor[] }) => {
+      .then((d: { events: PortalEvent[]; actors: Actor[]; pending?: Pending[] }) => {
         if (cancelled) return
         setEvents(d.events ?? [])
+        setPending(d.pending ?? [])
         // Lista osób nie zależy od filtra, więc zawężenie do jednej osoby nie
         // może usunąć pozostałych z przycisków. Inaczej po kliknięciu w kogoś
         // nie byłoby jak wrócić do pozostałych.
@@ -114,6 +134,38 @@ export function ProjectEvents({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-3">
+      {/* KOLEJKA NA GÓRZE, nad historią. Zgłoszenie, które nie weszło do
+          ClickUpa, jest jedyną rzeczą na tym ekranie wymagającą uwagi TERAZ:
+          klient dostał potwierdzenie i czeka, a zadania na tablicy nie ma. */}
+      {pending.length > 0 && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <p className="text-xs font-semibold text-destructive">
+            {pending.length === 1
+              ? 'Jedno zgłoszenie czeka w kolejce'
+              : `${pending.length} zgłoszenia czekają w kolejce`}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Portal je przyjął, ClickUp jeszcze nie. Dowożenie ponawia się samo; jeśli któreś wisi tu
+            dłużej niż kwadrans, powodem jest zwykle token albo skasowana lista, a to nie naprawi się bez nas.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {pending.map(p => (
+              <li key={p.id} className="text-[11px]">
+                <span className="text-foreground">{p.taskName}</span>
+                <span className="text-muted-foreground">
+                  {' · '}
+                  {KANAL[p.source] ?? p.source}
+                  {' · zgłoszone '}
+                  {fmtDate(p.createdAt)}
+                  {p.attempts > 0 ? ` · prób: ${p.attempts}` : ''}
+                </span>
+                {p.lastError && <span className="block text-destructive">{p.lastError}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {actors.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">Osoba</span>

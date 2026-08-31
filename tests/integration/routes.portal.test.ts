@@ -2,7 +2,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vi
 import assert from 'node:assert'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, panicAlerts, notifications, smsLog } from '@/lib/db/schema'
+import { auditLog, panicAlerts, pendingReports, notifications, smsLog } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -56,6 +56,7 @@ import { NextRequest } from 'next/server'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { createNotifications } from '@/lib/notificationStore'
 import { POST as panicPOST } from '@/app/api/panic/route'
+import { deliverPending } from '@/lib/pendingReports'
 import { GET as notifGET, POST as notifPOST, DELETE as notifDELETE } from '@/app/api/notifications/route'
 import { POST as ideasPOST } from '@/app/api/portal-ideas/route'
 import { POST as attachPOST } from '@/app/api/clickup/tasks/[taskId]/attachments/route'
@@ -151,12 +152,76 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
       await loginAs(userA)
       clickup.createTask.mockRejectedValue(new Error('ClickUp nie odpowiada'))
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
       const res = await panicPOST(jsonReq('/api/panic', { slug: portalA.slug, message: 'pilne' }))
 
       // Klient nie moze dostac bledu przy alarmie, skoro mail juz poszedl.
       assert.strictEqual(res.status, 200)
       assert.ok(mailer.sendMail.mock.calls.length >= 1)
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+    })
+
+    it('zadanie alarmowe, ktorego ClickUp nie przyjal, czeka w KOLEJCE', async () => {
+      // Alarmy z 11.08 i 13.08 leza na produkcji z clickup_task_id = NULL:
+      // powiadomienia poszly, zadania nie ma i NIC go nie ponowilo. Klient
+      // patrzyl na tablice, na ktorej jego najpilniejszej sprawy nie bylo.
+      await db.delete(pendingReports)
+      await loginAs(userA)
+      clickup.createTask.mockRejectedValue(new Error('ClickUp 503'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await panicPOST(jsonReq('/api/panic', { slug: portalA.slug, message: 'sklep lezy' }))
+
+      const [wiersz] = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.ok(wiersz, 'zadanie alarmowe czeka w kolejce')
+      assert.strictEqual(wiersz.source, 'panic')
+      assert.match((wiersz.payload as { name: string }).name, /ALARM/)
+      assert.deepEqual((wiersz.payload as { assignees?: number[] }).assignees, [94729587], 'dyzurny zachowany w kolejce')
+
+      // Dowiezione zadanie MUSI wrocic na wiersz alarmu, inaczej eskalacja
+      // nie ma czego zapytac o przypisanych i alarm wypada z drabinki.
+      const [alarm] = await db
+        .select()
+        .from(panicAlerts)
+        .where(and(eq(panicAlerts.portalId, portalA.id), eq(panicAlerts.message, 'sklep lezy')))
+      assert.strictEqual(wiersz.panicAlertId, alarm.id)
+
+      clickup.createTask.mockResolvedValue({ id: 'alarm-dowieziony', name: 'ALARM', url: 'https://cu.test/z' })
+      await deliverPending({ limit: 5 })
+
+      const [poDowiezieniu] = await db.select().from(panicAlerts).where(eq(panicAlerts.id, alarm.id))
+      assert.strictEqual(poDowiezieniu.clickupTaskId, 'alarm-dowieziony')
+
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports)
+    })
+
+    it('alarm, o ktorym nie dowiedzial sie NIKT, zostawia slad w bazie', async () => {
+      // Do 31.08 wynik wysylki lecial do kosza: alarm bez ani jednego
+      // dostarczonego powiadomienia wygladal w bazie identycznie jak alarm
+      // ogloszony na trzech kanalach.
+      await loginAs(userA)
+      clickup.createTask.mockResolvedValue({ id: 'alarm-x', name: 'ALARM', url: 'u' })
+      // Padaja wszystkie trzy kanaly: mailer oddaje `sent: false`, webhook
+      // Discorda odpowiada bledem, a SMS-ow nie ma w tym srodowisku wcale.
+      mailer.sendMail.mockResolvedValue({ sent: false, reason: 'error', detail: 'SMTP padl' })
+      fetchMock.mockResolvedValue(new Response('nie dzis', { status: 500 }))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await panicPOST(jsonReq('/api/panic', { slug: portalA.slug, message: 'cisza w eterze' }))
+
+      const [alarm] = await db
+        .select()
+        .from(panicAlerts)
+        .where(and(eq(panicAlerts.portalId, portalA.id), eq(panicAlerts.message, 'cisza w eterze')))
+      assert.ok(alarm.notifyFailedAt, 'brak dostarczenia jest odnotowany, a nie przemilczany')
+
+      warnSpy.mockRestore()
       errorSpy.mockRestore()
     })
 

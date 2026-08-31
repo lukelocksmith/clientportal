@@ -89,6 +89,7 @@ async function runEscalation(): Promise<NextResponse> {
         escalationCount: panicAlerts.escalationCount,
         createdAt: panicAlerts.createdAt,
         handledAt: panicAlerts.handledAt,
+        notifyFailedAt: panicAlerts.notifyFailedAt,
       })
       .from(panicAlerts)
       .innerJoin(portals, eq(portals.id, panicAlerts.portalId))
@@ -133,9 +134,26 @@ async function runEscalation(): Promise<NextResponse> {
      * temu, którą i tak nikt nie zdążył ruszyć.
      */
     const pierwszyProg = (noc ? ESCALATION_STEPS_NIGHT : ESCALATION_STEPS_DAY)[0] * 60_000
+
+    /**
+     * Alarm, o którym NIE DOWIEDZIAŁ SIĘ NIKT, nie czeka na pierwszy próg.
+     *
+     * `notifyFailedAt` stawia trasa alarmu, gdy padły wszystkie trzy kanały
+     * naraz (patrz api/panic/route.ts). W takim wypadku klient wcisnął czerwony
+     * przycisk, dostał potwierdzenie i czeka, a po naszej stronie nie zawibrował
+     * żaden telefon. Czekanie 25 minut z ogłoszeniem byłoby tu absurdem, więc
+     * ogłaszamy przy pierwszym przebiegu, czyli w ciągu pięciu minut.
+     *
+     * Warunek na liczniku sprawia, że dotyczy to WYŁĄCZNIE pierwszego
+     * przypomnienia: dalej alarm idzie normalną drabiną.
+     */
+    const pilneBoNikogoNieDoszlo = (alert: { notifyFailedAt: Date | null; escalationCount: number }) =>
+      alert.notifyFailedAt !== null && alert.escalationCount === 0
+
     const doSprawdzenia = kandydaci.filter(
       alert =>
         czyWypadaEskalacja(alert) ||
+        pilneBoNikogoNieDoszlo(alert) ||
         (alert.clickupTaskId !== null && now.getTime() - alert.createdAt.getTime() >= pierwszyProg)
     )
 
@@ -234,7 +252,7 @@ async function runEscalation(): Promise<NextResponse> {
 
       // Sprawa nieprzejęta, ale kolejne przypomnienie jeszcze nie wypada:
       // sprawdziliśmy zadanie wyłącznie po to, żeby wychwycić przejęcie.
-      if (!czyWypadaEskalacja(alert)) {
+      if (!czyWypadaEskalacja(alert) && !pilneBoNikogoNieDoszlo(alert)) {
         wyniki.push({ alertId: alert.id, escalated: false, reason: `czeka: ${powod}` })
         continue
       }

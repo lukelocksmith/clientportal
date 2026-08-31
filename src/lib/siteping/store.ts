@@ -40,6 +40,7 @@ import {
 import { withReporterFooter, ADMIN_ACTOR_EMAIL } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks, getCachedTasksForScope } from '@/lib/clickupCache'
+import { enqueueReport } from '@/lib/pendingReports'
 import type { PortalScope } from '@/lib/portalScope'
 
 const SITEPING_TAG = 'siteping'
@@ -368,7 +369,7 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
           data.url
         )
 
-      const task = await createTask(portal.defaultListId, {
+      const payloadZadania = {
         name: buildFeedbackTitle(data.message),
         ...assigneesField(portal.defaultAssigneeId),
         description: describe(null),
@@ -380,7 +381,50 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
         // Dlatego rodzaj jest TAKZE w opisie, ktory dziala zawsze.
         tags: feedbackKindTags((data as { type?: string }).type),
         status: STATUS_TO_CLICKUP.open,
-      })
+      }
+
+      let task: ClickUpTask
+      try {
+        task = await createTask(portal.defaultListId, payloadZadania)
+      } catch (e) {
+        /**
+         * ClickUp odmowil. Zgloszenie z widgetu idzie do NASZEJ kolejki (31.08).
+         *
+         * Tutaj strata bolala najbardziej z calej czworki kanalow: osoba na
+         * stronie klienta nie ma konta w portalu, nie zobaczy zadnej kolejki
+         * ani historii i nie wroci sprawdzic, czy doszlo. Zamkniete okno
+         * przegladarki bylo jedynym miejscem, gdzie ta tresc istniala.
+         *
+         * Do kolejki idzie zadanie z pelnym opisem i tagami. Zalacznik JSON
+         * (pelna diagnostyka, zrzut ekranu, zaznaczenia) NIE przechodzi, bo
+         * wymaga istniejacego zadania — dlatego dokladamy skrot diagnostyki do
+         * opisu. Zgloszenie w niepelnej formie jest nieporownywalnie lepsze od
+         * zgloszenia, ktorego nie ma.
+         */
+        console.error('[siteping] ClickUp odrzucil zgloszenie, idzie do kolejki:', e)
+        const wKolejce = await enqueueReport({
+          portalId: portal.id,
+          source: 'siteping',
+          clickupListId: portal.defaultListId,
+          payload: {
+            ...payloadZadania,
+            description:
+              `${payloadZadania.description}\n\n---\n` +
+              `**Uwaga:** to zgloszenie przeszlo przez kolejke portalu, bo ClickUp nie odpowiedzial ` +
+              `w chwili wyslania. Zalacznik z pelna diagnostyka i zrzutem ekranu NIE powstal.` +
+              (buildDiagnosticsComment(
+                (data as { diagnostics?: Parameters<typeof buildDiagnosticsComment>[0] }).diagnostics
+              ) ?? ''),
+          },
+          actor: { email: data.authorEmail ?? null, name: data.authorName || null },
+          error: e,
+        })
+        if (!wKolejce) throw e
+        // Zwracamy rekord z pustym id zadania: widget ma pokazac potwierdzenie,
+        // bo zgloszenie JEST przyjete. Identyfikatorem zastepczym jest clientId,
+        // ten sam, po ktorym dziala dedup.
+        return recordFromCreateInput(data, `kolejka-${data.clientId}`, new Date())
+      }
 
       warnIfTagMissing(task, portal.slug)
 

@@ -1,8 +1,8 @@
 import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { auditLog, aiUsage, aiChatLogs, portals } from '@/lib/db/schema'
+import { auditLog, aiUsage, aiChatLogs, pendingReports, portals } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -80,6 +80,7 @@ import { NextRequest } from 'next/server'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { AWARIA_TAG } from '@/lib/utils'
 import { POST as chatPOST } from '@/app/api/ai/chat/route'
+import { deliverPending } from '@/lib/pendingReports'
 
 const dbUp = await isDbReachable()
 
@@ -473,18 +474,57 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       )
     })
 
-    it('padniety ClickUp oddaje modelowi blad, zamiast wywracac narzedzie po cichu', async () => {
+    it('padniety ClickUp NIE gubi zgloszenia: idzie do kolejki, klient dostaje potwierdzenie', async () => {
       await zaloguj()
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       clickup.createTask.mockRejectedValueOnce(new Error('ClickUp error 401: token'))
       const t = await narzedzie(portalA.slug)
 
-      const wynik = await t.execute({ name: 'X', description: 'y' })
+      const wynik = await t.execute({ name: 'Zgloszenie z padnietym ClickUpem', description: 'y' })
 
-      // SDK zjada wyjatek z `execute` i oddaje go modelowi jako wynik, wiec
-      // bez wlasnego catch awaria ClickUpa nie zostawiala sladu NIGDZIE.
-      assert.match(String((wynik as { error?: string }).error), /401/)
+      // Do 31.08 leciala stad porazka i TRESC ZGLOSZENIA GINELA: u nas nie
+      // zostawalo z niej nic. Klient odbyl cala rozmowe za darmo.
+      assert.strictEqual((wynik as { success?: boolean }).success, true)
+      assert.strictEqual((wynik as { queued?: boolean }).queued, true)
       assert.ok(errorSpy.mock.calls.length > 0, 'awaria trafia do logow kontenera')
+
+      const [wKolejce] = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.ok(wKolejce, 'zgloszenie czeka w kolejce')
+      assert.strictEqual(wKolejce.source, 'ai')
+      assert.strictEqual(wKolejce.clickupListId, 'lista-domyslna')
+      const payload = wKolejce.payload as { name: string; description: string }
+      assert.strictEqual(payload.name, 'Zgloszenie z padnietym ClickUpem')
+      // Stopka z sesji musi byc w tym, co pojdzie z kolejki: dowozenie jest
+      // powtorzeniem tego samego wywolania, nie druga implementacja regul.
+      assert.ok(payload.description.includes(emailA), 'payload w kolejce niesie stopke z sesji')
+
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+    })
+
+    it('zgloszenie z kolejki daje sie dowiezc, gdy ClickUp wraca', async () => {
+      await zaloguj()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      clickup.createTask.mockRejectedValueOnce(new Error('ClickUp 503'))
+      const t = await narzedzie(portalA.slug)
+      await t.execute({ name: 'Do dowiezienia', description: 'y' })
+
+      clickup.createTask.mockResolvedValue({ id: 'dowiezione-1', name: 'Do dowiezienia', url: 'https://cu.test/9' })
+      const wynik = await deliverPending({ limit: 10 })
+
+      assert.ok(wynik.delivered >= 1, `dowiezione co najmniej jedno, bylo ${wynik.delivered}`)
+      const zostalo = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.strictEqual(zostalo.length, 0, 'kolejka pusta po dowiezieniu')
+
+      warnSpy.mockRestore()
       errorSpy.mockRestore()
     })
   })

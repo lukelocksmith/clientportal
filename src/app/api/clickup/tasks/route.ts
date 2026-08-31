@@ -12,6 +12,8 @@ import { withReporterFooter } from '@/lib/reporter'
 import { assigneesField } from '@/lib/assignee'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
+import { enqueueReport } from '@/lib/pendingReports'
+import { normalizeActorId } from '@/lib/reporter'
 
 // GET /api/clickup/tasks?slug=wdf
 export async function GET(request: NextRequest) {
@@ -84,7 +86,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No default list configured' }, { status: 500 })
   }
 
-  const task = await createTask(list[0].clickupListId, {
+  // Reguły (stopka, przypisanie) liczymy RAZ i tak samo dla obu dróg: wprost
+  // do ClickUpa i do kolejki. Druga implementacja tych samych reguł rozjechałaby
+  // się przy pierwszej zmianie.
+  const payload = {
     name,
     // Kto to podejmie: ustawienie projektu, a w zapasie osoba agencji
     // (lib/assignee.ts). Brak jednego i drugiego zostawia zadanie
@@ -98,11 +103,56 @@ export async function POST(request: NextRequest) {
       email: session.email,
       portalName: portal.name,
       portalSlug: portal.slug,
-      source: 'form',
+      source: 'form' as const,
     }),
     priority: priority ?? null,
     due_date: due_date ?? null,
-  })
+  }
+
+  let task
+  try {
+    task = await createTask(list[0].clickupListId, payload)
+  } catch (error) {
+    /**
+     * ClickUp odmówił. Do 31.08 leciało stąd 500, a TREŚĆ ZGŁOSZENIA GINĘŁA:
+     * u nas nie zostawało z niej nic. Teraz zgłoszenie ląduje w naszej
+     * kolejce, cron je dowozi, a klient dostaje potwierdzenie, bo jego
+     * zgłoszenie JEST przyjęte — tylko jeszcze nie widać go na tablicy.
+     */
+    console.error('[zadania] ClickUp odrzucił utworzenie zadania z formularza:', error)
+    const wKolejce = await enqueueReport({
+      portalId: portal.id,
+      source: 'form',
+      clickupListId: list[0].clickupListId,
+      payload,
+      actor: { userId: normalizeActorId(session.userId), email: session.email, name: session.name },
+      error,
+    })
+
+    // Jedyny przypadek, w którym klient widzi porażkę: padł ClickUp ORAZ nasza
+    // baza, czyli zgłoszenia nie ma już nigdzie i udawanie sukcesu byłoby
+    // kłamstwem.
+    if (!wKolejce) {
+      return NextResponse.json(
+        { error: 'Nie udało się zapisać zgłoszenia. Spróbuj ponownie albo kliknij Alarm.' },
+        { status: 503 }
+      )
+    }
+
+    await logEvent({
+      portalId: session.portalId,
+      actor: { userId: session.userId, email: session.email, name: session.name },
+      action: EVENT_TASK_CREATED,
+      resourceId: null,
+      meta: { source: 'form', taskName: name, wKolejce: true, priority: priority ?? null },
+    })
+
+    return NextResponse.json({
+      queued: true,
+      task: null,
+      message: 'Zgłoszenie przyjęte. Pojawi się na tablicy w ciągu kilku minut.',
+    })
+  }
 
   await invalidateFolderTasks(portal.clickupFolderId)
 

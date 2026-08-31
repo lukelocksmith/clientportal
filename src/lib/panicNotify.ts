@@ -35,17 +35,35 @@ function emailRecipients(): string[] {
   return raw.split(',').map(e => e.trim()).filter(Boolean)
 }
 
-export async function sendPanicDiscord(content: string): Promise<void> {
+export async function sendPanicDiscord(content: string): Promise<boolean> {
   const webhook = process.env.PANIC_DISCORD_WEBHOOK_URL
-  if (!webhook) return
+  if (!webhook) return false
   // Błąd jest łykany (best-effort), ale nie po cichu: padnięty Discord przy
   // alarmie bez żadnego śladu w logach wyglądałby potem na kanał, który
   // „nigdy nic nie dostaje", a nie na kanał, który akurat padł.
-  await fetch(webhook, {
+  //
+  // ZWRACAMY, CZY DOSZŁO (31.08). Wcześniej funkcja oddawała `void`, więc
+  // wołający nie miał jak stwierdzić, czy alarm gdziekolwiek dotarł: łykany
+  // wyjątek wyglądał z zewnątrz identycznie jak udana wysyłka. Kod 2xx nie
+  // jest dowodem, że zmiana weszła, a brak wyjątku nie jest dowodem, że
+  // powiadomienie poszło.
+  const res = await fetch(webhook, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
-  }).catch(e => console.error('[panicNotify] Discord nie przyjął powiadomienia:', e))
+  }).catch(e => {
+    console.error('[panicNotify] Discord nie przyjął powiadomienia:', e)
+    return null
+  })
+  // Brak odpowiedzi to NIE dostarczenie. `res` bywa też pusty, gdy `fetch` jest
+  // podstawiony (testy) — a „nie wiem, czy doszło" musi znaczyć „nie doszło",
+  // inaczej ten wynik zaświeci na zielono przy pierwszej atrapie.
+  if (!res || typeof res.ok !== 'boolean') return false
+  if (!res.ok) {
+    console.error(`[panicNotify] Discord odpowiedział ${res.status}`)
+    return false
+  }
+  return true
 }
 
 /**
@@ -57,12 +75,16 @@ export async function sendPanicEmails(input: {
   subject: string
   html: string
   portalId: string
-}): Promise<void> {
-  await Promise.allSettled(
+}): Promise<boolean> {
+  const wyniki = await Promise.allSettled(
     emailRecipients().map(to =>
       sendMail({ to, subject: input.subject, html: input.html, kind: 'panic', portalId: input.portalId })
     )
   )
+  // „Doszło" znaczy: co najmniej jeden odbiorca DOSTAŁ maila. Nie „nie było
+  // wyjątku": `sendMail` sam łyka porażkę i oddaje `{ sent: false }`, więc
+  // patrzenie na status obietnicy mierzyłoby wyłącznie to, czy kod się wykonał.
+  return wyniki.some(w => w.status === 'fulfilled' && w.value.sent)
 }
 
 /**
@@ -71,10 +93,11 @@ export async function sendPanicEmails(input: {
  * kontakt POKAZYWANY klientowi, a tu chodzi o to, kogo wyrwać od stołu.
  * Pusta zmienna wyłącza kanał, bez błędu.
  */
-export async function sendPanicSms(input: { text: string; portalId: string }): Promise<void> {
+export async function sendPanicSms(input: { text: string; portalId: string }): Promise<boolean> {
   const numery = parsePhoneList(process.env.PANIC_SMS_TO)
-  if (numery.length === 0) return
-  await sendSmsToMany({ to: numery, text: input.text, kind: 'panic', portalId: input.portalId })
+  if (numery.length === 0) return false
+  const wyniki = await sendSmsToMany({ to: numery, text: input.text, kind: 'panic', portalId: input.portalId })
+  return wyniki.some(w => w.sent)
 }
 
 /** Wspólna ramka maila alarmowego. Czerwony pasek, treść, kto zgłasza, przycisk. */

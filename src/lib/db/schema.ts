@@ -398,6 +398,15 @@ export const panicAlerts = pgTable('panic_alerts', {
    */
   handledAt: timestamp('handled_at'),
   handledBy: text('handled_by'),
+  /**
+   * Alarm, którego NIE UDAŁO SIĘ ogłosić: padł Discord, mail I SMS naraz.
+   *
+   * Do 31.08 wynik wysyłki był wyrzucany (`Promise.allSettled` bez czytania
+   * rezultatów), więc alarm, o którym nie dowiedział się nikt, wyglądał
+   * w bazie identycznie jak alarm ogłoszony na trzech kanałach. Ten stempel
+   * jest tym, po co eskalacja sięga, żeby ponowić ogłoszenie.
+   */
+  notifyFailedAt: timestamp('notify_failed_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -429,6 +438,58 @@ export const aiUsage = pgTable('ai_usage', {
   costUsd: doublePrecision('cost_usd').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
+
+/**
+ * KOLEJKA ZGŁOSZEŃ. Zgłoszenie klienta nie ginie, gdy ClickUp nie odpowiada.
+ *
+ * PO CO (31.08). Wszystkie cztery kanały zgłaszania (formularz, asystent AI,
+ * czerwony przycisk Alarm, widget SitePing) miały jedno miejsce zapisu:
+ * ClickUp. Gdy jego API odmówiło, treść zgłoszenia znikała bezpowrotnie, bo
+ * u nas nie zostawało z niej NIC. Formularz oddawał klientowi 500, a widget
+ * błąd — i to była cała pamięć o sprawie, którą klient nam opisał.
+ *
+ * Nie jest to teoria: alarmy z 11.08 i 13.08 leżą w `panic_alerts`
+ * z `clickup_task_id` równym NULL. Powiadomienia poszły, zadanie nie powstało
+ * i nic go nigdy nie ponowiło. Zespół widział maila, klient patrzył na tablicę,
+ * na której jego najpilniejszej sprawy nie było.
+ *
+ * Zasada: NAJPIERW nasza baza, potem ClickUp. Gdy ClickUp odmówi, wiersz
+ * zostaje tutaj, klient dostaje potwierdzenie (bo zgłoszenie JEST przyjęte),
+ * a cron dowozi zadanie z ponawianiem.
+ *
+ * `payload` to gotowe argumenty dla `createTask`, żeby dowożenie było głupim
+ * powtórzeniem tego samego wywołania, a nie drugą implementacją reguł
+ * (stopka, tagi, status, przypisanie) — te są liczone RAZ, w miejscu
+ * zgłoszenia, i zapisane tu na sztywno.
+ */
+export const pendingReports = pgTable('pending_reports', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portalId: uuid('portal_id').notNull().references(() => portals.id, { onDelete: 'cascade' }),
+  /** form | ai | panic | siteping */
+  source: text('source').notNull(),
+  /** Lista ClickUpa, na którą zadanie ma trafić. */
+  clickupListId: text('clickup_list_id').notNull(),
+  payload: jsonb('payload').notNull(),
+  /** Kto zgłosił. Zdenormalizowane, bo zapis ma przeżyć skasowanie konta. */
+  actorUserId: uuid('actor_user_id').references(() => portalUsers.id, { onDelete: 'set null' }),
+  actorEmail: text('actor_email'),
+  actorName: text('actor_name'),
+  /**
+   * Alarm, do którego to zadanie należy. Po dowiezieniu wpisujemy id zadania
+   * do `panic_alerts`, inaczej eskalacja nie ma czego zapytać o przypisanych.
+   */
+  panicAlertId: uuid('panic_alert_id').references(() => panicAlerts.id, { onDelete: 'set null' }),
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  /** Kiedy najwcześniej próbować ponownie. Rośnie z każdą nieudaną próbą. */
+  nextAttemptAt: timestamp('next_attempt_at').notNull().defaultNow(),
+  deliveredAt: timestamp('delivered_at'),
+  deliveredTaskId: text('delivered_task_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  // Kolejka jest czytana jednym pytaniem „co czeka i da się już ponowić".
+  pendingIdx: index('pending_reports_pending_idx').on(t.deliveredAt, t.nextAttemptAt),
+}))
 
 /**
  * Pełny zapis rozmowy z asystentem AI, do weryfikacji przez człowieka.

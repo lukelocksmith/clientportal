@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from './db'
 import { cronRuns } from './db/schema'
 
-export type CronJob = 'task-index' | 'time-snapshot' | 'panic-escalation'
+export type CronJob = 'task-index' | 'time-snapshot' | 'panic-escalation' | 'pending-reports'
 
 /**
  * Zapis wyniku przebiegu crona plus alarm na Discorda przy porażce.
@@ -16,6 +16,20 @@ export type CronJob = 'task-index' | 'time-snapshot' | 'panic-escalation'
  * i zespół go czyta. Zmienna jest ta sama: PANIC_DISCORD_WEBHOOK_URL.
  */
 const DISCORD_WEBHOOK = process.env.PANIC_DISCORD_WEBHOOK_URL
+
+/**
+ * Alarm operacyjny na Discorda (#alarmy), dla rzeczy, o których zespół MUSI
+ * się dowiedzieć bez patrzenia w panel.
+ *
+ * Wyeksportowane, bo od 31.08 woła to także kolejka zgłoszeń: zgłoszenie
+ * czekające kwadrans nie jest już awarią ClickUpa, tylko sprawą dla człowieka.
+ * Ten sam kanał celowo — zespół czyta jeden, nie trzy.
+ *
+ * NIGDY nie rzuca: alarm o awarii nie ma prawa być drugą awarią.
+ */
+export async function sendOpsAlert(content: string): Promise<void> {
+  return alert(content)
+}
 
 async function alert(content: string): Promise<void> {
   if (!DISCORD_WEBHOOK) {
@@ -78,6 +92,7 @@ export const CRON_JOB_LABELS: Record<CronJob, string> = {
   'time-snapshot': 'Track Time (zamrożenie godzin)',
   'task-index': 'Indeks Historii i wyszukiwarki',
   'panic-escalation': 'Eskalacja alarmów bez reakcji',
+  'pending-reports': 'Dowożenie zgłoszeń z kolejki',
 }
 
 export type CronRunRow = {

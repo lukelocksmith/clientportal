@@ -18,6 +18,8 @@ import { createTask } from '@/lib/clickup'
 import { assigneesField } from '@/lib/assignee'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { AWARIA_TAG, TASK_STATUS_INITIAL } from '@/lib/utils'
+import { enqueueReport } from '@/lib/pendingReports'
+import { sendOpsAlert } from '@/lib/cronRuns'
 
 /**
  * Ile czekamy na ClickUpa, zanim wyślemy alarm bez linku do zadania.
@@ -60,7 +62,7 @@ async function sendPanicSms(input: {
   currentAlertId: string
   /** Adres zadania w ClickUpie, null gdy nie powstało. */
   taskUrl: string | null
-}) {
+}): Promise<boolean> {
   try {
     // Dławik: klient w panice wciska przycisk kilka razy pod rząd, a karta w
     // bramce jest zwykłym abonamentem konsumenckim. Mail i Discord idą zawsze,
@@ -76,10 +78,17 @@ async function sendPanicSms(input: {
       console.info(
         `[panic] SMS pominięty: poprzedni alarm w tym projekcie był mniej niż ${PANIC_SMS_THROTTLE_MINUTES} min temu`
       )
-      return
+      // Pominięty przez dławik NIE liczy się jako dostarczony.
+      //
+      // Pytanie brzmi „czy TEN alarm do kogoś dotarł", a nie „czy telefon
+      // zawibrował kiedykolwiek". Fałszywy alarm operacyjny (poprzedni SMS
+      // poszedł cztery minuty temu, więc ludzie wiedzą) kosztuje jedną
+      // wiadomość na Discordzie. Cisza w drugą stronę kosztuje niezauważony
+      // alarm klienta.
+      return false
     }
 
-    await sendPanicSmsToTeam({
+    const wyniki = await sendPanicSmsToTeam({
       text: buildPanicSmsText({
         portalName: input.portalName,
         message: input.message,
@@ -88,8 +97,10 @@ async function sendPanicSms(input: {
       }),
       portalId: input.portalId,
     })
+    return wyniki
   } catch (e) {
     console.error('[panic] nie udało się wysłać SMS-a alarmowego:', e)
+    return false
   }
 }
 
@@ -130,14 +141,22 @@ async function createAlarmTask(input: {
       .where(eq(portalLists.portalId, input.portalId))
       .orderBy(portalLists.sortOrder)
     const targetListId = (lists.find(l => l.isDefault) ?? lists[0])?.clickupListId
-    if (!targetListId) return null
+    if (!targetListId) {
+      // Projekt bez listy nie ma gdzie przyjąć zadania i nie naprawi się sam.
+      // Cicha `null` znaczyłaby alarm bez zadania i bez śladu, dlaczego.
+      await sendOpsAlert(
+        `🔴 **Alarm bez zadania: projekt \`${input.portalSlug}\` nie ma skonfigurowanej listy ClickUpa**\n` +
+          `Zadanie trzeba założyć ręcznie, a listę wpisać w panelu.`
+      )
+      return null
+    }
 
     // Pierwsza linia zgłoszenia jako nazwa. Klient w panice pisze ciągiem, więc
     // bez ucięcia nazwa zadania byłaby akapitem. Pełna treść jest w opisie.
     const firstLine = input.message.split('\n')[0].trim()
     const name = `🚨 ALARM: ${firstLine.slice(0, 70)}${firstLine.length > 70 ? '…' : ''}`
 
-    const task = await createTask(targetListId, {
+    const payload = {
       name,
       description: withReporterFooter(
         `## Zgłoszenie alarmowe\n\n${input.message}\n\n` +
@@ -163,7 +182,33 @@ async function createAlarmTask(input: {
        * to i tak lepiej niż alarm bez nikogo.
        */
       ...(dyzurny ? { assignees: [dyzurny] } : assigneesField(input.defaultAssigneeId)),
-    })
+    }
+
+    let task: Awaited<ReturnType<typeof createTask>>
+    try {
+      task = await createTask(targetListId, payload)
+    } catch (e) {
+      /**
+       * ZADANIE ALARMOWE IDZIE DO KOLEJKI, nie do kosza (31.08).
+       *
+       * Alarmy z 11.08 i 13.08 leżą w `panic_alerts` z `clickup_task_id`
+       * równym NULL: powiadomienia poszły, zadanie nie powstało i NIC go nigdy
+       * nie ponowiło. Zespół widział maila, a klient patrzył na tablicę, na
+       * której jego najpilniejszej sprawy nie było. Eskalacja też nie miała
+       * czego pytać o przypisanych, bo pyta po id zadania.
+       */
+      console.error('[panic] ClickUp odrzucił zadanie alarmowe, idzie do kolejki:', e)
+      await enqueueReport({
+        portalId: input.portalId,
+        source: 'panic',
+        clickupListId: targetListId,
+        payload,
+        actor: { userId: normalizeActorId(input.session.userId), email: input.session.email, name: input.session.name },
+        panicAlertId: input.alertId,
+        error: e,
+      })
+      return null
+    }
 
     // Id zadania w naszej tabeli, bo bez niego eskalacja po 25 minutach nie ma
     // czego zapytać o przypisanych.
@@ -191,7 +236,10 @@ async function createAlarmTask(input: {
 
     return task.id
   } catch (e) {
-    console.error('[panic] nie udało się założyć zadania w ClickUpie:', e)
+    // Cokolwiek innego padło po drodze (baza, historia, unieważnienie bufora).
+    // Zadanie mogło już powstać, więc tu tylko log: ponawianie należy do
+    // kolejki, a nie do tej funkcji.
+    console.error('[panic] nie udało się dokończyć zakładania zadania alarmowego:', e)
     return null
   }
 }
@@ -269,7 +317,7 @@ export async function POST(request: NextRequest) {
     `**Zgłasza:** ${who}\n\n` +
     (taskUrl ? `**Zadanie:** ${taskUrl}` : '**Zadanie:** nie powstało w ClickUpie, sprawdź ręcznie')
 
-  await Promise.allSettled([
+  const kanaly = await Promise.allSettled([
     sendPanicDiscord(discordText),
     sendPanicEmails({
       subject: `🚨 ALARM: ${portal.name} — ${message.trim().slice(0, 60)}`,
@@ -295,6 +343,48 @@ export async function POST(request: NextRequest) {
       taskUrl,
     }),
   ])
+
+  /**
+   * WYNIK WYSYŁKI JEST CZYTANY (31.08). Do tej pory `allSettled` służyło
+   * wyłącznie do tego, żeby porażka jednego kanału nie zatrzymała pozostałych,
+   * a jego rezultat leciał do kosza. Alarm, o którym nie dowiedział się NIKT,
+   * wyglądał w bazie identycznie jak alarm ogłoszony na trzech kanałach.
+   *
+   * Stempel na wierszu alarmu jest tym, po co sięga eskalacja, żeby ponowić
+   * ogłoszenie. Alarm operacyjny idzie osobno, bo to jest jedyna sytuacja,
+   * w której klient wcisnął czerwony przycisk i nie zawibrował żaden telefon.
+   */
+  const nazwyKanalow = ['Discord', 'mail', 'SMS']
+  /**
+   * Liczymy DOSTARCZENIA, nie odrzucone obietnice.
+   *
+   * Wszystkie trzy funkcje wysyłkowe łykają swoje błędy, więc ich obietnice
+   * ZAWSZE kończą się sukcesem — patrzenie na `status === 'rejected'` mierzyłoby
+   * wyłącznie to, czy kod się wykonał, i zawsze pokazywałoby zieleń. Dlatego
+   * każda z nich zwraca teraz `boolean`: „co najmniej jeden odbiorca dostał".
+   */
+  const padly = kanaly
+    .map((k, i) => (k.status === 'fulfilled' && k.value === true ? null : nazwyKanalow[i]))
+    .filter((n): n is string => n !== null)
+
+  if (padly.length === kanaly.length) {
+    console.error(`[panic] ŻADEN kanał powiadomień nie zadziałał dla alarmu ${alert.id}`)
+    await db
+      .update(panicAlerts)
+      .set({ notifyFailedAt: new Date() })
+      .where(eq(panicAlerts.id, alert.id))
+    // Ostatnia deska ratunku. Idzie tym samym webhookiem co reszta, więc gdy
+    // padł właśnie Discord, zostaje log — i eskalacja, która ponowi za 5 minut.
+    await sendOpsAlert(
+      `🔴 **ALARM KLIENTA BEZ POWIADOMIENIA: ${portal.name}**\n` +
+        `Padły wszystkie kanały (${padly.join(', ')}).\n` +
+        `Treść: ${message.trim().slice(0, 300)}\n` +
+        `Zgłasza: ${who}` +
+        (taskUrl ? `\nZadanie: ${taskUrl}` : '\nZadanie: NIE powstało.')
+    )
+  } else if (padly.length > 0) {
+    console.warn(`[panic] kanały nieudane dla alarmu ${alert.id}: ${padly.join(', ')}`)
+  }
 
   return NextResponse.json({ ok: true, alertId: alert.id })
 }

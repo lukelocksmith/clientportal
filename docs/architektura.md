@@ -382,7 +382,7 @@ i **kontener nie wstaje** (awaria 14.08.2026).
 | zadanie | co robi | częstotliwość | **wołane przez** |
 |---|---|---|---|
 | `panic-escalation` | drabinka przypomnień o alarmach | co 5 min | **zadanie cykliczne Coolify** `eskalacja-alarmow`: `wget http://127.0.0.1:3000/…` |
-| `pending-reports` | dowozi zgłoszenia z kolejki | co 2 min | **crontab roota** na 65.21.75.39 (publiczny adres) |
+| `pending-reports` | dowozi zgłoszenia z kolejki, sprząta trzy tabele | co 2 min | **crontab roota** na 65.21.75.39, przez `docker exec` na `127.0.0.1:3000` |
 | `task-index` | lustro zadań i komentarzy | 6:20 codziennie, 6:40 w sobotę pełny | crontab roota |
 | `time-snapshot` | zamrożenie Track Time | piątek 7:00 | crontab roota |
 
@@ -392,9 +392,11 @@ systemd, GitHub Actions, Mac mini i harmonogramu w aplikacji. **API Coolify
 podaje `scheduled_tasks: null`, więc po API tego nie widać** — trzeba zapytać
 bazę Coolify.
 
-**Rozjazd wart uporządkowania:** eskalacja idzie po `127.0.0.1` (nie zależy od
-proxy ani od domeny), dowożenie kolejki po adresie publicznym (zależy od
-Cloudflare i proxy). Dwa mechanizmy dla dwóch cronów tej samej aplikacji.
+**Transport ujednolicony 31.08:** oba szybkie crony idą po `127.0.0.1` wewnątrz
+kontenera, więc żaden nie zależy od proxy, Cloudflare ani DNS-u. Eskalacja robi
+to zadaniem cyklicznym Coolify, dowożenie wpisem w crontabie z `docker exec`
+(nazwa kontenera zmienia się przy każdym deployu, więc wybieramy go po prefiksie
+`docker ps -q -f name=…`). Dwa różne harmonogramy, jeden transport.
 
 Ochrona przed dubletem przebiegu: `pg_try_advisory_lock` na nazwie zadania
 (`cronLock.ts`). Dubel eskalacji to podwójny SMS budzący ludzi w nocy, dubel
@@ -403,8 +405,24 @@ dowożenia to dwa zadania z jednego zgłoszenia.
 **Czego crony nie umieją:** zauważyć, że przestały być wołane. Alarmują tylko
 wtedy, gdy się wykonają i nie udadzą. Dlatego istnieje
 `GET /api/health/zgloszenia` — werdykt tekstowy `OK` / `PROBLEM` (+503) dla
-czujnika Z ZEWNĄTRZ. **Dziś nikt tego adresu nie odpytuje**, więc jest to
-strona, na którą nikt nie patrzy.
+czujnika Z ZEWNĄTRZ.
+
+Odpytują go **dwie niezależne czujki, obie poza Hetznerem:**
+
+1. **UptimeRobot**, czujka nr 803873937, typ `KEYWORD`, alarm gdy w odpowiedzi
+   NIE MA słowa `OK`, co 5 minut, alerty na mail i Pushover. Utworzona
+   **API v3** (`https://api.uptimerobot.com/v3/monitors`, `Authorization:
+   Bearer`). **API v2 na tym planie odmawia tworzenia monitorów** i zwraca
+   mylące „You are not allowed to use some settings with your current plan" —
+   pułapka opisana w pamięci projektu, w którą wpadłem drugi raz.
+2. **Cron na Mac mini** (`~/bin/portal-health-watch.sh`, kopia w repo jako
+   `scripts/portal-health-watch.sh`, co 5 minut) z alarmem na Discorda
+   (#alarmy): jedna wiadomość na godzinę, dopóki problem trwa, plus jedna przy
+   powrocie do normy. Webhook leży na Macu w `~/.portal-health.env`, prawa 600.
+
+Dwie czujki, nie jedna, bo kanał alertów stojący razem z monitorowaną maszyną
+milczy dokładnie wtedy, gdy jest potrzebny (bramka SMS leżała przez obie
+przerwy 13.08, bo stoi na tym samym serwerze).
 
 ---
 
@@ -484,26 +502,50 @@ strefy serwera.
 
 ---
 
-## 20. Czego nie wiemy i co jest długiem
+## 20. Dług: co spłacone 31.08, co zostaje
 
-1. **Nikt nie odpytuje `/api/health/zgloszenia`.** Dopóki nie stanie tam czujka
-   z zewnątrz, zatrzymany cron zostaje niewidoczny.
-2. **Okno na duplikat zadania** w kolejce: gdy ClickUp założy zadanie, a
-   odpowiedź do nas nie dojdzie, dowieziemy je drugi raz. Przyjęte świadomie.
-3. **Załącznik JSON SitePinga nie przechodzi przez kolejkę** (wymaga
-   istniejącego zadania), więc dowiezione zgłoszenie z widgetu ma diagnostykę
-   tylko w skrócie, w opisie.
-4. **Dwa mechanizmy wołania cronów** (Coolify vs crontab, localhost vs adres
-   publiczny) — warte ujednolicenia.
-5. **`onyx` nie ma wpisanych domen**, więc monitoring nie ma czego dopasować;
-   `wdf` ma domenę, ale wyłączony monitoring. Ta sama kolumna jest listą
-   dozwolonych źródeł SitePinga, więc zmiana dotyka dwóch rzeczy naraz.
-6. **`cron_runs` rośnie bez czyszczenia**: ~720 wierszy dziennie z samego
-   dowożenia kolejki. Nie boli dziś, zaboli za rok.
-7. Limiter w pamięci procesu (`memoryRateLimit`) przestaje działać przy
-   wielu instancjach aplikacji. Dziś jest jedna.
+**Spłacone tego samego dnia, w którym ten dokument je nazwał:**
 
----
+1. **Okno na duplikat w kolejce ZAMKNIĘTE.** Każde zgłoszenie dostaje numer
+   (`zg-xxxxxxxx`) w stopce opisu, przed pierwszą próbą. Dowożenie najpierw
+   pyta ClickUpa o zadanie z tym numerem i zamyka wiersz bez tworzenia kopii.
+   Sprawdzone na produkcji: zadanie z markerem istniało, kolejka je znalazła,
+   `createTask` nie został wywołany ani razu.
+2. **Załącznik SitePinga przechodzi przez kolejkę.** Pełne zgłoszenie leży
+   w `pending_reports.extra`, a po dowiezieniu doklada się zrzut ekranu
+   i diagnostyka. Nieudany załącznik nie przewraca dowiezienia.
+3. **Blokada logowania admina siedzi w bazie** (`login_throttle`), nie
+   w pamięci procesu: przeżywa restart kontenera i obowiązuje przy wielu
+   instancjach. Inkrementacja w SQL-u, więc równoległe próby się nie gubią.
+   Sprawdzone na produkcji: szósta próba dostała 429.
+4. **Transport cronów ujednolicony** (patrz rozdział 16).
+5. **Sprzątanie:** `cron_runs` starsze niż 60 dni, dowiezione zgłoszenia
+   starsze niż 90 dni (czekających NIE ruszamy nigdy), wygasłe blokady po 24 h.
+   Robi to cron dowożenia, każde z własnym `catch`.
+6. **Czujki z zewnątrz stoją: dwie** (UptimeRobot + cron na Mac mini, patrz
+   rozdział 16).
+7. **UTC wymuszone na połączeniu z bazą.** Przy pisaniu testu endpointu zdrowia
+   wyszło, że surowy `sql\`max(...)\`` oddaje łańcuch bez strefy, a
+   `new Date(...)` czyta go jako czas LOKALNY: na maszynie w Europe/Warsaw wiek
+   przebiegu wychodził o dwie godziny za duży. Poprawione dwutorowo:
+   `max()`/`min()` z drizzle oraz `connection: { timezone: 'UTC' }`. Skutek
+   uboczny: całe testy integracyjne przechodzą teraz także pod
+   `TZ=Europe/Warsaw`, w tym trzy testy zaproszeń, które wcześniej pod tą
+   strefą padały (wygasły token był przyjmowany).
+
+**Zostaje, bo to decyzja o kliencie, nie o kodzie:**
+
+- **`onyx` nie ma wpisanych domen**, więc monitoring stanu strony nie ma czego
+  dopasować; `wdf` ma domenę, ale wyłączony monitoring. Ta sama kolumna jest
+  listą dozwolonych źródeł SitePinga, więc zmiana dotyka dwóch rzeczy naraz.
+
+**Zostaje jako świadomie przyjęty koszt:**
+
+- Znacznik `zg-…` widać w opisie zadania w ClickUpie. To cena zamknięcia okna
+  na duplikat i jednocześnie wygoda: numer wiąże zadanie ze zgłoszeniem.
+- Czujka z Mac mini nie zauważy sytuacji, w której padnie sam Mac mini. Jego
+  samego pilnuje osobna czujka w UptimeRobocie, a drogę zgłoszeń pilnuje
+  dodatkowo czujka UptimeRobota, więc obie musiałyby padnąć naraz.
 
 ## 21. Jak ten dokument był sprawdzany
 

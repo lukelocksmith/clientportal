@@ -17,7 +17,7 @@ import assert from 'node:assert'
 // `vi.hoisted`, bo `vi.mock` jest wynoszony na sam poczatek pliku — zwykle
 // `const` byloby wtedy jeszcze niezainicjalizowane i fabryka mocka wywalilaby
 // sie na "Cannot access before initialization".
-const { clickup, cache, events } = vi.hoisted(() => ({
+const { clickup, cache, events, kolejka } = vi.hoisted(() => ({
   clickup: {
     createTask: vi.fn(),
     updateTask: vi.fn(),
@@ -32,10 +32,12 @@ const { clickup, cache, events } = vi.hoisted(() => ({
     getCachedTasksForScope: vi.fn(),
   },
   events: { logEvent: vi.fn() },
+  kolejka: { enqueueReport: vi.fn() },
 }))
 
 vi.mock('@/lib/clickup', () => clickup)
 vi.mock('@/lib/clickupCache', () => cache)
+vi.mock('@/lib/pendingReports', () => kolejka)
 vi.mock('@/lib/portalEvents', () => ({
   ...events,
   EVENT_TASK_CREATED: 'task_created',
@@ -234,6 +236,45 @@ describe('createFeedback — sciezka podstawowa', () => {
     await store().createFeedback(input())
 
     assert.deepStrictEqual(cache.invalidateFolderTasks.mock.calls[0], ['folder-1'])
+  })
+})
+
+describe('createFeedback — gdy ClickUp odmawia (kolejka)', () => {
+  /**
+   * Tu strata bolala najbardziej z czterech kanalow: osoba na stronie klienta
+   * nie ma konta w portalu, nie zobaczy zadnej kolejki ani historii i nie
+   * wroci sprawdzic, czy doszlo. Zamkniete okno przegladarki bylo jedynym
+   * miejscem, gdzie ta tresc istniala (31.08).
+   */
+  it('zgloszenie idzie do kolejki, a widget dostaje potwierdzenie', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    clickup.createTask.mockRejectedValueOnce(new Error('ClickUp 503'))
+    kolejka.enqueueReport.mockResolvedValueOnce(true)
+
+    const rekord = await store().createFeedback(input())
+
+    assert.strictEqual(kolejka.enqueueReport.mock.calls.length, 1)
+    const zapis = kolejka.enqueueReport.mock.calls[0][0]
+    assert.strictEqual(zapis.source, 'siteping')
+    assert.strictEqual(zapis.clickupListId, 'list-1')
+    // Tagi i status musza przejsc do kolejki takie same jak przy udanym
+    // zgloszeniu, inaczej dowiezione zadanie wypada z filtrow zespolu.
+    assert.deepStrictEqual(zapis.payload.tags, ['siteping', 'błąd'])
+    assert.strictEqual(zapis.payload.status, 'do zrobienia')
+    // Adnotacja dla zespolu: pelna diagnostyka i zrzut NIE powstaly.
+    assert.match(zapis.payload.description, /kolejk[eę] portalu/)
+    // Widget dostaje rekord, bo zgloszenie JEST przyjete.
+    assert.ok(rekord.id.startsWith('kolejka-'))
+    errorSpy.mockRestore()
+  })
+
+  it('gdy nawet kolejka padnie, blad LECI dalej — udawanie sukcesu byloby klamstwem', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    clickup.createTask.mockRejectedValueOnce(new Error('ClickUp 503'))
+    kolejka.enqueueReport.mockResolvedValueOnce(false)
+
+    await assert.rejects(() => store().createFeedback(input()), /ClickUp 503/)
+    errorSpy.mockRestore()
   })
 })
 

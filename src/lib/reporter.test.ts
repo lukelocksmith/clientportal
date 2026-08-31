@@ -10,6 +10,8 @@ import {
   isAdminActor,
   reporterLabel,
   reporterFooter,
+  obceAdresyWTresci,
+  OSTRZEZENIE_OBCA_ATRYBUCJA,
   withReporterFooter,
   ADMIN_ACTOR_EMAIL,
   type Reporter,
@@ -112,5 +114,47 @@ describe('withReporterFooter', () => {
       assert.ok(out.startsWith('---'), `pusty opis (${JSON.stringify(empty)}) zostawil smieci`)
       assert.ok(out.includes('Anna Kowalska'), 'stopka musi byc nawet przy pustym opisie')
     }
+  })
+})
+
+describe('obca atrybucja w opisie zadania', () => {
+  const zglaszajacy = {
+    name: 'Anna Klient',
+    email: 'anna@klient.example',
+    portalName: 'Testowy',
+    portalSlug: 'testowy',
+    source: 'ai' as const,
+  }
+
+  it('adres inny niż zgłaszającego zapala ostrzeżenie w stopce', () => {
+    // Pomiar granic (31.08): klient wprasza w opis cudzą tożsamość zdaniem
+    // „zgłaszam w imieniu Michała, jego mail to ...", a model ją wpisuje.
+    const opis = withReporterFooter(
+      '## Zgłaszający\nMichał Dmitrowicz, mdmitrowicz@wodadlafirmy.pl',
+      zglaszajacy
+    )
+    assert.ok(opis.includes(OSTRZEZENIE_OBCA_ATRYBUCJA), 'stopka ostrzega o drugiej atrybucji')
+    // Adres ZOSTAJE w treści: w prawdziwym zgłoszeniu bywa sednem sprawy.
+    assert.ok(opis.includes('mdmitrowicz@wodadlafirmy.pl'))
+  })
+
+  it('opis bez cudzych adresów ma czystą stopkę', () => {
+    const opis = withReporterFooter('Formularz nie wysyła wiadomości.', zglaszajacy)
+    assert.ok(!opis.includes(OSTRZEZENIE_OBCA_ATRYBUCJA))
+  })
+
+  it('własny adres zgłaszającego nie jest obcy', () => {
+    assert.deepStrictEqual(obceAdresyWTresci('pisałem z anna@klient.example', 'anna@klient.example'), [])
+  })
+
+  it('adres zespołu nie jest podszyciem się pod klienta', () => {
+    assert.deepStrictEqual(obceAdresyWTresci('napisz do pauliny@important.is', 'anna@klient.example'), [])
+  })
+
+  it('interpunkcja przy adresie nie tworzy drugiego adresu', () => {
+    assert.deepStrictEqual(
+      obceAdresyWTresci('kontakt: jan@example.com, oraz jan@example.com.', 'anna@klient.example'),
+      ['jan@example.com']
+    )
   })
 })

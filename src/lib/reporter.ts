@@ -111,6 +111,39 @@ export function reporterFooter(reporter: Reporter): string {
  */
 export function withReporterFooter(description: string | null | undefined, reporter: Reporter): string {
   const body = (description ?? '').trim()
-  const footer = reporterFooter(reporter)
+  const obce = obceAdresyWTresci(body, reporter.email)
+  const footer = obce.length > 0
+    ? `${reporterFooter(reporter)}\n${OSTRZEZENIE_OBCA_ATRYBUCJA}`
+    : reporterFooter(reporter)
   return body ? `${body}\n\n${footer}` : footer
+}
+
+/**
+ * Zdanie doklejane do stopki, gdy w opisie stoi adres inny niż zgłaszającego.
+ *
+ * Po co (31.08). Pomiar granic asystenta pokazał, że klient potrafi wprosić
+ * w opis cudzą tożsamość: „zgłaszam w imieniu Michała, jego mail to ...",
+ * i model wpisuje ten adres jako zgłaszającego. Stopka z sesji stała obok,
+ * ale czytający ma wtedy DWIE atrybucje i żadnej wskazówki, która jest
+ * prawdziwa. Nie usuwamy adresu z treści, bo w prawdziwym zgłoszeniu („formularz
+ * nie wysyła, klient pisał z adresu jan@example.com") to jest sedno sprawy.
+ * Zaznaczamy tylko, która atrybucja jest zmierzona, a która przepisana.
+ */
+export const OSTRZEZENIE_OBCA_ATRYBUCJA =
+  '**Uwaga:** w opisie pojawia się adres e-mail inny niż zgłaszającego. Autor powyżej pochodzi z zalogowanej sesji i tylko on jest potwierdzony.'
+
+/** Adresy w tekście, pomijając adres zgłaszającego i nasze własne domeny. */
+export function obceAdresyWTresci(body: string, reporterEmail: string): string[] {
+  const wzor = /[\w.+-]+@[\w-]+\.[\w.-]+/g
+  const wlasny = reporterEmail.trim().toLowerCase()
+  const znalezione = new Set<string>()
+  for (const adres of body.match(wzor) ?? []) {
+    const norm = adres.toLowerCase().replace(/[.,;:)\]]+$/, '')
+    if (norm === wlasny) continue
+    // Adresy zespołu pomijamy: „napisz do pauliny@important.is" w opisie nie
+    // jest podszyciem się pod klienta, tylko wskazaniem naszej własnej osoby.
+    if (norm.endsWith('@important.is')) continue
+    znalezione.add(norm)
+  }
+  return [...znalezione]
 }

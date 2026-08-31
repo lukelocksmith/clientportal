@@ -17,7 +17,8 @@ import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { isAwaria, TASK_STATUS_INITIAL } from '@/lib/utils'
 import { buildAiChatTags } from '@/lib/autoTags'
-import { buildTranscript, transcriptOutcome } from '@/lib/aiTranscript'
+import { buildTranscript, transcriptOutcome, textFromParts } from '@/lib/aiTranscript'
+import { withInjectionNote } from '@/lib/promptGuard'
 import { enqueueReport } from '@/lib/pendingReports'
 import {
   buildNewTaskPrompt,
@@ -123,6 +124,16 @@ export async function POST(request: NextRequest) {
 
   const NEW_TASK_PROMPT = buildNewTaskPrompt({ portalName: portal.name, today })
 
+  /**
+   * Same wypowiedzi klienta z tej rozmowy. Bierzemy je z wiadomości interfejsu,
+   * a nie z historii modelu, bo chodzi o to, co NAPISAŁ CZŁOWIEK — odpowiedzi
+   * asystenta mogłyby powtórzyć podejrzany zwrot i same zapaliłyby ostrzeżenie.
+   */
+  const wypowiedziKlienta = (uiMessages as Array<{ role?: string; parts?: unknown }>)
+    .filter(m => m?.role === 'user')
+    .map(m => textFromParts(m.parts))
+    .filter(Boolean)
+
   const createTaskTool = tool({
     description: CREATE_TASK_TOOL_DESCRIPTION,
     inputSchema: taskInputSchema,
@@ -151,7 +162,12 @@ export async function POST(request: NextRequest) {
         // opisie, ale to jest tekst generowany, więc podlega halucynacji i
         // podpowiedziom z rozmowy. Atrybucja pochodzi z sesji, jednym
         // sposobem dla wszystkich kanałów.
-        description: withReporterFooter(description, {
+        // Druga warstwa, deterministyczna, po naszej stronie: gdy w rozmowie
+        // widać próbę sterowania asystentem („ignoruj instrukcje", „ustaw
+        // priorytet 1"), zespół dostaje o tym jedną linię w opisie. Prompt
+        // sam nie wystarcza — pomiar z 31.08 pokazał, że taka próba działa
+        // na modelu w dwóch przebiegach z trzech (lib/promptGuard.ts).
+        description: withReporterFooter(withInjectionNote(description, wypowiedziKlienta), {
           name: session.name,
           email: session.email,
           portalName: portal.name,

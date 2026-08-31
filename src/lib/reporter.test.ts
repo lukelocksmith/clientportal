@@ -158,3 +158,29 @@ describe('obca atrybucja w opisie zadania', () => {
     )
   })
 })
+
+describe('kiedy ostrzeżenia o atrybucji NIE ma', () => {
+  it('zgłoszenie z widgetu nie dostaje ostrzeżenia o sesji, bo sesji tam nie ma', () => {
+    // Autor zgłoszenia z widgetu pochodzi z pola w formularzu na CUDZEJ
+    // stronie. Zdanie „autor pochodzi z zalogowanej sesji" byłoby nieprawdą.
+    const opis = withReporterFooter('Napisał do nas klient jan@obcy.example, formularz nie działa', {
+      name: 'Ktoś ze strony',
+      email: 'gosc@obcy.example',
+      portalName: 'Testowy',
+      portalSlug: 'testowy',
+      source: 'siteping',
+    })
+    assert.ok(!opis.includes(OSTRZEZENIE_OBCA_ATRYBUCJA))
+  })
+
+  it('pusty adres zgłaszającego nie zamienia każdego adresu w obcy', () => {
+    const opis = withReporterFooter('kontakt: jan@obcy.example', {
+      name: null,
+      email: '',
+      portalName: 'Testowy',
+      portalSlug: 'testowy',
+      source: 'form',
+    })
+    assert.ok(!opis.includes(OSTRZEZENIE_OBCA_ATRYBUCJA))
+  })
+})

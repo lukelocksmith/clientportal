@@ -111,11 +111,28 @@ export function reporterFooter(reporter: Reporter): string {
  */
 export function withReporterFooter(description: string | null | undefined, reporter: Reporter): string {
   const body = (description ?? '').trim()
-  const obce = obceAdresyWTresci(body, reporter.email)
-  const footer = obce.length > 0
+  const footer = ostrzegacOAtrybucji(body, reporter)
     ? `${reporterFooter(reporter)}\n${OSTRZEZENIE_OBCA_ATRYBUCJA}`
     : reporterFooter(reporter)
   return body ? `${body}\n\n${footer}` : footer
+}
+
+/**
+ * Czy do stopki dokleić ostrzeżenie o drugiej atrybucji.
+ *
+ * DWA WARUNKI WYKLUCZAJĄCE, oba znalezione przy sprawdzaniu, a nie w testach:
+ *
+ * 1. Zgłoszenie z WIDGETU nie ma sesji. Autor bierze się tam z pola w
+ *    formularzu na cudzej stronie, więc zdanie „autor pochodzi z zalogowanej
+ *    sesji" byłoby nieprawdą — a ostrzeżenie, które kłamie, jest gorsze od
+ *    braku ostrzeżenia.
+ * 2. Pusty adres zgłaszającego nie daje się z niczym porównać. Bez tego
+ *    warunku KAŻDY adres w treści wychodziłby na obcy.
+ */
+function ostrzegacOAtrybucji(body: string, reporter: Reporter): boolean {
+  if (reporter.source === 'siteping') return false
+  if (!reporter.email.trim()) return false
+  return obceAdresyWTresci(body, reporter.email).length > 0
 }
 
 /**
@@ -131,6 +148,7 @@ export function withReporterFooter(description: string | null | undefined, repor
  */
 export const OSTRZEZENIE_OBCA_ATRYBUCJA =
   '**Uwaga:** w opisie pojawia się adres e-mail inny niż zgłaszającego. Autor powyżej pochodzi z zalogowanej sesji i tylko on jest potwierdzony.'
+
 
 /** Adresy w tekście, pomijając adres zgłaszającego i nasze własne domeny. */
 export function obceAdresyWTresci(body: string, reporterEmail: string): string[] {

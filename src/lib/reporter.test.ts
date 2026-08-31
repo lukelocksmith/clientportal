@@ -12,6 +12,8 @@ import {
   reporterFooter,
   obceAdresyWTresci,
   OSTRZEZENIE_OBCA_ATRYBUCJA,
+  newReportMarker,
+  REPORT_MARKER_PATTERN,
   withReporterFooter,
   ADMIN_ACTOR_EMAIL,
   type Reporter,
@@ -182,5 +184,43 @@ describe('kiedy ostrzeżenia o atrybucji NIE ma', () => {
       source: 'form',
     })
     assert.ok(!opis.includes(OSTRZEZENIE_OBCA_ATRYBUCJA))
+  })
+})
+
+describe('numer zgłoszenia (marker)', () => {
+  it('ma stały, rozpoznawalny kształt', () => {
+    const m = newReportMarker()
+    assert.match(m, /^zg-[0-9a-f]{8}$/)
+    assert.match(m, REPORT_MARKER_PATTERN)
+  })
+
+  it('dwa kolejne zgłoszenia mają różne numery', () => {
+    // Gdyby marker się powtarzał, dowożenie z kolejki uznałoby CUDZE zadanie
+    // za swoje i zamknęłoby wiersz, nie zakładając zgłoszenia klienta.
+    const zestaw = new Set(Array.from({ length: 200 }, () => newReportMarker()))
+    assert.strictEqual(zestaw.size, 200)
+  })
+
+  it('marker trafia do stopki, gdy jest podany', () => {
+    const opis = withReporterFooter('Treść zgłoszenia', {
+      name: 'Anna',
+      email: 'anna@klient.example',
+      portalName: 'Testowy',
+      portalSlug: 'testowy',
+      source: 'form',
+      marker: 'zg-deadbeef',
+    })
+    assert.match(opis, /\*\*Nr zgłoszenia:\*\* zg-deadbeef/)
+  })
+
+  it('bez markera stopka wygląda jak dotychczas', () => {
+    const opis = withReporterFooter('Treść', {
+      name: 'Anna',
+      email: 'anna@klient.example',
+      portalName: 'Testowy',
+      portalSlug: 'testowy',
+      source: 'form',
+    })
+    assert.ok(!opis.includes('Nr zgłoszenia'))
   })
 })

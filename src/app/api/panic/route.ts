@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 import { panicAlerts, portalLists } from '@/lib/db/schema'
 import { and, desc, eq, ne } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
-import { normalizeActorId, reporterLabel, withReporterFooter } from '@/lib/reporter'
+import { normalizeActorId, newReportMarker, reporterLabel, withReporterFooter } from '@/lib/reporter'
 import { logEvent, EVENT_PANIC_ALERT, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import {
   panicEmailHtml,
@@ -153,6 +153,7 @@ async function createAlarmTask(input: {
 
     // Pierwsza linia zgłoszenia jako nazwa. Klient w panice pisze ciągiem, więc
     // bez ucięcia nazwa zadania byłaby akapitem. Pełna treść jest w opisie.
+    const marker = newReportMarker()
     const firstLine = input.message.split('\n')[0].trim()
     const name = `🚨 ALARM: ${firstLine.slice(0, 70)}${firstLine.length > 70 ? '…' : ''}`
 
@@ -167,6 +168,7 @@ async function createAlarmTask(input: {
           portalName: input.portalName,
           portalSlug: input.portalSlug,
           source: 'panic',
+          marker,
         }
       ),
       priority: 1,
@@ -203,6 +205,7 @@ async function createAlarmTask(input: {
         source: 'panic',
         clickupListId: targetListId,
         payload,
+        marker,
         actor: { userId: normalizeActorId(input.session.userId), email: input.session.email, name: input.session.name },
         panicAlertId: input.alertId,
         error: e,

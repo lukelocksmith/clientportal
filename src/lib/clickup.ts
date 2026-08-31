@@ -342,6 +342,38 @@ export async function getTask(taskId: string): Promise<ClickUpTask> {
   return task.attachments ? { ...task, attachments: visibleAttachments(task.attachments) } : task
 }
 
+/**
+ * Zadanie z tej listy, którego OPIS zawiera podany marker.
+ *
+ * PO CO: kolejka zgłoszeń musi umieć odpowiedzieć na pytanie „czy to zadanie
+ * już powstało", zanim założy je po raz drugi. Otwarte okno na duplikat
+ * powstawało wtedy, gdy ClickUp przyjął POST, ale odpowiedź do nas nie
+ * dojechała (timeout, zerwane połączenie, ponowienie po 5xx).
+ *
+ * JEDNO wywołanie, nie pętla po zadaniach: lista zwraca `description` razem
+ * z zadaniami, a `date_created_gt` zawęża odpowiedź do świeżych. Zamknięte
+ * wliczamy, bo zespół mógł zadanie zdążyć zamknąć.
+ *
+ * `null` znaczy „nie znalazłem", i tak samo wygląda wynik przy błędzie sieci —
+ * dlatego wołający MUSI traktować `null` jako „nie wiem", a nie „nie ma".
+ * Przy dowożeniu zgłoszeń kosztem pomyłki jest duplikat, nie strata.
+ */
+export async function findTaskByDescriptionMarker(
+  listId: string,
+  marker: string,
+  createdAfterMs: number
+): Promise<ClickUpTask | null> {
+  const params = new URLSearchParams({
+    include_closed: 'true',
+    date_created_gt: String(createdAfterMs),
+    subtasks: 'true',
+  })
+  const res = await clickupFetch<{ tasks: ClickUpTask[] }>(`/list/${listId}/task?${params}`)
+  return (
+    res.tasks.find(t => typeof t.description === 'string' && t.description.includes(marker)) ?? null
+  )
+}
+
 export async function createTask(
   listId: string,
   data: {

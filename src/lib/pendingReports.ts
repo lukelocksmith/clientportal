@@ -14,15 +14,25 @@
  * Kolejka jest siecią bezpieczeństwa, a sieć, która sama zrzuca z liny, jest
  * gorsza od jej braku.
  */
-import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
 import { db } from './db'
 import { pendingReports, panicAlerts, portals } from './db/schema'
-import { createTask } from './clickup'
+import { createTask, findTaskByDescriptionMarker } from './clickup'
 import { invalidateFolderTasks } from './clickupCache'
 import { logEvent, EVENT_TASK_CREATED } from './portalEvents'
 import { sendOpsAlert } from './cronRuns'
 
 export type ReportSource = 'form' | 'ai' | 'panic' | 'siteping'
+
+/**
+ * Jak daleko w przeszłość szukamy zadania, które mogło już powstać.
+ *
+ * Sześć godzin: z zapasem pokrywa najdłuższy realny odstęp między pierwszą
+ * próbą a dowiezieniem (ponawianie dobija do trzech godzin), a jednocześnie
+ * trzyma odpowiedź ClickUpa w rozsądnym rozmiarze. Marker jest jednorazowy,
+ * więc szersze okno nic by nie zepsuło poza czasem odpowiedzi.
+ */
+const DEDUP_WINDOW_MS = 6 * 60 * 60 * 1000
 
 /** Argumenty `createTask`, zapisane na sztywno w chwili zgłoszenia. */
 export type QueuedTaskPayload = {
@@ -77,6 +87,14 @@ export async function enqueueReport(input: {
   payload: QueuedTaskPayload
   actor?: { userId?: string | null; email?: string | null; name?: string | null }
   panicAlertId?: string | null
+  /**
+   * Numer zgłoszenia z opisu zadania (`newReportMarker`). Bez niego dowożenie
+   * nie ma jak rozpoznać zadania, które powstało przy pierwszej próbie —
+   * czyli okno na duplikat zostaje otwarte.
+   */
+  marker?: string | null
+  /** Dane kanału do dokończenia po dowiezieniu (dziś: zgłoszenie SitePinga). */
+  extra?: unknown
   error?: unknown
 }): Promise<boolean> {
   try {
@@ -93,6 +111,8 @@ export async function enqueueReport(input: {
         actorEmail: input.actor?.email ?? null,
         actorName: input.actor?.name ?? null,
         panicAlertId: input.panicAlertId ?? null,
+        marker: input.marker ?? null,
+        extra: (input.extra ?? null) as never,
         lastError: input.error instanceof Error ? input.error.message : input.error ? String(input.error) : null,
         // Pierwsza próba dowiezienia od razu przy najbliższym przebiegu crona,
         // nie po minucie: awaria ClickUpa najczęściej trwa sekundy.
@@ -140,7 +160,37 @@ export async function deliverPending(options: { limit?: number; now?: Date } = {
   for (const row of rows) {
     const payload = row.payload as QueuedTaskPayload
     try {
-      const task = await createTask(row.clickupListId, payload)
+      /**
+       * NAJPIERW SPRAWDŹ, CZY ZADANIE JUŻ NIE POWSTAŁO.
+       *
+       * ClickUp mógł przyjąć POST przy pierwszej próbie i nie zdążyć oddać
+       * odpowiedzi (timeout, zerwane połączenie, ponowienie po 5xx). Bez tego
+       * sprawdzenia dowożenie zakładało drugie zadanie z tej samej sprawy
+       * klienta. Marker w opisie jest jednorazowy, więc trafienie jest pewne.
+       *
+       * Błąd tego zapytania NIE blokuje dowożenia: wtedy wracamy do starego
+       * zachowania, czyli ryzykujemy duplikat, a nie stratę zgłoszenia.
+       */
+      let task: Awaited<ReturnType<typeof createTask>> | null = null
+      if (row.marker) {
+        const juzIstnieje = await findTaskByDescriptionMarker(
+          row.clickupListId,
+          row.marker,
+          row.createdAt.getTime() - DEDUP_WINDOW_MS
+        ).catch(e => {
+          console.warn(`[kolejka] nie udało się sprawdzić duplikatu dla ${row.id}:`, e)
+          return null
+        })
+        if (juzIstnieje) {
+          console.info(
+            `[kolejka] zadanie ${juzIstnieje.id} już istniało (marker ${row.marker}) — zamykam wiersz bez tworzenia kopii`
+          )
+          task = juzIstnieje
+        }
+      }
+
+      const bezDuplikatu = task !== null
+      if (!task) task = await createTask(row.clickupListId, payload)
 
       await db
         .update(pendingReports)
@@ -167,21 +217,45 @@ export async function deliverPending(options: { limit?: number; now?: Date } = {
         .limit(1)
       if (portal) await invalidateFolderTasks(portal.folderId)
 
-      await logEvent({
-        portalId: row.portalId,
-        actor: { userId: row.actorUserId, email: row.actorEmail ?? '', name: row.actorName },
-        action: EVENT_TASK_CREATED,
-        resourceId: task.id,
-        meta: {
-          source: row.source,
-          taskName: task.name,
-          url: task.url ?? null,
-          // Widoczne w historii projektu: to zadanie przyszło z kolejki, czyli
-          // przy zgłoszeniu ClickUp nie odpowiedział.
-          zKolejki: true,
-          czekaloMinut: Math.round((Date.now() - row.createdAt.getTime()) / 60_000),
-        },
-      })
+      /**
+       * ZAŁĄCZNIK ZGŁOSZENIA Z WIDGETU dokładamy TERAZ.
+       *
+       * Zrzut ekranu i pełna diagnostyka wymagają istniejącego zadania, więc
+       * przy zgłoszeniu nie było ich gdzie wgrać. Bez tego kroku zgłoszenie
+       * dowiezione z kolejki zostawało okaleczone na zawsze, a osoba, która je
+       * wysłała ze strony klienta, nie ma konta w portalu i nie wróci sprawdzić.
+       *
+       * Best-effort: zadanie już istnieje i ma opis, więc nieudany załącznik
+       * jest niedogodnością, nie stratą zgłoszenia.
+       */
+      if (row.source === 'siteping' && row.extra) {
+        try {
+          const { uploadFeedbackData } = await import('./siteping/store')
+          await uploadFeedbackData(task.id, row.extra as Parameters<typeof uploadFeedbackData>[1])
+        } catch (e) {
+          console.error(`[kolejka] nie udało się dołożyć załącznika SitePinga do ${task.id}:`, e)
+        }
+      }
+
+      // Zadanie, które JUŻ istniało, ma swój wpis w historii z chwili
+      // powstania. Drugi wpis pokazywałby klientowi dwa zgłoszenia z jednego.
+      if (!bezDuplikatu) {
+        await logEvent({
+          portalId: row.portalId,
+          actor: { userId: row.actorUserId, email: row.actorEmail ?? '', name: row.actorName },
+          action: EVENT_TASK_CREATED,
+          resourceId: task.id,
+          meta: {
+            source: row.source,
+            taskName: task.name,
+            url: task.url ?? null,
+            // Widoczne w historii projektu: to zadanie przyszło z kolejki, czyli
+            // przy zgłoszeniu ClickUp nie odpowiedział.
+            zKolejki: true,
+            czekaloMinut: Math.round((Date.now() - row.createdAt.getTime()) / 60_000),
+          },
+        })
+      }
 
       wynik.delivered++
       console.info(`[kolejka] dowiezione zgłoszenie ${row.id} → zadanie ${task.id}`)
@@ -257,4 +331,23 @@ export async function listPendingForPortal(portalId: string): Promise<PendingRow
     createdAt: r.createdAt,
     nextAttemptAt: r.nextAttemptAt,
   }))
+}
+
+/**
+ * Ile trzymamy DOWIEZIONE zgłoszenia. Dziewięćdziesiąt dni: tyle wystarcza na
+ * pytanie „czy to zgłoszenie faktycznie doszło i kiedy", a zadanie i tak żyje
+ * dalej w ClickUpie oraz w historii projektu.
+ *
+ * Zgłoszeń NIEDOWIEZIONYCH nie usuwamy nigdy. Wiersz, który czeka, jest
+ * sprawą klienta, a nie zapisem historycznym.
+ */
+export const DELIVERED_KEEP_DAYS = 90
+
+export async function prunePending(now = new Date()): Promise<number> {
+  const granica = new Date(now.getTime() - DELIVERED_KEEP_DAYS * 86_400_000)
+  const usuniete = await db
+    .delete(pendingReports)
+    .where(and(isNotNull(pendingReports.deliveredAt), lt(pendingReports.deliveredAt, granica)))
+    .returning({ id: pendingReports.id })
+  return usuniete.length
 }

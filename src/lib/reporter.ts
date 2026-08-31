@@ -23,6 +23,11 @@ export type Reporter = {
   portalName: string
   portalSlug: string
   source: ReportSource
+  /**
+   * Numer zgłoszenia (`newReportMarker`). Opcjonalny: kanały, które nie
+   * przechodzą przez kolejkę (pomysły, komentarze), nie mają go po co nosić.
+   */
+  marker?: string
 }
 
 const SOURCE_LABELS: Record<ReportSource, string> = {
@@ -89,16 +94,43 @@ export function reporterLabel(reporter: Pick<Reporter, 'name' | 'email'>): strin
  * stopce nie dodawało nic (uwaga Łukasza po teście 24.08). Kanał zostaje, bo
  * REALNIE się różni między źródłami zgłoszenia (AI, alarm, widget, formularz).
  */
+/**
+ * Numer zgłoszenia: krótki, jednorazowy znacznik doklejany do stopki zadania.
+ *
+ * PO CO (31.08). Kolejka zgłoszeń miała otwarte okno na DUPLIKAT: gdy ClickUp
+ * założył zadanie, a odpowiedź do nas nie dojechała (timeout, zerwane
+ * połączenie, ponowienie POST-a po 5xx), zgłoszenie szło do kolejki i po
+ * chwili powstawało drugie zadanie z tej samej sprawy klienta.
+ *
+ * Ten znacznik zamyka okno: leci do opisu przy PIERWSZEJ próbie, więc jeśli
+ * zadanie jednak powstało, dowożenie znajdzie je po markerze i zamknie wiersz
+ * kolejki, zamiast zakładać kopię.
+ *
+ * Postać jest krótka i czytelna dla człowieka, bo stoi w opisie zadania i
+ * pozwala zespołowi powiązać zadanie ze zgłoszeniem w portalu.
+ */
+export function newReportMarker(): string {
+  // Bez `node:crypto`: ten plik importuje też przeglądarka (patrz nagłówek).
+  // Cztery bajty w hex to 4 mld możliwości przy kilkunastu zgłoszeniach
+  // dziennie — kolizja jest tu rozważaniem teoretycznym, a nie ryzykiem.
+  const bytes = new Uint8Array(4)
+  crypto.getRandomValues(bytes)
+  return `zg-${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`
+}
+
+/** Wzór markera, do wyszukiwania w opisach zadań. */
+export const REPORT_MARKER_PATTERN = /zg-[0-9a-f]{8}/
+
 export function reporterFooter(reporter: Reporter): string {
   const who = isAdminActor({ email: reporter.email })
     ? 'important.is (tryb administratora, w imieniu klienta)'
     : reporterLabel(reporter)
 
-  return [
-    '---',
-    `**Zgłoszone przez:** ${who}`,
-    `**Kanał:** ${SOURCE_LABELS[reporter.source]}`,
-  ].join('\n')
+  const linie = ['---', `**Zgłoszone przez:** ${who}`, `**Kanał:** ${SOURCE_LABELS[reporter.source]}`]
+  // Numer zgłoszenia na końcu: dla zespołu to informacja porządkowa, a dla
+  // kolejki jedyny sposób rozpoznania zadania, które JUŻ powstało.
+  if (reporter.marker) linie.push(`**Nr zgłoszenia:** ${reporter.marker}`)
+  return linie.join('\n')
 }
 
 /**

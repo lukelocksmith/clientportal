@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, lt } from 'drizzle-orm'
 import { db } from './db'
 import { cronRuns } from './db/schema'
 
@@ -171,4 +171,23 @@ export async function getLastSuccessfulRun(
     .limit(1)
 
   return forPortal[0]?.finishedAt ?? null
+}
+
+/**
+ * Ile historii przebiegów trzymamy. Sześćdziesiąt dni: pokrywa pytanie „czy to
+ * chodziło w zeszłym miesiącu", a nie pozwala tabeli rosnąć bez końca.
+ *
+ * Skala jest realna, nie teoretyczna: dowożenie zgłoszeń chodzi co 2 minuty,
+ * czyli 720 wierszy dziennie, ćwierć miliona rocznie z jednego zadania.
+ */
+export const CRON_RUNS_KEEP_DAYS = 60
+
+/** Usuwa stare przebiegi. Woła cron dowożenia, bo chodzi najczęściej. */
+export async function pruneCronRuns(now = new Date()): Promise<number> {
+  const granica = new Date(now.getTime() - CRON_RUNS_KEEP_DAYS * 86_400_000)
+  const usuniete = await db
+    .delete(cronRuns)
+    .where(lt(cronRuns.finishedAt, granica))
+    .returning({ id: cronRuns.id })
+  return usuniete.length
 }

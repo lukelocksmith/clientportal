@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { setAdminSession } from '@/lib/admin-auth'
 import { safeEqual } from '@/lib/apiAuth'
-import { consumeRateLimit } from '@/lib/memoryRateLimit'
+import { checkLock, clearFailures, recordFailure } from '@/lib/loginThrottle'
 import bcrypt from 'bcryptjs'
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@important.is'
@@ -12,13 +12,17 @@ const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH
 const ADMIN_SECRET = process.env.ADMIN_SECRET
 
 /**
- * Limit prób logowania na adres IP. Panel admina nie ma wiersza w bazie, więc
- * licznik żyje w pamięci procesu (patrz memoryRateLimit.ts). Dziesięć prób na
- * kwadrans zatrzymuje brute-force online na hash bcrypt, a nie przeszkadza
- * człowiekowi, który literówkuje hasło.
+ * Limit prób logowania na adres IP, trzymany W BAZIE (lib/loginThrottle.ts).
+ *
+ * Do 31.08 licznik żył w pamięci procesu: znikał przy każdym restarcie
+ * kontenera, więc deploy w środku ataku zerował go, a przy dwóch instancjach
+ * aplikacji nie obowiązywałby w ogóle. Panel admina bez działającego limitu to
+ * otwarty brute-force online na hash bcrypt.
+ *
+ * Pięć prób i piętnaście minut blokady, tyle samo co dla kont klientów
+ * (loginAttempts.ts) — jedna reguła w całym portalu, łatwiejsza do
+ * wytłumaczenia niż dwie różne.
  */
-const LOGIN_LIMIT = 10
-const LOGIN_WINDOW_MS = 15 * 60 * 1000
 
 /**
  * Hash stałej treści do porównań, gdy podany email nie jest adminem. Bez tego
@@ -40,8 +44,20 @@ const loginSchema = z.object({
 
 export async function POST(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
-  if (!consumeRateLimit(`admin-login:${ip}`, LOGIN_LIMIT, LOGIN_WINDOW_MS)) {
-    return NextResponse.json({ error: 'Za dużo prób. Spróbuj ponownie później.' }, { status: 429 })
+  const kluczBlokady = `admin-login:${ip}`
+
+  // Padnięta baza NIE MOŻE zamknąć wejścia do panelu: wtedy blokada przestaje
+  // działać, ale panel działa. Odwrotna decyzja znaczyłaby, że awaria bazy
+  // odcina nas od narzędzia, którym się do niej dobieramy.
+  const blokada = await checkLock(kluczBlokady).catch(e => {
+    console.error('[admin/login] nie udało się sprawdzić blokady:', e)
+    return { locked: false, minutes: 0 }
+  })
+  if (blokada.locked) {
+    return NextResponse.json(
+      { error: `Za dużo prób. Spróbuj ponownie za ${blokada.minutes} min.` },
+      { status: 429 }
+    )
   }
 
   const parsed = loginSchema.safeParse(await request.json().catch(() => null))
@@ -69,19 +85,27 @@ export async function POST(request: NextRequest) {
     // Ten sam koszt czasowy co dla poprawnego emaila, żeby odpowiedź nie
     // zdradzała istnienia (albo nieistnienia) konta admina.
     await bcrypt.compare(password, getDummyHash())
+    await recordFailure(kluczBlokady).catch(() => {})
     return NextResponse.json({ error: 'Nieprawidłowy email lub hasło' }, { status: 401 })
   }
 
   if (ADMIN_PASSWORD_HASH) {
     const valid = await bcrypt.compare(password, ADMIN_PASSWORD_HASH)
-    if (!valid) return NextResponse.json({ error: 'Nieprawidłowy email lub hasło' }, { status: 401 })
+    if (!valid) {
+      await recordFailure(kluczBlokady).catch(() => {})
+      return NextResponse.json({ error: 'Nieprawidłowy email lub hasło' }, { status: 401 })
+    }
   } else if (ADMIN_SECRET) {
     // No hash set yet — compare against plain secret, constant-time.
     if (!safeEqual(password, ADMIN_SECRET)) {
+      await recordFailure(kluczBlokady).catch(() => {})
       return NextResponse.json({ error: 'Nieprawidłowy email lub hasło' }, { status: 401 })
     }
   }
 
+  // Udane logowanie zeruje licznik: kolejna literówka nie ma prawa dziedziczyć
+  // prób z poprzedniej sesji.
+  await clearFailures(kluczBlokady).catch(() => {})
   await setAdminSession()
   return NextResponse.json({ ok: true })
 }

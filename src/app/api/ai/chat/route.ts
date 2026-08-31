@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
 import { createTask } from '@/lib/clickup'
 import { computeCost } from '@/lib/aiPricing'
-import { withReporterFooter, normalizeActorId } from '@/lib/reporter'
+import { withReporterFooter, normalizeActorId, newReportMarker } from '@/lib/reporter'
 import { assigneesField } from '@/lib/assignee'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
@@ -153,6 +153,10 @@ export async function POST(request: NextRequest) {
       // Reguły (stopka z sesji, tagi, status) liczymy RAZ i tym samym
       // obiektem karmimy ClickUpa albo kolejkę. Bez tego kolejka dowoziłaby
       // zadanie zbudowane inaczej niż to z udanego zgłoszenia.
+      // Numer zgłoszenia przed pierwszą próbą — patrz komentarz w trasie
+      // formularza i w lib/pendingReports.ts.
+      const marker = newReportMarker()
+
       const payload = {
         name,
         // Ta sama reguła co przy formularzu (lib/assignee.ts): ustawienie
@@ -173,6 +177,7 @@ export async function POST(request: NextRequest) {
           portalName: portal.name,
           portalSlug: portal.slug,
           source: 'ai',
+          marker,
         }),
         priority: priority ?? null,
         due_date: due_date ?? null,
@@ -208,6 +213,7 @@ export async function POST(request: NextRequest) {
           source: 'ai',
           clickupListId: targetListId,
           payload,
+          marker,
           actor: { userId: normalizeActorId(session.userId), email: session.email, name: session.name },
           error,
         })

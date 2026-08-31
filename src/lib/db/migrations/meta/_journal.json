@@ -253,6 +253,13 @@
       "when": 1788162802255,
       "tag": "0035_round_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788169479877,
+      "tag": "0036_lazy_legion",
+      "breakpoints": true
     }
   ]
 }

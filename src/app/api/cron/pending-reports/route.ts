@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/apiAuth'
-import { recordCronRun } from '@/lib/cronRuns'
+import { pruneCronRuns, recordCronRun } from '@/lib/cronRuns'
 import { acquireCronLock } from '@/lib/cronLock'
-import { deliverPending, pendingCount } from '@/lib/pendingReports'
+import { pruneThrottle } from '@/lib/loginThrottle'
+import { deliverPending, pendingCount, prunePending } from '@/lib/pendingReports'
 
 export const dynamic = 'force-dynamic'
 // Dowożenie to najwyżej kilkadziesiąt wywołań ClickUpa, ale przy dłuższej
@@ -51,6 +52,29 @@ async function run(): Promise<NextResponse> {
     const wynik = await deliverPending({ limit: 25 })
     const zostalo = await pendingCount()
 
+    /**
+     * SPRZĄTANIE przy okazji, bo to zadanie chodzi najczęściej.
+     *
+     * Trzy tabele rosną bez końca, jeśli nikt ich nie tnie: `cron_runs`
+     * (720 wierszy dziennie z samego dowożenia), dowiezione zgłoszenia
+     * i wygasłe blokady logowania. Sprzątanie NIE MOŻE przewrócić dowożenia,
+     * które jest właściwą pracą tego crona — stąd `catch` na każdym.
+     */
+    const sprzatanie = {
+      przebiegi: await pruneCronRuns().catch(e => {
+        console.error('[pending-reports] czyszczenie cron_runs nieudane:', e)
+        return 0
+      }),
+      dowiezione: await prunePending().catch(e => {
+        console.error('[pending-reports] czyszczenie kolejki nieudane:', e)
+        return 0
+      }),
+      blokady: await pruneThrottle().catch(e => {
+        console.error('[pending-reports] czyszczenie blokad nieudane:', e)
+        return 0
+      }),
+    }
+
     // `ok: false` przy zaległości starszej niż kwadrans: wpis w cron_runs
     // świeci wtedy na czerwono i leci alarm na Discorda. Sam przebieg się
     // udał, ale kolejka, która nie schodzi, jest awarią, nie statystyką.
@@ -64,7 +88,7 @@ async function run(): Promise<NextResponse> {
       startedAt,
     })
 
-    return NextResponse.json({ ranAt: startedAt.toISOString(), ...wynik, zostalo })
+    return NextResponse.json({ ranAt: startedAt.toISOString(), ...wynik, zostalo, sprzatanie })
   } catch (e) {
     console.error('[pending-reports] przebieg nieudany:', e)
     await recordCronRun({

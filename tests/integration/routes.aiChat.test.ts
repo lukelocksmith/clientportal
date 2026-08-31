@@ -37,7 +37,7 @@ const { cookieJar, ai, clickup, cache, providers } = vi.hoisted(() => ({
     przechwycone: { tools: undefined as Record<string, NarzedzieTworzenia> | undefined, opcje: undefined as Record<string, unknown> | undefined },
     onEnd: undefined as ((arg: { usage: unknown; steps?: unknown; finishReason?: string }) => Promise<void>) | undefined,
   },
-  clickup: { createTask: vi.fn() },
+  clickup: { createTask: vi.fn(), findTaskByDescriptionMarker: vi.fn() },
   cache: { invalidateFolderTasks: vi.fn() },
   providers: { model: { nazwa: 'atrapa-modelu' } },
 }))
@@ -118,6 +118,7 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
     ai.przechwycone.tools = undefined
     ai.onEnd = undefined
     clickup.createTask.mockResolvedValue({ id: 'ai-1', name: 'Zadanie z czatu', url: 'https://cu.test/1' })
+    clickup.findTaskByDescriptionMarker.mockResolvedValue(null)
     cache.invalidateFolderTasks.mockResolvedValue(undefined)
   })
 

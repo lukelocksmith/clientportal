@@ -440,6 +440,24 @@ export const aiUsage = pgTable('ai_usage', {
 })
 
 /**
+ * Blokada logowania dla wejść BEZ wiersza w bazie — dziś panel admina.
+ *
+ * PO CO (31.08). Licznik prób admina siedział w pamięci procesu
+ * (`memoryRateLimit.ts`), więc znikał przy każdym restarcie kontenera
+ * i nie obowiązywał, gdyby aplikacja chodziła w dwóch instancjach. Panel
+ * admina bez działającego limitu to otwarty brute-force na hash bcrypt.
+ *
+ * Klucz jest nieprzezroczysty (`admin:<adres>`), żeby ta sama tabela dała się
+ * użyć dla kolejnego wejścia bez zmiany schematu.
+ */
+export const loginThrottle = pgTable('login_throttle', {
+  key: text('key').primaryKey(),
+  attempts: integer('attempts').notNull().default(0),
+  lockedUntil: timestamp('locked_until'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+/**
  * KOLEJKA ZGŁOSZEŃ. Zgłoszenie klienta nie ginie, gdy ClickUp nie odpowiada.
  *
  * PO CO (31.08). Wszystkie cztery kanały zgłaszania (formularz, asystent AI,
@@ -479,6 +497,22 @@ export const pendingReports = pgTable('pending_reports', {
    * do `panic_alerts`, inaczej eskalacja nie ma czego zapytać o przypisanych.
    */
   panicAlertId: uuid('panic_alert_id').references(() => panicAlerts.id, { onDelete: 'set null' }),
+  /**
+   * Numer zgłoszenia z opisu zadania (`newReportMarker` w lib/reporter.ts).
+   *
+   * Zamyka okno na DUPLIKAT: przed założeniem zadania dowożenie szuka po tym
+   * markerze zadania, które mogło powstać przy pierwszej próbie, choć
+   * odpowiedź ClickUpa do nas nie dojechała.
+   */
+  marker: text('marker'),
+  /**
+   * Dane kanału, których nie da się odtworzyć z samego `payload`.
+   *
+   * Dziś jedno użycie: pełne zgłoszenie z widgetu SitePing, żeby po dowiezieniu
+   * dołożyć załącznik JSON ze zrzutem ekranu i diagnostyką. Załącznik wymaga
+   * ISTNIEJĄCEGO zadania, więc przy zgłoszeniu nie ma go gdzie wgrać.
+   */
+  extra: jsonb('extra'),
   attempts: integer('attempts').notNull().default(0),
   lastError: text('last_error'),
   /** Kiedy najwcześniej próbować ponownie. Rośnie z każdą nieudaną próbą. */

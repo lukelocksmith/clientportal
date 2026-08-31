@@ -8,7 +8,7 @@ import { requirePortalApi } from '@/lib/apiSession'
 import { getAllTasksForFolder, getAllTasksForLists, getRecentlyClosedTasksForFolder, getRecentlyClosedTasksForLists, createTask } from '@/lib/clickup'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
-import { withReporterFooter } from '@/lib/reporter'
+import { withReporterFooter, newReportMarker } from '@/lib/reporter'
 import { assigneesField } from '@/lib/assignee'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
@@ -89,6 +89,11 @@ export async function POST(request: NextRequest) {
   // Reguły (stopka, przypisanie) liczymy RAZ i tak samo dla obu dróg: wprost
   // do ClickUpa i do kolejki. Druga implementacja tych samych reguł rozjechałaby
   // się przy pierwszej zmianie.
+  // Numer zgłoszenia POWSTAJE TU, przed pierwszą próbą, i idzie do opisu.
+  // Dzięki temu dowożenie z kolejki rozpozna zadanie, które jednak powstało,
+  // i nie założy kopii (patrz lib/pendingReports.ts).
+  const marker = newReportMarker()
+
   const payload = {
     name,
     // Kto to podejmie: ustawienie projektu, a w zapasie osoba agencji
@@ -104,6 +109,7 @@ export async function POST(request: NextRequest) {
       portalName: portal.name,
       portalSlug: portal.slug,
       source: 'form' as const,
+      marker,
     }),
     priority: priority ?? null,
     due_date: due_date ?? null,
@@ -125,6 +131,7 @@ export async function POST(request: NextRequest) {
       source: 'form',
       clickupListId: list[0].clickupListId,
       payload,
+      marker,
       actor: { userId: normalizeActorId(session.userId), email: session.email, name: session.name },
       error,
     })

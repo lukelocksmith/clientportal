@@ -44,6 +44,7 @@ const { cookieJar, clickup, cache } = vi.hoisted(() => ({
     verifyTaskBelongsToFolder: vi.fn(),
     updateTask: vi.fn(),
     createTask: vi.fn(),
+    findTaskByDescriptionMarker: vi.fn(),
     addTaskAttachment: vi.fn(),
     getAllTasksForFolder: vi.fn(),
     getAllTasksForLists: vi.fn(),
@@ -70,7 +71,7 @@ vi.mock('@/lib/clickupCache', () => ({
 import { NextRequest } from 'next/server'
 import { createSession, setSessionCookie } from '@/lib/auth'
 import { GET as tasksGET, POST as tasksPOST } from '@/app/api/clickup/tasks/route'
-import { deliverPending } from '@/lib/pendingReports'
+import { deliverPending, enqueueReport, prunePending } from '@/lib/pendingReports'
 import { GET as taskGET, PATCH as taskPATCH } from '@/app/api/clickup/tasks/[taskId]/route'
 import { GET as commentsGET, POST as commentsPOST } from '@/app/api/clickup/tasks/[taskId]/comments/route'
 import { GET as attachmentsGET } from '@/app/api/clickup/tasks/[taskId]/attachments/route'
@@ -108,6 +109,9 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
   beforeEach(async () => {
     cookieJar.clear()
     vi.clearAllMocks()
+    // PO clearAllMocks. Domyslnie: takiego zadania w ClickUpie NIE MA. Bez tego
+    // atrapa oddaje undefined i dowozenie wywala sie na `.catch` nie-obietnicy.
+    clickup.findTaskByDescriptionMarker.mockResolvedValue(null)
     cache.invalidateFolderTasks.mockResolvedValue(undefined)
     clickup.getRecentlyClosedTasksForFolder.mockResolvedValue([])
     clickup.getRecentlyClosedTasksForLists.mockResolvedValue([])
@@ -256,6 +260,112 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
    * KOLEJKA ZGLOSZEN (31.08). Do tej pory padniety ClickUp oznaczal 500 dla
    * klienta i TRESC ZGLOSZENIA GINELA, bo u nas nie zostawalo z niej nic.
    */
+  describe('kolejka: zalacznik SitePinga i sprzatanie', () => {
+    it('dowiezione zgloszenie z widgetu DOSTAJE zalacznik z diagnostyka', async () => {
+      // Zrzut ekranu i pelna diagnostyka wymagaja ISTNIEJACEGO zadania, wiec
+      // przy zgloszeniu nie ma ich gdzie wgrac. Bez tego kroku zgloszenie
+      // dowiezione z kolejki zostawaloby okaleczone na zawsze, a osoba, ktora
+      // je wyslala ze strony klienta, nie ma konta w portalu.
+      await db.delete(pendingReports)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      await enqueueReport({
+        portalId: portalA.id,
+        source: 'siteping',
+        clickupListId: 'lista-domyslna',
+        payload: { name: 'Z widgetu', description: 'opis', status: 'do zrobienia' },
+        marker: 'zg-11111111',
+        extra: {
+          clientId: 'client-xyz',
+          message: 'przycisk za maly',
+          screenshotDataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+          annotations: [],
+        },
+      })
+      clickup.createTask.mockResolvedValue({ id: 'widget-dowieziony', name: 'Z widgetu', url: 'u' })
+      clickup.addTaskAttachment.mockResolvedValue({ id: 'att' })
+
+      await deliverPending({ limit: 5 })
+
+      const nazwy = clickup.addTaskAttachment.mock.calls.map(c => c[2])
+      assert.ok(nazwy.some((n: string) => /screenshot/.test(n)), `zrzut wgrany, bylo: ${nazwy}`)
+      assert.ok(nazwy.some((n: string) => /json|siteping/i.test(n)), `dane wgrane, bylo: ${nazwy}`)
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports)
+    })
+
+    it('nieudany zalacznik NIE przewraca dowiezienia', async () => {
+      await db.delete(pendingReports)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await enqueueReport({
+        portalId: portalA.id,
+        source: 'siteping',
+        clickupListId: 'lista-domyslna',
+        payload: { name: 'Z widgetu 2', description: 'opis' },
+        marker: 'zg-22222222',
+        extra: { clientId: 'c', message: 'm', screenshotDataUrl: null, annotations: [] },
+      })
+      clickup.createTask.mockResolvedValue({ id: 'widget-2', name: 'Z widgetu 2', url: 'u' })
+      clickup.addTaskAttachment.mockRejectedValue(new Error('ClickUp odmowil zalacznika'))
+
+      const wynik = await deliverPending({ limit: 5 })
+
+      // Zadanie JEST, wiec zgloszenie nie zginelo. Zalacznik to niedogodnosc.
+      assert.strictEqual(wynik.delivered, 1)
+      const [po] = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.strictEqual(po.deliveredTaskId, 'widget-2')
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports)
+    })
+
+    it('sprzatanie usuwa STARE dowiezione, a czekajacych nie rusza', async () => {
+      // Wiersz, ktory czeka, jest sprawa klienta, a nie zapisem historycznym.
+      await db.delete(pendingReports)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await enqueueReport({
+        portalId: portalA.id, source: 'form', clickupListId: 'lista-domyslna',
+        payload: { name: 'stare dowiezione' },
+      })
+      await enqueueReport({
+        portalId: portalA.id, source: 'form', clickupListId: 'lista-domyslna',
+        payload: { name: 'nadal czeka' },
+      })
+      const wiersze = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      const stary = wiersze.find(w => (w.payload as { name: string }).name === 'stare dowiezione')!
+      await db
+        .update(pendingReports)
+        .set({ deliveredAt: new Date(Date.now() - 200 * 86_400_000), deliveredTaskId: 'x' })
+        .where(eq(pendingReports.id, stary.id))
+
+      const usuniete = await prunePending()
+
+      assert.strictEqual(usuniete, 1)
+      const zostaly = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.strictEqual(zostaly.length, 1)
+      assert.strictEqual((zostaly[0].payload as { name: string }).name, 'nadal czeka')
+      warnSpy.mockRestore()
+      await db.delete(pendingReports)
+    })
+  })
+
+  describe('numer zgloszenia w opisie', () => {
+    it('kazde zadanie z formularza niesie numer zgloszenia', async () => {
+      await loginClient()
+      clickup.createTask.mockResolvedValue({ id: 'z-numerem', name: 'X', url: 'u' })
+
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'X' }))
+
+      const opis = clickup.createTask.mock.calls[0][1].description as string
+      // Bez tego numeru kolejka nie ma jak rozpoznac zadania, ktore powstalo
+      // przy pierwszej probie — czyli okno na duplikat zostaje otwarte.
+      assert.match(opis, /\*\*Nr zgloszenia:\*\*|\*\*Nr zgłoszenia:\*\* zg-[0-9a-f]{8}/)
+    })
+  })
+
   describe('POST /api/clickup/tasks gdy ClickUp odmawia', () => {
     it('zgloszenie ladzie w kolejce, a klient dostaje potwierdzenie', async () => {
       await loginClient()
@@ -314,6 +424,73 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       warnSpy.mockRestore()
       errorSpy.mockRestore()
       await db.delete(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+    })
+
+    it('NIE tworzy duplikatu, gdy zadanie powstalo przy pierwszej probie', async () => {
+      // Okno na duplikat: ClickUp przyjal POST, ale odpowiedz do nas nie
+      // dojechala (timeout, zerwane polaczenie, ponowienie po 5xx). Do 31.08
+      // dowozenie zakladalo wtedy DRUGIE zadanie z tej samej sprawy klienta.
+      await db.delete(pendingReports)
+      await loginClient()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      clickup.createTask.mockRejectedValueOnce(new Error('ClickUp timeout'))
+
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'Sprawa raz' }))
+      const [wiersz] = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.ok(wiersz.marker, 'wiersz kolejki niesie numer zgloszenia')
+
+      // ClickUp mowi: takie zadanie juz mam.
+      clickup.findTaskByDescriptionMarker.mockResolvedValueOnce({
+        id: 'juz-bylo',
+        name: 'Sprawa raz',
+        url: 'https://cu.test/juz-bylo',
+      })
+      clickup.createTask.mockResolvedValue({ id: 'kopia', name: 'Sprawa raz', url: 'u' })
+
+      const wynik = await deliverPending({ limit: 5 })
+
+      assert.strictEqual(wynik.delivered, 1, 'wiersz zamkniety')
+      assert.strictEqual(
+        clickup.createTask.mock.calls.length,
+        1,
+        'createTask wolane TYLKO raz — przy zgloszeniu, nie przy dowozeniu'
+      )
+      const [po] = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.strictEqual(po.deliveredTaskId, 'juz-bylo')
+
+      // Historia projektu nie moze pokazac dwoch zgloszen z jednego.
+      const wpisy = await db.select().from(auditLog).where(eq(auditLog.resourceId, 'juz-bylo'))
+      assert.strictEqual(wpisy.length, 0, 'zadanie ma swoj wpis z chwili powstania, drugiego nie dorzucamy')
+
+      infoSpy.mockRestore()
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports)
+    })
+
+    it('gdy sprawdzenie duplikatu padnie, zgloszenie i tak jedzie dalej', async () => {
+      // Niewiedza nie moze zablokowac dowozenia: kosztem pomylki jest duplikat,
+      // ktory widac i da sie zamknac, a nie utrata zgloszenia klienta.
+      await db.delete(pendingReports)
+      await loginClient()
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      clickup.createTask.mockRejectedValueOnce(new Error('ClickUp 503'))
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'Sprawa dwa' }))
+
+      clickup.findTaskByDescriptionMarker.mockRejectedValueOnce(new Error('ClickUp nadal lezy'))
+      clickup.createTask.mockResolvedValue({ id: 'dowiezione-mimo', name: 'Sprawa dwa', url: 'u' })
+
+      const wynik = await deliverPending({ limit: 5 })
+
+      assert.strictEqual(wynik.delivered, 1)
+      const [po] = await db.select().from(pendingReports).where(eq(pendingReports.portalId, portalA.id))
+      assert.strictEqual(po.deliveredTaskId, 'dowiezione-mimo')
+      warnSpy.mockRestore()
+      errorSpy.mockRestore()
+      await db.delete(pendingReports)
     })
 
     it('nieudane dowozenie odklada probe, zamiast krecic sie w petli', async () => {

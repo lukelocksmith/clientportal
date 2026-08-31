@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { and, isNull, sql } from 'drizzle-orm'
+import { and, isNull, max, min, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cronRuns, pendingReports } from '@/lib/db/schema'
 import { reportingHealth, type CronName } from '@/lib/healthReporting'
@@ -30,7 +30,12 @@ export async function GET() {
     // przebieg, nie tylko udany: cron, który chodzi i się wywala, jest widziany
     // przez własny alarm na Discordzie, a ta trasa pilnuje CISZY.
     const wiersze = await db
-      .select({ job: cronRuns.job, ostatni: sql<Date>`max(${cronRuns.finishedAt})` })
+      // `max()` z drizzle, NIE surowy `sql`: surowy fragment oddaje goły
+      // łańcuch bez strefy, a `new Date(...)` czyta go wtedy jako czas LOKALNY.
+      // Na maszynie w Europe/Warsaw wiek przebiegu wychodził z tego o dwie
+      // godziny za duży — czyli działający cron wyglądał na milczący, a przy
+      // przeciwnym znaku milczący wyglądałby na zdrowy.
+      .select({ job: cronRuns.job, ostatni: max(cronRuns.finishedAt) })
       .from(cronRuns)
       .groupBy(cronRuns.job)
 
@@ -43,7 +48,7 @@ export async function GET() {
     const [kolejka] = await db
       .select({
         ile: sql<number>`count(*)::int`,
-        najstarsze: sql<Date | null>`min(${pendingReports.createdAt})`,
+        najstarsze: min(pendingReports.createdAt),
       })
       .from(pendingReports)
       .where(and(isNull(pendingReports.deliveredAt)))

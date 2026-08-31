@@ -37,7 +37,7 @@ import {
   buildFeedbackTitle,
   withSitepingMarkers,
 } from '@/lib/siteping/annotationMarker'
-import { withReporterFooter, ADMIN_ACTOR_EMAIL } from '@/lib/reporter'
+import { withReporterFooter, newReportMarker, ADMIN_ACTOR_EMAIL } from '@/lib/reporter'
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks, getCachedTasksForScope } from '@/lib/clickupCache'
 import { enqueueReport } from '@/lib/pendingReports'
@@ -141,8 +141,14 @@ async function findTaskByClientId(folderId: string, clientId: string): Promise<C
   return match ?? null
 }
 
-/** Wgrywa zrzut ekranu (jesli jest) i zalacznik z danymi zgloszenia. */
-async function uploadFeedbackData(taskId: string, data: FeedbackCreateInput): Promise<void> {
+/**
+ * Wgrywa zrzut ekranu (jesli jest) i zalacznik z danymi zgloszenia.
+ *
+ * WYEKSPORTOWANE, bo od 31.08 wola to takze kolejka zgloszen: gdy zadanie
+ * powstalo dopiero przy dowozeniu, zalacznik z pelna diagnostyka trzeba
+ * dolozyc wtedy, a nie zostawic zgloszenia okaleczonego na zawsze.
+ */
+export async function uploadFeedbackData(taskId: string, data: FeedbackCreateInput): Promise<void> {
   if (data.screenshotDataUrl) {
     const [, base64] = data.screenshotDataUrl.split(',')
     const bytes = Buffer.from(base64, 'base64')
@@ -341,6 +347,9 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
         return recordFromCreateInput(data, match.id, new Date(Number(full.date_created)))
       }
 
+      // Numer zgloszenia przed pierwsza proba, zeby dowozenie z kolejki nie
+      // zalozylo kopii zadania (patrz lib/pendingReports.ts).
+      const marker = newReportMarker()
       const annotation = data.annotations[0] ?? null
       // Kolejnosc: tresc + „gdzie" → stopka zglaszajacego → markery techniczne.
       // Markery MUSZA byc doklejone po stopce, inaczej ladowaly by w srodku.
@@ -363,6 +372,7 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
               portalName: portal.name,
               portalSlug: portal.slug,
               source: 'siteping',
+              marker,
             }
           ),
           data.clientId,
@@ -406,12 +416,17 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
           portalId: portal.id,
           source: 'siteping',
           clickupListId: portal.defaultListId,
+          marker,
+          // Pelne zgloszenie do dokonczenia po dowiezieniu: zrzut ekranu
+          // i zalacznik JSON wymagaja ISTNIEJACEGO zadania, wiec przy
+          // zgloszeniu nie ma ich gdzie wgrac.
+          extra: data,
           payload: {
             ...payloadZadania,
             description:
               `${payloadZadania.description}\n\n---\n` +
               `**Uwaga:** to zgloszenie przeszlo przez kolejke portalu, bo ClickUp nie odpowiedzial ` +
-              `w chwili wyslania. Zalacznik z pelna diagnostyka i zrzutem ekranu NIE powstal.` +
+              `w chwili wyslania. Zrzut ekranu i pelna diagnostyka doklejaja sie przy dowiezieniu.` +
               (buildDiagnosticsComment(
                 (data as { diagnostics?: Parameters<typeof buildDiagnosticsComment>[0] }).diagnostics
               ) ?? ''),

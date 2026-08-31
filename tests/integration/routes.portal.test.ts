@@ -30,6 +30,7 @@ const { cookieJar, clickup, mailer, cache, fetchMock } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   clickup: {
     createTask: vi.fn(),
+    findTaskByDescriptionMarker: vi.fn(),
     addTaskAttachment: vi.fn(),
     verifyTaskBelongsToFolder: vi.fn(),
     getTask: vi.fn(),
@@ -104,6 +105,9 @@ describe.skipIf(!dbUp)('trasy portalu na prawdziwej bazie', () => {
   beforeEach(() => {
     cookieJar.clear()
     vi.clearAllMocks()
+    // PO clearAllMocks, inaczej domyslna wartosc zostaje wyczyszczona.
+    // Domyslnie: takiego zadania w ClickUpie NIE MA (dedup kolejki).
+    clickup.findTaskByDescriptionMarker.mockResolvedValue(null)
     mailer.sendMail.mockResolvedValue({ ok: true })
     cache.invalidateFolderTasks.mockResolvedValue(undefined)
     fetchMock.mockResolvedValue(new Response('ok'))

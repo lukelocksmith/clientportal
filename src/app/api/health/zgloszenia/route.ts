@@ -65,7 +65,12 @@ export async function GET() {
       now,
     })
 
-    return new NextResponse(werdykt.line, {
+    // Wersja doklejona do tej samej linii, ktora czyta czujnik. Monitor szuka
+    // slowa „OK", wiec dopisek go nie rusza, a czlowiek jednym zapytaniem
+    // sprawdza, czy produkcja stoi na tym, co wlasnie wdrozyl.
+    const wersja = (process.env.APP_COMMIT ?? 'nieznana').slice(0, 7)
+
+    return new NextResponse(`${werdykt.line} · wersja ${wersja}`, {
       status: werdykt.ok ? 200 : 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     })

@@ -46,6 +46,17 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     if (portal) await dropTestPortal(portal.id)
   })
 
+  it('mowi, KTORA wersja stoi — inaczej „deploy zakonczony" niczego nie dowodzi', async () => {
+    process.env.APP_COMMIT = '845baef1234567'
+    const res = await healthGET()
+    const tekst = await res.text()
+    delete process.env.APP_COMMIT
+
+    assert.match(tekst, /wersja 845baef/)
+    // Czujnik UptimeRobot szuka slowa „OK"; dopisek nie moze go zjesc.
+    assert.match(tekst, /OK|PROBLEM/)
+  })
+
   it('świeże przebiegi i pusta kolejka → OK i kod 200', async () => {
     kopia = await db.select().from(cronRuns).where(inArray(cronRuns.job, PILNOWANE))
     await ustawPrzebieg('pending-reports', 1)

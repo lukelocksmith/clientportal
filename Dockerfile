@@ -15,6 +15,16 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Numer wersji, ktora faktycznie stoi na produkcji. Coolify podaje SOURCE_COMMIT
+# przy budowaniu z repozytorium; gdy go nie poda, zostaje "nieznana" i endpoint
+# zdrowia powie to wprost, zamiast udawac wiedze.
+#
+# PO CO: "deploy zakonczony sukcesem" NIE dowodzi, ze serwowany jest nowy kod,
+# a do 11.09 nie bylo tego jak sprawdzic bez SSH (notatka z 23.08: marker
+# weryfikacji trzeba bylo dobierac recznie przy kazdym wdrozeniu).
+ARG SOURCE_COMMIT=nieznana
+ENV APP_COMMIT=$SOURCE_COMMIT
+
 RUN npm run build
 
 FROM base AS runner

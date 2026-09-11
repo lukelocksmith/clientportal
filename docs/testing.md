@@ -334,6 +334,25 @@ na 1" było wykrywane, a to jest granica bezpieczeństwa, nie kosmetyka.
 Wniosek do zapamiętania przy każdym nowym wzorze na polskim tekście: dopasowuj
 po normalizacji, nigdy po surowym łańcuchu.
 
+### Druga droga zgłoszenia: formularz (11.09)
+
+Do 11.09 klient bez SitePinga miał w portalu **jedną** drogę zgłoszenia: czat
+z modelem. Awaria dostawcy albo zwykła pomyłka asystenta zostawiała go bez
+niczego poza czerwonym przyciskiem Alarm, a alarm budzi ludzi i nie nadaje się
+do „podmieńcie baner".
+
+`TaskFormDialog` idzie tą samą trasą co SitePing (`POST /api/clickup/tasks`),
+więc dostaje tę samą stopkę z sesji, to samo przypisanie i tę samą kolejkę przy
+awarii ClickUpa — żadnej drugiej implementacji reguł. Otwiera się z menu „Nowe
+zadanie" oraz z czatu, gdy `asystentObiecalBezZapisu` (chatFallback.ts) rozpozna
+obietnicę bez wywołania narzędzia; wtedy z wstawioną treścią z rozmowy, żeby
+klient nie opisywał sprawy drugi raz.
+
+Testy pilnują dwóch rzeczy, które łatwo zepsuć: **przy błędzie treść zostaje
+w polach** (inaczej powtarzamy tę samą cichą stratę, o którą poszło) oraz
+**pasek w czacie NIE pokazuje się przy udanym zgłoszeniu** — bo udane też
+kończy się zdaniem „zadanie zostało dodane".
+
 ### E2E przez żywy portal
 
 Testy integracyjne mają podstawiony model, pomiary mają podstawione narzędzie.

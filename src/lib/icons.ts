@@ -66,6 +66,8 @@ export {
   PaperClipIcon as Paperclip,
   ChatBubbleLeftIcon as MessageSquare,
   DocumentTextIcon as FileText,
+  // Formularz zgłoszenia (TaskFormDialog): lista do wypełnienia, nie dokument.
+  ClipboardDocumentListIcon as ClipboardList,
   DocumentPlusIcon as FilePlus2,
   DocumentDuplicateIcon as Copy,
   FolderPlusIcon as FolderPlus,

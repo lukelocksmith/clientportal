@@ -8,11 +8,12 @@ import { NewTaskButton } from './NewTaskButton'
 /**
  * „Nowe zadanie" z wyborem drogi zgłoszenia.
  *
- * Najważniejsze zachowanie: BEZ skonfigurowanej strony klienta przycisk ma
- * działać dokładnie jak przedtem, czyli otwierać asystenta jednym kliknięciem.
- * Większość projektów nie ma SitePinga, więc to jest ścieżka typowa, a nie
- * awaryjna — gdyby menu pojawiało się zawsze, dorzucilibyśmy wszystkim
- * kliknięcie bez treści.
+ * Najważniejsze zachowanie: FORMULARZ jest dostępny ZAWSZE, także w projekcie
+ * bez SitePinga. Do 11.09 taki projekt miał wyłącznie asystenta, więc pomyłka
+ * albo awaria modelu zostawiała klienta bez drogi zgłoszenia — 4 września
+ * asystent napisał klientce Onyxa, że zgłoszenie jest zapisane, i go nie
+ * zapisał. Menu z dwiema pozycjami kosztuje jedno kliknięcie więcej i to jest
+ * świadoma cena za to, że klient WIE o istnieniu drugiej drogi.
  *
  *   npx vitest run src/components/kanban/NewTaskButton.test.tsx
  */
@@ -22,40 +23,46 @@ afterEach(cleanup)
 const STRONA = 'https://wodadlafirmy.pl'
 
 describe('bez skonfigurowanej strony', () => {
-  it('jedno klikniecie otwiera asystenta, BEZ menu', async () => {
+  it('daje asystenta I formularz, bez pozycji o stronie', async () => {
     const uzytkownik = userEvent.setup()
-    const onOpenAssistant = vi.fn()
-    render(<NewTaskButton siteUrl={null} onOpenAssistant={onOpenAssistant} />)
+    render(<NewTaskButton siteUrl={null} onOpenAssistant={vi.fn()} onOpenForm={vi.fn()} />)
 
     await uzytkownik.click(screen.getByRole('button', { name: /Nowe zadanie/ }))
 
-    assert.strictEqual(onOpenAssistant.mock.calls.length, 1)
-    assert.strictEqual(screen.queryByText('Pokaż na stronie'), null, 'menu sie nie pojawia')
+    assert.ok(await screen.findByText('Opisz słowami'))
+    assert.ok(screen.getByText('Wypełnij formularz'))
+    // SitePing wymaga widgetu na stronie klienta; bez niego ta droga nie
+    // istnieje i pokazywanie jej byłoby obietnicą, której klient nie spełni.
+    assert.strictEqual(screen.queryByText('Pokaż na stronie'), null)
   })
 
-  it('przycisk NIE udaje rozwijanego menu', async () => {
-    render(<NewTaskButton siteUrl={null} onOpenAssistant={vi.fn()} />)
+  it('formularz otwiera sie z menu', async () => {
+    const uzytkownik = userEvent.setup()
+    const onOpenForm = vi.fn()
+    render(<NewTaskButton siteUrl={null} onOpenAssistant={vi.fn()} onOpenForm={onOpenForm} />)
+    await uzytkownik.click(screen.getByRole('button', { name: /Nowe zadanie/ }))
 
-    // Strzalka sugerowalaby wybor, ktorego nie ma.
-    const przycisk = screen.getByRole('button', { name: /Nowe zadanie/ })
-    assert.strictEqual(przycisk.getAttribute('aria-haspopup'), null)
+    await uzytkownik.click(await screen.findByRole('menuitem', { name: /Wypełnij formularz/ }))
+
+    assert.strictEqual(onOpenForm.mock.calls.length, 1)
   })
 })
 
 describe('ze skonfigurowana strona', () => {
-  it('klikniecie pokazuje OBIE drogi', async () => {
+  it('klikniecie pokazuje WSZYSTKIE trzy drogi', async () => {
     const uzytkownik = userEvent.setup()
-    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} />)
+    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} onOpenForm={vi.fn()} />)
 
     await uzytkownik.click(screen.getByRole('button', { name: /Nowe zadanie/ }))
 
     assert.ok(await screen.findByText('Pokaż na stronie'))
     assert.ok(screen.getByText('Opisz słowami'))
+    assert.ok(screen.getByText('Wypełnij formularz'))
   })
 
   it('kazda droga ma zdanie wyjasniajace, czym sie rozni', async () => {
     const uzytkownik = userEvent.setup()
-    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} />)
+    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} onOpenForm={vi.fn()} />)
     await uzytkownik.click(screen.getByRole('button', { name: /Nowe zadanie/ }))
 
     // Same nazwy nie mowia klientowi, ktora droge wybrac. Zglasza zadanie
@@ -66,7 +73,7 @@ describe('ze skonfigurowana strona', () => {
 
   it('„Pokaż na stronie" prowadzi na strone klienta, w NOWEJ karcie', async () => {
     const uzytkownik = userEvent.setup()
-    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} />)
+    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} onOpenForm={vi.fn()} />)
     await uzytkownik.click(screen.getByRole('button', { name: /Nowe zadanie/ }))
 
     const link = await screen.findByRole('menuitem', { name: /Pokaż na stronie/ })
@@ -79,7 +86,7 @@ describe('ze skonfigurowana strona', () => {
   it('„Opisz słowami" otwiera asystenta', async () => {
     const uzytkownik = userEvent.setup()
     const onOpenAssistant = vi.fn()
-    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={onOpenAssistant} />)
+    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={onOpenAssistant} onOpenForm={vi.fn()} />)
     await uzytkownik.click(screen.getByRole('button', { name: /Nowe zadanie/ }))
 
     await uzytkownik.click(await screen.findByRole('menuitem', { name: /Opisz słowami/ }))
@@ -89,7 +96,7 @@ describe('ze skonfigurowana strona', () => {
 
   it('menu da sie obsluzyc z klawiatury', async () => {
     const uzytkownik = userEvent.setup()
-    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} />)
+    render(<NewTaskButton siteUrl={STRONA} onOpenAssistant={vi.fn()} onOpenForm={vi.fn()} />)
 
     await uzytkownik.tab()
     await uzytkownik.keyboard('{Enter}')

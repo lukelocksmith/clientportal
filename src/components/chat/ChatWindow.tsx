@@ -5,6 +5,7 @@ import { DefaultChatTransport, type UIMessage } from 'ai'
 import { Send, Loader2, Bot, X, Plus, Paperclip } from '@/lib/icons'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useImageAttachments } from '@/components/shared/useImageAttachments'
+import { asystentObiecalBezZapisu, trescDoFormularza, type WiadomoscCzatu } from './chatFallback'
 
 interface ChatWindowProps {
   slug: string
@@ -12,9 +13,15 @@ interface ChatWindowProps {
   userEmail: string
   mode?: 'new-task' | 'general'
   onClose: () => void
+  /**
+   * Oddaje sprawę formularzowi: zamyka czat i otwiera okno z treścią rozmowy.
+   * Podawane tylko w trybie „nowe zadanie" — w trybie ogólnym nie ma czego
+   * zgłaszać.
+   */
+  onFallbackToForm?: (tresc: { nazwa: string; opis: string }) => void
 }
 
-export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onClose }: ChatWindowProps) {
+export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onClose, onFallbackToForm }: ChatWindowProps) {
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -135,6 +142,15 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
     await sendMessage({ text: text + note })
   }
 
+  /**
+   * Czy asystent zawiódł w sposób, który klient musi zobaczyć. Reguła siedzi
+   * w `chatFallback.ts`, żeby dało się ją sprawdzić bez renderowania okna.
+   */
+  const obiecalBezZapisu = asystentObiecalBezZapisu(messages as unknown as WiadomoscCzatu[], isLoading)
+  const przejdzDoFormularza = onFallbackToForm
+    ? () => onFallbackToForm(trescDoFormularza(messages as unknown as WiadomoscCzatu[]))
+    : null
+
   const headerTitle = mode === 'new-task' ? 'Nowe zadanie' : 'AI Asystent'
   const inputPlaceholder = mode === 'new-task'
     ? 'Opisz co chcesz zlecić...'
@@ -232,8 +248,37 @@ export function ChatWindow({ slug, portalName, userEmail, mode = 'general', onCl
           )}
 
           {error && (
-            <div className="text-center text-xs text-destructive bg-destructive/10 rounded-lg p-2.5">
-              Wystąpił błąd. Spróbuj ponownie.
+            <div className="space-y-2 rounded-lg bg-destructive/10 p-2.5 text-center text-xs text-destructive">
+              <p>Wystąpił błąd. Spróbuj ponownie.</p>
+              {przejdzDoFormularza && (
+                <button type="button" onClick={przejdzDoFormularza} className="underline underline-offset-2">
+                  Albo zgłoś zadanie formularzem
+                </button>
+              )}
+            </div>
+          )}
+
+          {/*
+            ASYSTENT OBIECAŁ I NIE ZAPISAŁ. Serwer w tym momencie odkłada
+            zgłoszenie do kolejki (lib/aiRescue.ts), więc sprawa nie ginie —
+            ale klient siedzi przed zdaniem „Gotowe" i o niczym nie wie.
+            Mówimy mu prawdę i dajemy drogę bez modelu. To jest przypadek
+            z 4 września u Onyxa: klientka czekała tydzień.
+          */}
+          {obiecalBezZapisu && przejdzDoFormularza && (
+            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="font-medium">Asystent nie zapisał tego zgłoszenia.</p>
+              <p>
+                Zapisaliśmy je z Waszej rozmowy i pojawi się na tablicy w ciągu kilku minut.
+                Jeśli chcesz mieć pewność albo coś poprawić, wypełnij formularz.
+              </p>
+              <button
+                type="button"
+                onClick={przejdzDoFormularza}
+                className="rounded-md bg-amber-600 px-2.5 py-1.5 font-medium text-white hover:bg-amber-700 transition-colors"
+              >
+                Zgłoś formularzem
+              </button>
             </div>
           )}
 

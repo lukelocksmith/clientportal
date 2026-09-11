@@ -19,6 +19,7 @@ import { KanbanColumn as KanbanColumnComponent } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 import { TaskDrawer } from './TaskDrawer'
 import { NewTaskButton } from './NewTaskButton'
+import { TaskFormDialog } from './TaskFormDialog'
 import { RefreshCw } from '@/lib/icons'
 import { toast } from 'sonner'
 import { ChatWindow } from '@/components/chat/ChatWindow'
@@ -139,6 +140,11 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
   const [activeTask, setActiveTask] = useState<ClickUpTask | null>(null)
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null)
   const [showChat, setShowChat] = useState(false)
+  /**
+   * Formularz zgłoszenia bez asystenta. `null` znaczy zamknięty; obiekt niesie
+   * treść, którą wstawiamy, gdy formularz otwiera się po nieudanej rozmowie.
+   */
+  const [formularz, setFormularz] = useState<{ nazwa: string; opis: string } | null>(null)
   const [chatMode, setChatMode] = useState<'new-task' | 'general'>('general')
   const [refreshing, setRefreshing] = useState(false)
 
@@ -336,7 +342,11 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
           Odśwież
         </button>
 
-        <NewTaskButton siteUrl={siteUrl} onOpenAssistant={() => openChat('new-task')} />
+        <NewTaskButton
+          siteUrl={siteUrl}
+          onOpenAssistant={() => openChat('new-task')}
+          onOpenForm={() => setFormularz({ nazwa: '', opis: '' })}
+        />
       </PortalHeader>
 
       {/* Board */}
@@ -399,6 +409,25 @@ export function KanbanBoard({ initialTasks, slug, portalName, userEmail, flags, 
           userEmail={userEmail}
           mode={chatMode}
           onClose={handleChatClose}
+          onFallbackToForm={tresc => {
+            setShowChat(false)
+            setFormularz(tresc)
+          }}
+        />
+      )}
+
+      {/*
+        Formularz: droga zgłoszenia, na której nie ma modelu. Otwiera się
+        z menu „Nowe zadanie" albo z czatu, gdy asystent zawiedzie — wtedy
+        z wstawioną treścią z rozmowy, żeby klient nie opisywał sprawy drugi raz.
+      */}
+      {formularz && (
+        <TaskFormDialog
+          slug={slug}
+          poczatkowaNazwa={formularz.nazwa}
+          poczatkowyOpis={formularz.opis}
+          onClose={() => setFormularz(null)}
+          onCreated={handleRefresh}
         />
       )}
     </div>

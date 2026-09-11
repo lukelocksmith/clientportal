@@ -1,5 +1,5 @@
 'use client'
-import { Plus, ChevronDown, PenLine, MessageSquare } from '@/lib/icons'
+import { Plus, ChevronDown, PenLine, MessageSquare, ClipboardList } from '@/lib/icons'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -18,26 +18,63 @@ import {
  * PRZYCISK BEZ MENU, gdy portal nie zna strony klienta. To nie jest wariant
  * awaryjny, tylko stan normalny dla większości projektów: SitePing wymaga
  * osadzenia widgetu na stronie klienta i wpisania domeny w konfiguracji
- * projektu. Pokazywanie wyboru z jedną możliwą opcją byłoby kliknięciem bez
- * treści, a wyszarzoną — obietnicą, której klient nie może sam spełnić.
+ * projektu.
+ *
+ * Trzecia droga, FORMULARZ, jest od 11.09 i jest zawsze — także gdy portal nie
+ * zna strony. Powód: do tej pory klient bez SitePinga miał wyłącznie asystenta,
+ * więc pomyłka albo awaria modelu zostawiała go bez jakiejkolwiek drogi poza
+ * czerwonym przyciskiem Alarm. 4 września asystent napisał klientce Onyxa, że
+ * zgłoszenie jest zapisane, i go nie zapisał; nie miała czym się poratować.
  */
 interface Props {
   /** Adres strony klienta albo null, gdy projekt jej nie ma skonfigurowanej. */
   siteUrl: string | null
   /** Otwiera asystenta (czat „nowe zadanie"). */
   onOpenAssistant: () => void
+  /** Otwiera formularz wypełniany ręcznie, bez modelu. */
+  onOpenForm: () => void
 }
 
-export function NewTaskButton({ siteUrl, onOpenAssistant }: Props) {
+/** Pozycja menu: formularz. Ta sama w obu wariantach przycisku. */
+function PozycjaFormularz({ onOpenForm }: { onOpenForm: () => void }) {
+  return (
+    <DropdownMenuItem onSelect={onOpenForm} className="cursor-pointer">
+      <ClipboardList className="h-4 w-4" aria-hidden />
+      <div>
+        <p className="font-medium">Wypełnij formularz</p>
+        <p className="text-xs text-muted-foreground">
+          Bez asystenta, sam opisujesz sprawę
+        </p>
+      </div>
+    </DropdownMenuItem>
+  )
+}
+
+export function NewTaskButton({ siteUrl, onOpenAssistant, onOpenForm }: Props) {
   if (!siteUrl) {
     return (
-      <button
-        onClick={onOpenAssistant}
-        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-      >
-        <Plus className="h-4 w-4" aria-hidden />
-        Nowe zadanie
-      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors">
+            <Plus className="h-4 w-4" aria-hidden />
+            Nowe zadanie
+            <ChevronDown className="h-3.5 w-3.5 opacity-80" aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuItem onSelect={onOpenAssistant} className="cursor-pointer">
+            <MessageSquare className="h-4 w-4" aria-hidden />
+            <div>
+              <p className="font-medium">Opisz słowami</p>
+              <p className="text-xs text-muted-foreground">
+                Asystent dopyta o szczegóły
+              </p>
+            </div>
+          </DropdownMenuItem>
+          <PozycjaFormularz onOpenForm={onOpenForm} />
+        </DropdownMenuContent>
+      </DropdownMenu>
     )
   }
 
@@ -79,6 +116,8 @@ export function NewTaskButton({ siteUrl, onOpenAssistant }: Props) {
             </p>
           </div>
         </DropdownMenuItem>
+
+        <PozycjaFormularz onOpenForm={onOpenForm} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

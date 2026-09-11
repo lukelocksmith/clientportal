@@ -292,6 +292,48 @@ Ten ostatni przypadek ma osobną obronę na produkcji, bo prompt go nie usuwa:
 admina (zakładka AI projektu). Klient, który przeczytał „zgłoszenie zapisane",
 zamyka okno i czeka — dlatego to jest gorsze niż samo niepowstanie zadania.
 
+### Wykrycie to za mało: ratunek porzuconego zgłoszenia (11.09)
+
+**Ta obrona nikogo nie uratowała, bo była bierna.** 4 września klientka Onyxa
+potwierdziła poziom słowem „tak", asystent odpisał „Gotowe! Zadanie »…«
+zostało zgłoszone jako P3. Za chwilę powinno pojawić się na tablicy" i nie
+wywołał narzędzia. Rozmowa dostała wynik `podejrzane`, ostrzeżenie poszło do
+logów kontenera i **przeleżało tydzień**, bo nikt nie czyta logów bez powodu,
+a panel otwiera się wtedy, gdy już wiadomo, że coś zginęło. Klientka
+upomniała się sama, na WhatsAppie.
+
+Od 11.09 wykrycie uruchamia DZIAŁANIE: `planRatunkowy` (lib/aiRescue.ts) składa
+zadanie z samego zapisu rozmowy i trasa czatu oddaje je kolejce
+`pending_reports`. Bez pytania modelu o cokolwiek — model właśnie w tej rozmowie
+zawiódł, więc bezpiecznik zbudowany z niego pękłby tak samo. Nazwa zadania jest
+ta, którą klient PRZECZYTAŁ w czacie (z cudzysłowu w obietnicy), bo pod nią
+będzie szukał sprawy na tablicy; poziomu nie zgadujemy, opis mówi wprost, że
+jest do ustalenia.
+
+Ratunek NIE uruchamia się, gdy narzędzie zostało tknięte — także nieudanie.
+Nieudane znaczy, że sprawa już jest w kolejce, a drugie zadanie z tej samej
+rozmowy to duplikat na tablicy klienta. Pilnuje tego para testów
+w `tests/integration/routes.aiChat.test.ts`: jeden dowodzi, że porzucone
+zgłoszenie ląduje w kolejce i daje się dowieźć, drugi — że udana rozmowa nie
+zakłada tam niczego.
+
+### E2E przez żywy portal
+
+Testy integracyjne mają podstawiony model, pomiary mają podstawione narzędzie.
+Łańcuch JAKO CAŁOŚĆ sprawdza dopiero to:
+
+```bash
+node --env-file=.env.local --import tsx scripts/e2e-zgloszenie-z-czatu.ts \
+  --base https://portal.important.is --slug testowy --email KONTO --haslo HASLO
+```
+
+Loguje się jak klient, rozmawia z prawdziwym modelem dokładnie tak, jak
+rozmawiała klientka Onyxa („zgłoś to jako zadanie" → „tak"), a na końcu pyta
+o jedyną rzecz, którą sprawdza klient: **czy sprawa jest na tablicy**. Gdy jej
+nie ma, nazywa awarię — czy asystent w ogóle tknął narzędzie i czy przypadkiem
+nie obiecał zgłoszenia. To jest ZAPIS do prawdziwego ClickUpa, więc wyłącznie
+na projekcie testowym.
+
 ## Testowanie na żywym ClickUpie
 
 Do testów, które muszą dotknąć prawdziwego ClickUpa, służy **projekt testowy

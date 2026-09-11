@@ -20,6 +20,7 @@ import { buildAiChatTags } from '@/lib/autoTags'
 import { buildTranscript, transcriptOutcome, textFromParts } from '@/lib/aiTranscript'
 import { withInjectionNote } from '@/lib/promptGuard'
 import { enqueueReport } from '@/lib/pendingReports'
+import { planRatunkowy } from '@/lib/aiRescue'
 import {
   buildNewTaskPrompt,
   taskInputSchema,
@@ -260,6 +261,80 @@ export async function POST(request: NextRequest) {
     },
   })
 
+  /**
+   * Ratunek zgłoszenia, które asystent obiecał klientowi i nie założył.
+   *
+   * Wołane z `onEnd`, gdy zapis rozmowy wyszedł jako `podejrzane`. Zadanie
+   * składamy z samej rozmowy (lib/aiRescue.ts) i oddajemy kolejce, a nie
+   * ClickUpowi wprost: kolejka ma ponawianie, odsiew duplikatów po markerze
+   * i alarm po piętnastu minutach, więc jest jedyną drogą, która sama z siebie
+   * nie milczy. Reguły opisu i przypisania są te same co przy zwykłym
+   * zgłoszeniu, bo to ma być TO SAMO zadanie, tylko dowiezione okrężnie.
+   *
+   * Nic tutaj nie ma prawa przewrócić `onEnd`: to już jest ścieżka awaryjna,
+   * a wyjątek z niej zabrałby przy okazji zapis zużycia tokenów.
+   */
+  async function ratujPorzuconeZgloszenie(transcript: Parameters<typeof planRatunkowy>[0]): Promise<void> {
+    try {
+      const plan = planRatunkowy(transcript)
+      if (!plan) return
+
+      const targetListId = defaultList?.clickupListId ?? ''
+      if (!targetListId) {
+        console.error('[ai/chat] ratunek niemozliwy: portal nie ma skonfigurowanej listy')
+        return
+      }
+
+      const marker = newReportMarker()
+      const payload = {
+        name: plan.name,
+        ...assigneesField(portal.defaultAssigneeId),
+        description: withReporterFooter(withInjectionNote(plan.description, wypowiedziKlienta), {
+          name: session.name,
+          email: session.email,
+          portalName: portal.name,
+          portalSlug: portal.slug,
+          source: 'ai' as const,
+          marker,
+        }),
+        // Poziomu NIE zgadujemy z tekstu obietnicy. Model, który nie wywołał
+        // narzędzia, nie jest źródłem, na którym można oprzeć kolejkę pracy
+        // zespołu; opis mówi wprost, że poziom jest do ustalenia.
+        priority: null,
+        due_date: null,
+        // Bez tagu awarii: ten nadaje się z opisu w rozmowie, a tutaj nikt
+        // tego nie potwierdził. Alarm ma własny przycisk.
+        tags: buildAiChatTags(portal.autoTags, false),
+        status: TASK_STATUS_INITIAL,
+      }
+
+      const wKolejce = await enqueueReport({
+        portalId: portal.id,
+        source: 'ai',
+        clickupListId: targetListId,
+        payload,
+        marker,
+        actor: { userId: normalizeActorId(session.userId), email: session.email, name: session.name },
+        error: 'Asystent potwierdzil zgloszenie klientowi, ale nie wywolal narzedzia createTask',
+      })
+
+      if (!wKolejce) {
+        console.error('[ai/chat] RATUNEK NIEUDANY — zgloszenie klienta przepadlo:', payload.name)
+        return
+      }
+
+      await logEvent({
+        portalId: portal.id,
+        actor: { userId: session.userId, email: session.email, name: session.name },
+        action: EVENT_TASK_CREATED,
+        resourceId: null,
+        meta: { source: 'ai', taskName: payload.name, wKolejce: true, ratunek: true },
+      })
+    } catch (e) {
+      console.error('[ai/chat] ratunek porzuconego zgloszenia nieudany:', e)
+    }
+  }
+
   const { model, provider, modelId } = getModel(!!fallback)
 
   const result = streamText({
@@ -290,6 +365,7 @@ export async function POST(request: NextRequest) {
           console.warn(
             `[ai/chat] model obiecal zgloszenie, ale NIE utworzyl zadania — portal ${portal.slug}, uzytkownik ${session.email}`
           )
+          await ratujPorzuconeZgloszenie(transcript)
         }
         await db.insert(aiChatLogs).values({
           portalId: portal.id,

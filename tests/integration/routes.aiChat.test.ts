@@ -473,6 +473,15 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       },
     ]
 
+    /**
+     * Kolejka jest wspolna dla calego portalu, a od 11.09 dopisuje sie do niej
+     * takze ratunek porzuconego zgloszenia. Bez czyszczenia kazdy kolejny test
+     * ogladalby wiersz poprzedniego i przechodzilby z cudzego dowodu.
+     */
+    async function pustaKolejka(portalId: string) {
+      await db.delete(pendingReports).where(eq(pendingReports.portalId, portalId))
+    }
+
     async function ostatniZapis(portalId: string) {
       const wpisy = await db.select().from(aiChatLogs).where(eq(aiChatLogs.portalId, portalId))
       return wpisy[wpisy.length - 1]
@@ -512,6 +521,86 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       const wpis = await ostatniZapis(portalA.id)
       assert.strictEqual(wpis.outcome, 'podejrzane')
       assert.strictEqual(wpis.taskId, null)
+    })
+
+    it('obietnica bez wywolania narzedzia NIE GUBI zgloszenia: laduje w kolejce', async () => {
+      await zaloguj()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Gotowe! Zadanie "Naprawa przycisku w koszyku" zostało zgłoszone jako P3. Pojawi się na tablicy.' }],
+        finishReason: 'stop',
+      })
+
+      /**
+       * DLACZEGO TO JEST OSOBNY TEST OD POWYZSZEGO. Zapis `podejrzane` istnial
+       * od 30.08 i nie uratowal nikogo: 4 wrzesnia klientka Onyxa dostala
+       * dokladnie takie zdanie, zadanie nie powstalo, a wpis w panelu przelezal
+       * tydzien, bo nikt nie oglada panelu bez powodu. Sygnal bez dzialania nie
+       * jest zabezpieczeniem, wiec tutaj sprawdzamy DZIALANIE.
+       */
+      const [wKolejce] = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.ok(wKolejce, 'porzucone zgloszenie czeka w kolejce')
+      assert.strictEqual(wKolejce.source, 'ai')
+      assert.strictEqual(wKolejce.clickupListId, 'lista-domyslna')
+
+      const payload = wKolejce.payload as { name: string; description: string }
+      // Nazwa ta sama, ktora klient PRZECZYTAL w czacie: pod nia bedzie szukal
+      // sprawy na tablicy.
+      assert.strictEqual(payload.name, 'Naprawa przycisku w koszyku')
+      assert.ok(payload.description.includes('przycisk nie dziala'), 'tresc klienta w opisie')
+      assert.ok(payload.description.includes(emailA), 'stopka z sesji, tak samo jak przy zwyklym zgloszeniu')
+
+      warnSpy.mockRestore()
+    })
+
+    it('uratowane zgloszenie daje sie dowiezc do ClickUpa', async () => {
+      await zaloguj()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Zgłoszenie zostało zapisane, pojawi się na tablicy.' }],
+        finishReason: 'stop',
+      })
+
+      clickup.createTask.mockResolvedValue({ id: 'ratunek-1', name: 'przycisk nie dziala', url: 'https://cu.test/r1' })
+      const wynik = await deliverPending({ limit: 10 })
+
+      assert.ok(wynik.delivered >= 1, `dowiezione co najmniej jedno, bylo ${wynik.delivered}`)
+      const zostalo = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.strictEqual(zostalo.length, 0, 'kolejka pusta po dowiezieniu')
+
+      warnSpy.mockRestore()
+    })
+
+    it('rozmowa z UDANYM zadaniem nie zaklada niczego w kolejce', async () => {
+      await zaloguj()
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: krokZNarzedziem({ success: true, taskId: 'ai-1', taskName: 'Zadanie z czatu' }),
+      })
+
+      // Para dowodzaca: bez tego test ratunku przechodzilby takze wtedy, gdyby
+      // kolejka dostawala KAZDA rozmowe i mnozyla duplikaty na tablicy klienta.
+      const wKolejce = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.strictEqual(wKolejce.length, 0, 'udana rozmowa nie trafia do kolejki')
     })
 
     it('udane utworzenie zapisuje sie z identyfikatorem zadania', async () => {

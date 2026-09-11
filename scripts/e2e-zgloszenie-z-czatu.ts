@@ -92,6 +92,16 @@ async function przeczytajStrumien(res: Response): Promise<{ tekst: string; narze
   return { tekst: tekst.trim(), narzedzie }
 }
 
+type Zadanie = { id: string; name: string }
+
+/** Zadania widoczne dla klienta na tablicy portalu. */
+async function pobierzZadania(base: string, slug: string, sesja: Sesja): Promise<Zadanie[]> {
+  const res = await fetch(`${base}/api/clickup/tasks?slug=${slug}`, { headers: { Cookie: sesja.naglowek } })
+  if (!res.ok) return []
+  const dane = (await res.json()) as { tasks?: Zadanie[] }
+  return dane.tasks ?? []
+}
+
 async function main(): Promise<void> {
   const { base, slug, email, haslo } = parseArgs()
   const sesja = new Sesja()
@@ -112,16 +122,36 @@ async function main(): Promise<void> {
   console.log('   OK')
 
   /**
+   * Zdjęcie tablicy PRZED rozmową. Rozpoznanie „naszego" zadania po nazwie nie
+   * działa: nazwę wymyśla model, więc stempel z tego skryptu do niej nie trafia
+   * (przebieg 11.09 uznał udane zgłoszenie za porażkę, bo zadanie nazywało się
+   * „Podmiana grafiki banera na stronie głównej"). Porównanie zbiorów id jest
+   * odporne na dowolną nazwę.
+   */
+  const przed = new Set((await pobierzZadania(base, slug, sesja)).map(t => t.id))
+  console.log(`   zadan na tablicy przed proba: ${przed.size}`)
+
+  /**
    * Rozmowa prowadzona tak, jak prowadziła ją klientka Onyxa: opis sprawy,
    * polecenie „zgłoś to jako zadanie", potem samo „tak" na pytanie o poziom.
    * Właśnie na tym ostatnim „tak" model 4 września napisał „Gotowe" i nie
    * zrobił nic.
+   *
+   * Replik jest osiem, choć prompt ma twardy limit czterech pytań: pierwszy
+   * przebieg 11.09 pokazał, że model potrafi zadać piąte i szóste. Krótsza
+   * lista kończyłaby się wynikiem „rozmowa się nie domknęła" i test mierzyłby
+   * cierpliwość skryptu zamiast drogi zgłoszenia. Pętla i tak przerywa się
+   * z chwilą wywołania narzędzia.
    */
   const repliki = [
     `${temat}. Chcemy podmienic grafike w sekcji na gorze strony glownej.`,
+    'Adres to https://important.is, sekcja na samej gorze.',
+    'Ma sie zmienic sama grafika, tekst zostaje bez zmian. Grafike mamy gotowa.',
     'zglos to jako zadanie',
     'tak',
     'tak, potwierdzam',
+    'tak, zglos to prosze',
+    'tak',
   ]
 
   console.log('\n== 2. Rozmowa z asystentem (prawdziwy model)')
@@ -160,12 +190,7 @@ async function main(): Promise<void> {
   await new Promise(r => setTimeout(r, 4000))
 
   console.log('\n== 3. Czy zadanie widac na tablicy klienta')
-  const tablica = await fetch(`${base}/api/clickup/tasks?slug=${slug}`, {
-    headers: { Cookie: sesja.naglowek },
-  })
-  const dane = (await tablica.json()) as { tasks?: Array<{ id: string; name: string }> }
-  const zadania = dane.tasks ?? []
-  const nasze = zadania.filter(t => t.name?.includes(stempel))
+  const nasze = (await pobierzZadania(base, slug, sesja)).filter(t => !przed.has(t.id))
 
   if (nasze.length > 0) {
     console.log(`   OK: ${nasze.map(t => `${t.name} (${t.id})`).join(', ')}`)

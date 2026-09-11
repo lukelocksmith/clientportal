@@ -58,13 +58,32 @@ export const MAX_TURNS = 140
  */
 const OBIETNICE_ZGLOSZENIA: readonly RegExp[] = [
   // Granica słowa jako `\p{L}`, nie `\b`: polskie „ę" na końcu wyrazu nie jest
-  // dla `\b` znakiem słowa, więc /\bzapisuję\b/ NIE łapie „zapisuję to".
-  /(?<!\p{L})(zgłaszam|zgłosiłem|zgłosiłam|zgłoszone)(?!\p{L})/u,
-  /(?<!\p{L})(dodałem|dodałam|dodaję|utworzyłem|utworzyłam|zapisałem|zapisałam|zapisuję)(?!\p{L})/u,
-  /zadanie\s+(zostało|jest|już)\s+(dodane|zapisane|utworzone|zgłoszone|na tablicy)/,
-  /zgłoszenie\s+(zostało|jest|już)\s+(zapisane|przyjęte|dodane|utworzone)/,
-  /(pojawi się|pojawia się|jest już|są już|trafiło|trafi)[^.!?]{0,40}na tablicy/,
+  // dla `\b` znakiem słowa, więc /\bzapisuje\b/ NIE łapie „zapisuje to".
+  // Wzory są pisane BEZ ogonków, bo tekst wchodzi tu po `bezOgonkow`.
+  /(?<!\p{L})(zglaszam|zglosilem|zglosilam|zgloszone)(?!\p{L})/u,
+  /(?<!\p{L})(dodalem|dodalam|dodaje|utworzylem|utworzylam|zapisalem|zapisalam|zapisuje)(?!\p{L})/u,
+  /zadanie\s+(zostalo|jest|juz)\s+(dodane|zapisane|utworzone|zgloszone|na tablicy)/,
+  /zgloszenie\s+(zostalo|jest|juz)\s+(zapisane|przyjete|dodane|utworzone)/,
+  /(pojawi sie|pojawia sie|jest juz|sa juz|trafilo|trafi)[^.!?]{0,40}na tablicy/,
 ]
+
+/**
+ * Tekst bez polskich znaków diakrytycznych, do samego DOPASOWANIA wzorców.
+ *
+ * PO CO (11.09): model pisze po polsku, ale nie zawsze z ogonkami, a wzory
+ * z „ł" i „ę" nie łapią wtedy niczego. Pomiar na produkcji: wymuszona obietnica
+ * „Zadanie zostalo zgloszone jako P3. Za chwile pojawi sie na tablicy" dostała
+ * wynik `rozmowa` zamiast `podejrzane`, więc ratunek porzuconego zgłoszenia
+ * (lib/aiRescue.ts) w ogóle się nie uruchomił. Ta sama treść z ogonkami
+ * zachowywała się poprawnie — czyli cała obrona zależała od tego, czy model
+ * akurat postawi kreskę nad literą.
+ *
+ * Normalizacja dotyczy WYŁĄCZNIE dopasowania. Treść zapisywana w transkrypcie
+ * i w zadaniu zostaje nietknięta.
+ */
+export function bezOgonkow(text: string): string {
+  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/ł/g, 'l').replace(/Ł/g, 'L')
+}
 
 /**
  * Czy w tej wypowiedzi asystent twierdzi, że zadanie powstało.
@@ -75,7 +94,7 @@ const OBIETNICE_ZGLOSZENIA: readonly RegExp[] = [
  */
 export function claimsTaskCreated(text: string | null | undefined): boolean {
   if (typeof text !== 'string' || !text.trim()) return false
-  const zdania = text.toLowerCase().split(/(?<=[.!?\n])/)
+  const zdania = bezOgonkow(text.toLowerCase()).split(/(?<=[.!?\n])/)
   return zdania.some(zdanie => {
     if (zdanie.trimEnd().endsWith('?')) return false
     return OBIETNICE_ZGLOSZENIA.some(wzor => wzor.test(zdanie))

@@ -317,6 +317,23 @@ w `tests/integration/routes.aiChat.test.ts`: jeden dowodzi, że porzucone
 zgłoszenie ląduje w kolejce i daje się dowieźć, drugi — że udana rozmowa nie
 zakłada tam niczego.
 
+### Ogonki: obrona, która zależała od kreski nad literą (11.09)
+
+Pierwszy przebieg e2e na produkcji odsłonił drugą dziurę, tym razem w samym
+wykrywaniu. Wymuszona obietnica **„Zadanie zostalo zgloszone jako P3. Za chwile
+pojawi sie na tablicy"** dostała wynik `rozmowa` zamiast `podejrzane`, więc
+ratunek w ogóle się nie uruchomił. Ta sama treść z ogonkami zachowywała się
+poprawnie. Wzory w `aiTranscript.ts` były pisane z „ł" i „ę", a model pisze po
+polsku tak, jak mu wyjdzie.
+
+Naprawione `bezOgonkow()`: tekst jest normalizowany **wyłącznie do dopasowania**,
+zapisywana treść zostaje nietknięta. Ta sama poprawka poszła do
+`promptGuard.ts` — „zmien priorytet na 1" przechodziło, choć „zmień priorytet
+na 1" było wykrywane, a to jest granica bezpieczeństwa, nie kosmetyka.
+
+Wniosek do zapamiętania przy każdym nowym wzorze na polskim tekście: dopasowuj
+po normalizacji, nigdy po surowym łańcuchu.
+
 ### E2E przez żywy portal
 
 Testy integracyjne mają podstawiony model, pomiary mają podstawione narzędzie.

@@ -146,4 +146,25 @@ describe('claimsTaskCreated', () => {
   it('pytanie na końcu nie unieważnia twierdzenia ze środka', () => {
     expect(claimsTaskCreated('Zadanie zostało dodane. Coś jeszcze?')).toBe(true)
   })
+
+  /**
+   * Model pisze po polsku, ale nie zawsze z ogonkami — a bez nich cała ta
+   * obrona milczała. Złapane 11.09 pomiarem na produkcji: wymuszona obietnica
+   * „Zadanie zostalo zgloszone jako P3. Za chwile pojawi sie na tablicy"
+   * dostała wynik `rozmowa` zamiast `podejrzane`, więc ratunek się nie
+   * uruchomił. Ta sama treść z ogonkami działała poprawnie.
+   */
+  it('rozpoznaje obietnicę napisaną BEZ polskich znaków', () => {
+    expect(claimsTaskCreated('Gotowe! Zadanie zostalo zgloszone jako P3.')).toBe(true)
+    expect(claimsTaskCreated('Za chwile pojawi sie na tablicy.')).toBe(true)
+    expect(claimsTaskCreated('Zgloszenie zostalo zapisane.')).toBe(true)
+    expect(claimsTaskCreated('Juz dodalem to zadanie.')).toBe(true)
+  })
+
+  it('bez ogonków pytanie nadal nie jest obietnicą', () => {
+    // Para dowodząca: gdyby normalizacja zniosła przy okazji regułę o pytaniu,
+    // każde „mam to zgłosić?" zakładałoby klientowi zadanie z kolejki.
+    expect(claimsTaskCreated('Mam to zgloszic jako P2?')).toBe(false)
+    expect(claimsTaskCreated('Czy zapisuje to jako zadanie?')).toBe(false)
+  })
 })

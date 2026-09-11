@@ -18,6 +18,8 @@
  * Czysta funkcja, bez sieci i bazy: da się ją sprawdzić bez modelu.
  */
 
+import { bezOgonkow } from './aiTranscript'
+
 /**
  * Zwroty, które nie są opisem sprawy, tylko próbą przestawienia zasad.
  *
@@ -27,19 +29,28 @@
  */
 const WZORY: readonly RegExp[] = [
   /ignoruj\s+(poprzednie|wszystkie|swoje)?\s*(instrukcje|polecenia|zasady|wytyczne)/i,
-  /(zapomnij|pomiń)\s+(o\s+)?(poprzednich\s+)?(instrukcjach|zasadach|wytycznych)/i,
-  /(jesteś|działasz)\s+(teraz|od teraz)\s+/i,
+  /(zapomnij|pomin)\s+(o\s+)?(poprzednich\s+)?(instrukcjach|zasadach|wytycznych)/i,
+  /(jestes|dzialasz)\s+(teraz|od teraz)\s+/i,
   /tryb\s+(serwisowy|deweloperski|developerski|debug|administratora|boga)/i,
-  /(ustaw|nadaj|zmień)\s+(priorytet|poziom)\s*(na)?\s*[0-3]\b/i,
+  /(ustaw|nadaj|zmien)\s+(priorytet|poziom)\s*(na)?\s*[0-3]\b/i,
   /(dodaj|nadaj)\s+tag\s+/i,
-  /(instrukcje|prompt|konfiguracj[aęi])\s+(systemow|system)/i,
-  /(wypisz|pokaż|podaj|zacytuj)\s+(swoje|swój|pełne|pełną)?\s*(instrukcje|prompt|zasady)/i,
-  /(nie pytaj|przestań pytać|bez pytań)\s*(o nic|więcej)?/i,
+  /(instrukcje|prompt|konfiguracj[aei])\s+(systemow|system)/i,
+  /(wypisz|pokaz|podaj|zacytuj)\s+(swoje|swoj|pelne|pelna)?\s*(instrukcje|prompt|zasady)/i,
+  /(nie pytaj|przestan pytac|bez pytan)\s*(o nic|wiecej)?/i,
 ]
 
+/**
+ * Wzory są pisane BEZ ogonków, bo tekst przechodzi przez `bezOgonkow`.
+ *
+ * PO CO (11.09): ta sama dziura, którą tego dnia znalazłem w detekcji obietnic
+ * (lib/aiTranscript.ts). Klient pisze, jak mu wygodnie, a wzór z „ń" nie łapie
+ * „przestan pytac". Wykrycie próby sterowania asystentem nie może zależeć od
+ * tego, czy ktoś ma włączoną polską klawiaturę.
+ */
 export function looksLikeInstructionInjection(text: string | null | undefined): boolean {
   if (typeof text !== 'string' || !text.trim()) return false
-  return WZORY.some(w => w.test(text))
+  const znormalizowany = bezOgonkow(text)
+  return WZORY.some(w => w.test(znormalizowany))
 }
 
 /** Linia dopisywana do opisu zadania. Widzi ją zespół, nie klient. */

@@ -46,13 +46,13 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     if (portal) await dropTestPortal(portal.id)
   })
 
-  it('mowi, KTORA wersja stoi — inaczej „deploy zakonczony" niczego nie dowodzi', async () => {
-    process.env.APP_COMMIT = '845baef1234567'
+  it('mowi, z kiedy jest obraz — inaczej „deploy zakonczony" niczego nie dowodzi', async () => {
     const res = await healthGET()
     const tekst = await res.text()
-    delete process.env.APP_COMMIT
 
-    assert.match(tekst, /wersja 845baef/)
+    // Poza obrazem pliku nie ma, wiec odpowiedz ma sie PRZYZNAC do niewiedzy,
+    // a nie zgadywac. Na produkcji w tym miejscu stoi data budowania.
+    assert.match(tekst, /obraz z (nieznana|\d{4}-\d{2}-\d{2}T)/)
     // Czujnik UptimeRobot szuka slowa „OK"; dopisek nie moze go zjesc.
     assert.match(tekst, /OK|PROBLEM/)
   })

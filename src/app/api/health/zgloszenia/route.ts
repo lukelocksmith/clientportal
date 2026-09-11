@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { NextResponse } from 'next/server'
 import { and, isNull, max, min, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
@@ -23,6 +24,26 @@ export const dynamic = 'force-dynamic'
  * się treść komunikatu i słowo kluczowe przestanie pasować.
  */
 const PILNOWANE: CronName[] = ['pending-reports', 'panic-escalation', 'task-index']
+
+/**
+ * Kiedy zbudowano obraz, na którym stoi produkcja.
+ *
+ * PO CO: „deploy zakończony sukcesem" NIE dowodzi, że serwowany jest nowy kod,
+ * a bez SSH nie dało się tego sprawdzić — 11.09 po wdrożeniu formularza
+ * zgłoszenia nie było jak potwierdzić curl-em, że przycisk naprawdę jest
+ * na produkcji, bo jego paczka ładuje się dynamicznie.
+ *
+ * Plik pisze Dockerfile przy budowaniu. Gdy go nie ma (uruchomienie spoza
+ * obrazu, na przykład lokalnie albo w teście), mówimy „nieznana" — endpoint
+ * ma przyznać się do niewiedzy, a nie zgadnąć.
+ */
+function czasBudowania(): string {
+  try {
+    return readFileSync('.build-time', 'utf8').trim() || 'nieznana'
+  } catch {
+    return 'nieznana'
+  }
+}
 
 export async function GET() {
   try {
@@ -65,12 +86,7 @@ export async function GET() {
       now,
     })
 
-    // Wersja doklejona do tej samej linii, ktora czyta czujnik. Monitor szuka
-    // slowa „OK", wiec dopisek go nie rusza, a czlowiek jednym zapytaniem
-    // sprawdza, czy produkcja stoi na tym, co wlasnie wdrozyl.
-    const wersja = (process.env.APP_COMMIT ?? 'nieznana').slice(0, 7)
-
-    return new NextResponse(`${werdykt.line} · wersja ${wersja}`, {
+    return new NextResponse(`${werdykt.line} · obraz z ${czasBudowania()}`, {
       status: werdykt.ok ? 200 : 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     })

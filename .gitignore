@@ -49,3 +49,7 @@ next-env.d.ts
 # Bundle widgetu SitePing: generowany artefakt zaleznosci (prebuild),
 # nie nasz kod. 468 KB w repo bez powodu.
 /public/siteping/widget.js
+GATES.md
+.konto-pomiarowe.json
+.unlazy/
+.unlazy-hook-state.json

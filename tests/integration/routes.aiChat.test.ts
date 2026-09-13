@@ -36,6 +36,10 @@ const { cookieJar, ai, clickup, cache, providers, ops } = vi.hoisted(() => ({
   ai: {
     przechwycone: { tools: undefined as Record<string, NarzedzieTworzenia> | undefined, opcje: undefined as Record<string, unknown> | undefined },
     onEnd: undefined as ((arg: { usage: unknown; steps?: unknown; finishReason?: string }) => Promise<void>) | undefined,
+    /** Druga tura, wymuszona. Zapisujemy jej opcje, zeby sprawdzic toolChoice. */
+    domkniecie: { opcje: undefined as Record<string, unknown> | undefined, wolan: 0 },
+    /** Co ma zrobic atrapa `generateText`: wywolac narzedzie albo polec. */
+    domkniecieDziala: true,
   },
   clickup: { createTask: vi.fn(), findTaskByDescriptionMarker: vi.fn() },
   ops: { sendOpsAlert: vi.fn(async (_tresc: string) => {}) },
@@ -52,6 +56,22 @@ vi.mock('next/headers', () => ({
 }))
 
 vi.mock('ai', () => ({
+  /**
+   * Druga tura domkniecia. Atrapa zachowuje sie jak model z `toolChoice:
+   * 'required'`: wola przekazane narzedzie, zamiast odpisywac tekstem.
+   */
+  generateText: async (opcje: Record<string, unknown>) => {
+    ai.domkniecie.opcje = opcje
+    ai.domkniecie.wolan += 1
+    if (!ai.domkniecieDziala) throw new Error('dostawca modelu nie odpowiedzial')
+    const t = (opcje.tools as Record<string, NarzedzieTworzenia>).createTask
+    const wynik = await t.execute({
+      name: 'Domkniete zadanie z rozmowy',
+      description: 'Opis zbudowany przez model w drugiej turze, dluzszy niz sto znakow, zeby przeszedl walidacje schematu narzedzia.',
+      priority: 3,
+    })
+    return { steps: [{ text: '', toolCalls: [{ toolCallId: 'd1', toolName: 'createTask', input: {} }], toolResults: [{ toolCallId: 'd1', toolName: 'createTask', output: wynik }] }] }
+  },
   // `tool()` w prawdziwym pakiecie tylko opisuje narzedzie, wiec zwrocenie
   // argumentu bez zmian jest wierne, a przy okazji daje nam dostep do `execute`.
   tool: (definicja: unknown) => definicja,
@@ -120,6 +140,9 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
     vi.clearAllMocks()
     ai.przechwycone.tools = undefined
     ai.onEnd = undefined
+    ai.domkniecie.opcje = undefined
+    ai.domkniecie.wolan = 0
+    ai.domkniecieDziala = true
     clickup.createTask.mockResolvedValue({ id: 'ai-1', name: 'Zadanie z czatu', url: 'https://cu.test/1' })
     clickup.findTaskByDescriptionMarker.mockResolvedValue(null)
     cache.invalidateFolderTasks.mockResolvedValue(undefined)
@@ -537,6 +560,11 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
     it('obietnica bez wywolania narzedzia NIE GUBI zgloszenia: laduje w kolejce', async () => {
       await zaloguj()
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      // Od 13.09 kolejka jest warstwa OSTATNIA: pierwsza probuje dogrywka
+      // z wymuszonym narzedziem. Tutaj sprawdzamy wlasnie te ostatnia, wiec
+      // dogrywka musi zawiesc.
+      ai.domkniecieDziala = false
       await pustaKolejka(portalA.id)
       await chatPOST(zadanie(rozmowa(portalA.slug)))
 
@@ -568,6 +596,101 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       assert.ok(payload.description.includes('przycisk nie dziala'), 'tresc klienta w opisie')
       assert.ok(payload.description.includes(emailA), 'stopka z sesji, tak samo jak przy zwyklym zgloszeniu')
 
+      errSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    it('wymuszone domkniecie: model dostaje DRUGA ture, w ktorej nie moze odpisac tekstem', async () => {
+      await zaloguj()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Zgłoszenie zostało zapisane, pojawi się na tablicy.' }],
+        finishReason: 'stop',
+      })
+
+      /**
+       * SEDNO ZMIANY. Prompt nie zmusi modelu do wywolania narzedzia — 4.09
+       * u Onyxa nie zmusil. `toolChoice: 'required'` odbiera mu mozliwosc
+       * odpowiedzenia tekstem, wiec w tej turze narzedzie leci zawsze.
+       */
+      assert.strictEqual(ai.domkniecie.wolan, 1, 'druga tura poszla dokladnie raz')
+      assert.strictEqual(ai.domkniecie.opcje?.toolChoice, 'required', 'narzedzie WYMUSZONE, nie sugerowane')
+      assert.ok((ai.domkniecie.opcje?.tools as Record<string, unknown>)?.createTask, 'to samo narzedzie co w rozmowie')
+
+      // Zadanie ma pola OPISANE PRZEZ MODEL, a nie surowy zapis rozmowy.
+      assert.strictEqual(clickup.createTask.mock.calls.length, 1)
+      assert.strictEqual(clickup.createTask.mock.calls[0]?.[1].name, 'Domkniete zadanie z rozmowy')
+
+      warnSpy.mockRestore()
+    })
+
+    it('wymuszone domkniecie nie dubluje: po nim kolejka zostaje pusta', async () => {
+      await zaloguj()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Zgłoszenie zostało zapisane, pojawi się na tablicy.' }],
+        finishReason: 'stop',
+      })
+
+      // Zadanie powstalo w ClickUpie, wiec ratunek z transkryptu NIE MA prawa
+      // dolozyc drugiego zgloszenia o tej samej sprawie na tablice klienta.
+      const wKolejce = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.strictEqual(wKolejce.length, 0, 'brak duplikatu w kolejce')
+
+      warnSpy.mockRestore()
+    })
+
+    it('udana rozmowa NIE domyka niczego druga tura', async () => {
+      await zaloguj()
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: krokZNarzedziem({ success: true, taskId: 'ai-1', taskName: 'Zadanie z czatu' }),
+      })
+
+      // Para dowodzaca: druga tura przy KAZDEJ rozmowie to podwojny koszt
+      // modelu i ryzyko drugiego zadania u klienta.
+      assert.strictEqual(ai.domkniecie.wolan, 0)
+    })
+
+    it('gdy domkniecie polegnie, zgloszenie NIE GUBI sie — ratuje je kolejka', async () => {
+      await zaloguj()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await pustaKolejka(portalA.id)
+      ai.domkniecieDziala = false
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Gotowe! Zadanie "Naprawa przycisku" zostało zgłoszone jako P3.' }],
+        finishReason: 'stop',
+      })
+      ai.domkniecieDziala = true
+
+      // Warstwa ostatnia: dostawca modelu padl, a klient i tak ma swoja sprawe
+      // zapisana — z surowego zapisu rozmowy.
+      const [wKolejce] = await db
+        .select()
+        .from(pendingReports)
+        .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
+      assert.ok(wKolejce, 'zgloszenie czeka w kolejce mimo awarii domkniecia')
+      assert.strictEqual((wKolejce.payload as { name: string }).name, 'Naprawa przycisku')
+
+      errSpy.mockRestore()
       warnSpy.mockRestore()
     })
 
@@ -594,7 +717,7 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       const tresc = String(ops.sendOpsAlert.mock.calls[0]?.[0])
       assert.ok(tresc.includes(portalA.slug), `alarm mowi, ktory projekt: ${tresc}`)
       assert.ok(tresc.includes(emailA), 'alarm mowi, kto zglaszal')
-      assert.match(tresc, /uratowan|kolejk/i, 'alarm mowi, czy zgloszenie ocalalo')
+      assert.match(tresc, /domkni|uratowan|kolejk/i, 'alarm mowi, co sie stalo ze zgloszeniem')
 
       warnSpy.mockRestore()
     })
@@ -617,6 +740,8 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
     it('uratowane zgloszenie daje sie dowiezc do ClickUpa', async () => {
       await zaloguj()
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      ai.domkniecieDziala = false
       await pustaKolejka(portalA.id)
       await chatPOST(zadanie(rozmowa(portalA.slug)))
       await ai.onEnd!({
@@ -635,6 +760,7 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
         .where(and(eq(pendingReports.portalId, portalA.id), isNull(pendingReports.deliveredAt)))
       assert.strictEqual(zostalo.length, 0, 'kolejka pusta po dowiezieniu')
 
+      errSpy.mockRestore()
       warnSpy.mockRestore()
     })
 

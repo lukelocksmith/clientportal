@@ -1,4 +1,4 @@
-import { streamText, tool, isStepCount, convertToModelMessages, type UIMessage } from 'ai'
+import { streamText, generateText, tool, isStepCount, convertToModelMessages, type UIMessage } from 'ai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenRouter } from '@openrouter/ai-sdk-provider'
@@ -57,6 +57,15 @@ const chatRequestSchema = z.looseObject({
 
 /** Surowe ciało powyżej tego rozmiaru odrzucamy przed parsowaniem. */
 const MAX_BODY_CHARS = 200_000
+
+/**
+ * Ile czekamy na dogrywkę z wymuszonym narzędziem.
+ *
+ * Osiem sekund, bo to już jest praca po zamkniętym strumieniu, a za nią stoi
+ * kolejka. Dłuższe wiszenie na dostawcy, który właśnie przestał odpowiadać,
+ * tylko opóźnia warstwę, która zadziała na pewno.
+ */
+const DOMKNIECIE_TIMEOUT_MS = 8_000
 
 function getModel(fallback = false) {
   // Fallback: if the primary (Gemini) fails, the client retries with fallback=true
@@ -263,6 +272,52 @@ export async function POST(request: NextRequest) {
   })
 
   /**
+   * DRUGA TURA, W KTÓREJ MODEL NIE MA JAK ODPISAĆ TEKSTEM.
+   *
+   * Prompt nie zmusi modelu do wywołania narzędzia — 4 września u Onyxa nie
+   * zmusił, mimo że mówi o tym wprost w trzech miejscach. `toolChoice:
+   * 'required'` odbiera modelowi wybór na poziomie protokołu: w tej turze
+   * jedyną dozwoloną odpowiedzią jest wywołanie `createTask`, więc „napisał,
+   * że zgłosił, i nie zgłosił" przestaje być możliwe.
+   *
+   * Rozmowa jest ta sama, narzędzie jest to samo, więc zadanie powstaje
+   * normalną drogą: z nazwą i opisem OD MODELU, stopką z sesji, przypisaniem
+   * projektu i kolejką przy awarii ClickUpa. To jest istotna różnica wobec
+   * ratunku z transkryptu, który umie tylko przepisać surową rozmowę.
+   *
+   * Krótki limit czasu i zero ponowień: to jest dogrywka po zamkniętym już
+   * strumieniu, a za nią czeka warstwa ostatnia. Lepiej szybko oddać pole
+   * kolejce niż wisieć na dostawcy, który właśnie przestał odpowiadać.
+   */
+  async function domknijWymuszeniem(): Promise<boolean> {
+    try {
+      const wynik = await generateText({
+        model,
+        system: `${NEW_TASK_PROMPT}\n\n## DOGRYWKA\nRozmowa jest skończona, a klient uważa, że zgłoszenie zostało przyjęte. Utwórz zadanie TERAZ, z tego, co już wiesz. Czego nie wiesz, tego nie zgaduj — dopisz w opisie linię „Klient nie podał: …". Nie zadawaj pytań.`,
+        messages,
+        tools: { createTask: createTaskTool },
+        toolChoice: 'required',
+        stopWhen: isStepCount(2),
+        maxRetries: 0,
+        timeout: DOMKNIECIE_TIMEOUT_MS,
+      })
+
+      const kroki = (wynik as { steps?: Array<{ toolResults?: Array<{ output?: unknown }> }> }).steps ?? []
+      for (const krok of kroki) {
+        for (const r of krok.toolResults ?? []) {
+          const out = r?.output as { success?: boolean } | undefined
+          if (out?.success === true) return true
+        }
+      }
+      console.error('[ai/chat] wymuszone domkniecie nie oddalo zadania — zostaje ratunek z transkryptu')
+      return false
+    } catch (e) {
+      console.error('[ai/chat] wymuszone domkniecie nieudane:', e)
+      return false
+    }
+  }
+
+  /**
    * Ratunek zgłoszenia, które asystent obiecał klientowi i nie założył.
    *
    * Wołane z `onEnd`, gdy zapis rozmowy wyszedł jako `podejrzane`. Zadanie
@@ -395,7 +450,15 @@ export async function POST(request: NextRequest) {
             `[ai/chat] model obiecal zgloszenie, ale NIE utworzyl zadania — portal ${portal.slug}, uzytkownik ${session.email}`
           )
           try {
-            const ratunek = await ratujPorzuconeZgloszenie(transcript)
+            /**
+             * Kolejność ma znaczenie: najpierw próbujemy domknąć rozmowę
+             * modelem, bo to daje zadanie opisane po ludzku. Ratunek
+             * z transkryptu jest warstwą OSTATNIĄ, nie pierwszą — odpala się
+             * wyłącznie wtedy, gdy dogrywka nie oddała zadania, więc nie ma
+             * drogi, którą klient dostałby dwa zgłoszenia o tej samej sprawie.
+             */
+            const domkniete = await domknijWymuszeniem()
+            const ratunek = domkniete ? null : await ratujPorzuconeZgloszenie(transcript)
 
             /**
              * ALARM DO ZESPOŁU, osobno od ratunku.
@@ -414,9 +477,11 @@ export async function POST(request: NextRequest) {
               [
                 '⚠️ Asystent AI obiecał klientowi zgłoszenie i NIE utworzył zadania.',
                 `Projekt: ${portal.slug} · klient: ${session.email}`,
-                ratunek?.uratowane
-                  ? `Zgłoszenie „${ratunek.nazwa}" zostało uratowane do kolejki i pojawi się na tablicy.`
-                  : 'RATUNEK SIĘ NIE UDAŁ — treść zgłoszenia jest tylko w zapisie rozmowy.',
+                domkniete
+                  ? 'Zadanie zostało domknięte drugą turą z wymuszonym narzędziem — jest na tablicy.'
+                  : ratunek?.uratowane
+                    ? `Dogrywka z modelem też nie wyszła. Zgłoszenie „${ratunek.nazwa}" zostało uratowane do kolejki z zapisu rozmowy.`
+                    : 'ANI DOGRYWKA, ANI RATUNEK — treść zgłoszenia jest tylko w zapisie rozmowy.',
                 `Rozmowa: panel admina → projekt ${portal.slug} → AI → Rozmowy z asystentem.`,
               ].join('\n')
             )

@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import { createHmac } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { portalUsers, userInvites, sessions } from '@/lib/db/schema'
+import { portalUsers, userInvites, sessions, loginThrottle } from '@/lib/db/schema'
 import {
   isDbReachable,
   createTestPortal,
@@ -77,11 +77,18 @@ describe.skipIf(!dbUp)('trasy admina na prawdziwej bazie', () => {
     if (portalA) await dropTestPortal(portalA.id)
   })
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cookieJar.clear()
     vi.clearAllMocks()
     mailer.sendMail.mockResolvedValue({ sent: true })
     mailer.isMailConfigured.mockReturnValue(true)
+    /**
+     * Blokada logowania ZOSTAJE W BAZIE po przebiegu, a testy odmowy celowo
+     * strzelają złymi danymi. Bez tego czyszczenia drugi przebieg na tej samej
+     * bazie dostawał 429 zamiast 400/401 i wyglądał na regres kodu, którego nie
+     * było (zgłoszone 11.09, naprawione 13.09).
+     */
+    await db.delete(loginThrottle)
   })
 
   function zalogujAdmina(): void {

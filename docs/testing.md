@@ -353,6 +353,39 @@ w polach** (inaczej powtarzamy tę samą cichą stratę, o którą poszło) oraz
 **pasek w czacie NIE pokazuje się przy udanym zgłoszeniu** — bo udane też
 kończy się zdaniem „zadanie zostało dodane".
 
+### Wymuszone domknięcie: model nie ma jak odpisać tekstem (13.09)
+
+Ratunek z 11.09 zamieniał porzuconą rozmowę w zadanie zbudowane z SUROWEGO
+zapisu rozmowy. Lepiej niż nic, ale gorzej niż zgłoszenie opisane po ludzku,
+a do tego nie odpowiadało na pytanie „czemu w ogóle raz na piętnaście rozmów
+model nie woła narzędzia".
+
+Od 13.09 pierwszą reakcją na `podejrzane` jest DOGRYWKA: `generateText` z tą
+samą rozmową, tym samym narzędziem i **`toolChoice: 'required'`**. To nie jest
+mocniejsza prośba w promptcie, tylko odebranie modelowi wyboru na poziomie
+protokołu — w tej turze jedyną dozwoloną odpowiedzią jest wywołanie
+`createTask`. Zadanie powstaje wtedy normalną drogą, z nazwą i opisem od
+modelu, stopką z sesji i kolejką przy awarii ClickUpa.
+
+Warstwy, w kolejności odpalania:
+
+| # | Warstwa | Kiedy działa | Co daje klientowi |
+|---|---|---|---|
+| 1 | dogrywka z `toolChoice: 'required'` | zawsze przy `podejrzane` | zadanie opisane po ludzku |
+| 2 | ratunek z transkryptu → kolejka | gdy dogrywka nie oddała zadania | zadanie z surowym zapisem rozmowy |
+| 3 | alarm na Discorda zespołu | zawsze przy `podejrzane` | człowiek wie, że model skłamał |
+| 4 | formularz w portalu | zawsze dostępny | droga bez modelu |
+
+Dogrywka ma **8 s limitu i zero ponowień**: to praca po zamkniętym strumieniu,
+a za nią stoi kolejka, więc wiszenie na dostawcy tylko opóźnia warstwę, która
+zadziała na pewno.
+
+Testy pilnują trzech rzeczy naraz: że dogrywka leci z `toolChoice: 'required'`,
+że **udana rozmowa jej NIE uruchamia** (podwójny koszt modelu i ryzyko drugiego
+zadania u klienta), i że przy padniętej dogrywce zgłoszenie nadal ląduje
+w kolejce. Pomiar na żywym modelu: `scripts/pomiar-domkniecia.ts` (dane konta
+w `.konto-pomiarowe.json`, poza repozytorium).
+
 ### E2E przez żywy portal
 
 Testy integracyjne mają podstawiony model, pomiary mają podstawione narzędzie.

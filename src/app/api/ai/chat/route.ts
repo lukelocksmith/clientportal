@@ -61,11 +61,18 @@ const MAX_BODY_CHARS = 200_000
 /**
  * Ile czekamy na dogrywkę z wymuszonym narzędziem.
  *
- * Osiem sekund, bo to już jest praca po zamkniętym strumieniu, a za nią stoi
- * kolejka. Dłuższe wiszenie na dostawcy, który właśnie przestał odpowiadać,
- * tylko opóźnia warstwę, która zadziała na pewno.
+ * DWADZIEŚCIA sekund, nie osiem. Limit obejmuje CAŁE wywołanie, czyli także
+ * wykonanie narzędzia, a `createTask` idzie po sieci do ClickUpa. Pomiar
+ * 13.09 na produkcji: przy ośmiu sekundach dogrywka oddała zadanie raz na
+ * trzy próby, a pozostałe dwa razy zgłoszenie spadało do kolejki — mimo że
+ * ten sam model wołany bez ClickUpa w łańcuchu wyrabiał się 5 razy na 5,
+ * w 1,8–5,4 s. Czyli nie zawodził model, tylko nasz zegar.
+ *
+ * Górna granica jest nadal potrzebna, bo to praca po zamkniętym strumieniu,
+ * a za nią stoi kolejka: lepiej oddać pole warstwie, która zadziała na pewno,
+ * niż wisieć na dostawcy, który przestał odpowiadać.
  */
-const DOMKNIECIE_TIMEOUT_MS = 8_000
+const DOMKNIECIE_TIMEOUT_MS = 20_000
 
 function getModel(fallback = false) {
   // Fallback: if the primary (Gemini) fails, the client retries with fallback=true

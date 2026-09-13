@@ -133,16 +133,30 @@ async function main(): Promise<void> {
    * Dogrywka idzie po zamknięciu strumienia, więc odpowiedź wraca do nas,
    * zanim zadanie powstanie. Czekamy z zapasem na jej limit czasu.
    */
-  await new Promise(r => setTimeout(r, 15_000))
+  await new Promise(r => setTimeout(r, 25_000))
 
   const nowe = (await pobierzZadania(base, slug, sesja)).filter(t => !przed.has(t.id))
+  /**
+   * Kolejka rozstrzyga, KTÓRA warstwa zadziałała. Bez tego pomiar mieszał
+   * dogrywkę z ratunkiem i pokazywał porażkę tam, gdzie zgłoszenie było
+   * bezpieczne, tylko czekało na crona (13.09).
+   */
+  const zdrowie = await fetch(`${base}/api/health/zgloszenia?n=${Date.now()}`).then(r => r.text()).catch(() => '')
+  const wKolejce = Number(zdrowie.match(/kolejka (\d+)/)?.[1] ?? 0)
+
+  if (nowe.length === 0 && wKolejce > 0) {
+    console.error(`DOGRYWKA NIE ODDALA ZADANIA — zgloszenie spadlo do kolejki (${wKolejce} czeka).`)
+    console.error('Zgloszenie klienta jest bezpieczne, ale pierwsza warstwa zawiodla. Sprawdz limit czasu dogrywki.')
+    process.exit(1)
+  }
   if (nowe.length === 0) {
-    console.error('BRAK NOWEGO ZADANIA — ani dogrywka, ani ratunek nie dowiozly sprawy w 15 s.')
-    console.error('Sprawdz /api/health/zgloszenia (kolejka) oraz panel > AI > Rozmowy.')
+    console.error('BRAK NOWEGO ZADANIA I PUSTA KOLEJKA — zgloszenie przepadlo.')
+    console.error('Sprawdz panel > AI > Rozmowy oraz logi kontenera.')
     process.exit(1)
   }
 
   console.log(`Nowe zadania: ${nowe.map(t => `${t.name} (${t.id})`).join(', ')}`)
+  console.log(`W kolejce: ${wKolejce}`)
   console.log('DOMKNIECIE POTWIERDZONE')
 }
 

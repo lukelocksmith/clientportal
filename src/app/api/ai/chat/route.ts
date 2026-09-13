@@ -304,7 +304,12 @@ export async function POST(request: NextRequest) {
         messages,
         tools: { createTask: createTaskTool },
         toolChoice: 'required',
-        stopWhen: isStepCount(2),
+        // JEDEN krok, nie dwa. `toolChoice: 'required'` obowiązuje w KAŻDYM
+        // kroku, więc przy dwóch model wołał narzędzie drugi raz i klient
+        // dostawał DWA zadania o tej samej sprawie. Złapane pomiarem na
+        // produkcji 13.09: cztery zadania z czterema różnymi numerami
+        // zgłoszenia, parami po 2,5 sekundy od siebie.
+        stopWhen: isStepCount(1),
         maxRetries: 0,
         timeout: DOMKNIECIE_TIMEOUT_MS,
       })

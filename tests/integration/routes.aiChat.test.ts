@@ -40,6 +40,8 @@ const { cookieJar, ai, clickup, cache, providers, ops } = vi.hoisted(() => ({
     domkniecie: { opcje: undefined as Record<string, unknown> | undefined, wolan: 0 },
     /** Co ma zrobic atrapa `generateText`: wywolac narzedzie albo polec. */
     domkniecieDziala: true,
+    /** Ostatni limit krokow przekazany do isStepCount. */
+    limitKrokow: 0,
   },
   clickup: { createTask: vi.fn(), findTaskByDescriptionMarker: vi.fn() },
   ops: { sendOpsAlert: vi.fn(async (_tresc: string) => {}) },
@@ -75,7 +77,7 @@ vi.mock('ai', () => ({
   // `tool()` w prawdziwym pakiecie tylko opisuje narzedzie, wiec zwrocenie
   // argumentu bez zmian jest wierne, a przy okazji daje nam dostep do `execute`.
   tool: (definicja: unknown) => definicja,
-  isStepCount: () => () => false,
+  isStepCount: (n: number) => { ai.limitKrokow = n; return () => false },
   convertToModelMessages: async (m: unknown) => m,
   streamText: (opcje: Record<string, unknown>) => {
     ai.przechwycone.tools = opcje.tools as Record<string, NarzedzieTworzenia>
@@ -620,6 +622,12 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       assert.strictEqual(ai.domkniecie.wolan, 1, 'druga tura poszla dokladnie raz')
       assert.strictEqual(ai.domkniecie.opcje?.toolChoice, 'required', 'narzedzie WYMUSZONE, nie sugerowane')
       assert.ok((ai.domkniecie.opcje?.tools as Record<string, unknown>)?.createTask, 'to samo narzedzie co w rozmowie')
+      /**
+       * JEDEN krok. `toolChoice: 'required'` obowiazuje w KAZDYM kroku, wiec
+       * przy dwoch model wolal narzedzie drugi raz i klient dostawal DWA
+       * zadania o tej samej sprawie (zlapane pomiarem na produkcji 13.09).
+       */
+      assert.strictEqual(ai.limitKrokow, 1, 'dogrywka ma limit jednego kroku')
 
       // Zadanie ma pola OPISANE PRZEZ MODEL, a nie surowy zapis rozmowy.
       assert.strictEqual(clickup.createTask.mock.calls.length, 1)

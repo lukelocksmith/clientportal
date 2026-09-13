@@ -21,6 +21,7 @@ import { buildTranscript, transcriptOutcome, textFromParts } from '@/lib/aiTrans
 import { withInjectionNote } from '@/lib/promptGuard'
 import { enqueueReport } from '@/lib/pendingReports'
 import { planRatunkowy } from '@/lib/aiRescue'
+import { sendOpsAlert } from '@/lib/cronRuns'
 import {
   buildNewTaskPrompt,
   taskInputSchema,
@@ -274,15 +275,17 @@ export async function POST(request: NextRequest) {
    * Nic tutaj nie ma prawa przewrócić `onEnd`: to już jest ścieżka awaryjna,
    * a wyjątek z niej zabrałby przy okazji zapis zużycia tokenów.
    */
-  async function ratujPorzuconeZgloszenie(transcript: Parameters<typeof planRatunkowy>[0]): Promise<void> {
+  async function ratujPorzuconeZgloszenie(
+    transcript: Parameters<typeof planRatunkowy>[0]
+  ): Promise<{ nazwa: string; uratowane: boolean } | null> {
     try {
       const plan = planRatunkowy(transcript)
-      if (!plan) return
+      if (!plan) return null
 
       const targetListId = defaultList?.clickupListId ?? ''
       if (!targetListId) {
         console.error('[ai/chat] ratunek niemozliwy: portal nie ma skonfigurowanej listy')
-        return
+        return { nazwa: plan.name, uratowane: false }
       }
 
       const marker = newReportMarker()
@@ -320,7 +323,7 @@ export async function POST(request: NextRequest) {
 
       if (!wKolejce) {
         console.error('[ai/chat] RATUNEK NIEUDANY — zgloszenie klienta przepadlo:', payload.name)
-        return
+        return { nazwa: payload.name, uratowane: false }
       }
 
       await logEvent({
@@ -330,8 +333,11 @@ export async function POST(request: NextRequest) {
         resourceId: null,
         meta: { source: 'ai', taskName: payload.name, wKolejce: true, ratunek: true },
       })
+
+      return { nazwa: payload.name, uratowane: true }
     } catch (e) {
       console.error('[ai/chat] ratunek porzuconego zgloszenia nieudany:', e)
+      return { nazwa: 'nieznana', uratowane: false }
     }
   }
 
@@ -358,15 +364,6 @@ export async function POST(request: NextRequest) {
       try {
         const transcript = buildTranscript(uiMessages, steps)
         const { outcome, taskId, taskName } = transcriptOutcome(transcript)
-        if (outcome === 'podejrzane') {
-          // Do logów kontenera, nie tylko do panelu: to jest ZGUBIONE
-          // zgłoszenie klienta, a nie statystyka. Model napisał, że sprawa
-          // jest zapisana, i nie wywołał narzędzia.
-          console.warn(
-            `[ai/chat] model obiecal zgloszenie, ale NIE utworzyl zadania — portal ${portal.slug}, uzytkownik ${session.email}`
-          )
-          await ratujPorzuconeZgloszenie(transcript)
-        }
         await db.insert(aiChatLogs).values({
           portalId: portal.id,
           // Ta sama normalizacja co przy zużyciu: sesja admina ma userId
@@ -381,6 +378,52 @@ export async function POST(request: NextRequest) {
           finishReason: typeof finishReason === 'string' ? finishReason : null,
           transcript,
         })
+
+        /**
+         * Ratunek i alarm PO zapisie rozmowy, w osobnym `try`.
+         *
+         * Kolejność nie jest kosmetyką: 13.09 alarm poleciał przed zapisem,
+         * wywrócił się na pustym wyniku i zabrał ze sobą CAŁY wpis
+         * do `ai_chat_logs` — czyli jedyny ślad po zgłoszeniu, którego
+         * dotyczył. Siatka bezpieczeństwa, która przy okazji zrzuca z liny,
+         * jest gorsza od jej braku.
+         */
+        if (outcome === 'podejrzane') {
+          // Do logów kontenera, nie tylko do panelu: to jest ZGUBIONE
+          // zgłoszenie klienta, a nie statystyka.
+          console.warn(
+            `[ai/chat] model obiecal zgloszenie, ale NIE utworzyl zadania — portal ${portal.slug}, uzytkownik ${session.email}`
+          )
+          try {
+            const ratunek = await ratujPorzuconeZgloszenie(transcript)
+
+            /**
+             * ALARM DO ZESPOŁU, osobno od ratunku.
+             *
+             * Ratunek dowozi zgłoszenie i przez to GASI jedyny sygnał, jaki
+             * mieliśmy: kolejka pustoszeje w minutę, więc jej alarm po
+             * piętnastu minutach nigdy nie zapali. Bez tej linii model mógłby
+             * kłamać klientom codziennie, a my zobaczylibyśmy to wyłącznie
+             * wtedy, gdy ktoś z własnej woli otworzy panel — czyli po fakcie.
+             *
+             * Kanał ten sam co przy czerwonym przycisku (Discord zespołu), bo
+             * to jest to samo pytanie: czy droga zgłoszeń klienta jest
+             * przejezdna.
+             */
+            await sendOpsAlert(
+              [
+                '⚠️ Asystent AI obiecał klientowi zgłoszenie i NIE utworzył zadania.',
+                `Projekt: ${portal.slug} · klient: ${session.email}`,
+                ratunek?.uratowane
+                  ? `Zgłoszenie „${ratunek.nazwa}" zostało uratowane do kolejki i pojawi się na tablicy.`
+                  : 'RATUNEK SIĘ NIE UDAŁ — treść zgłoszenia jest tylko w zapisie rozmowy.',
+                `Rozmowa: panel admina → projekt ${portal.slug} → AI → Rozmowy z asystentem.`,
+              ].join('\n')
+            )
+          } catch (e) {
+            console.error('[ai/chat] ratunek albo alarm o porzuconym zgloszeniu nieudany:', e)
+          }
+        }
       } catch (e) {
         console.error('ai_chat_log zapis nieudany:', e)
       }

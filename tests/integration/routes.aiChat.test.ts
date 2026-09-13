@@ -1,6 +1,6 @@
 import { describe, it, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import assert from 'node:assert'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { auditLog, aiUsage, aiChatLogs, pendingReports, portals } from '@/lib/db/schema'
 import {
@@ -31,13 +31,14 @@ type NarzedzieTworzenia = {
   execute: (input: Record<string, unknown>) => Promise<Record<string, unknown>>
 }
 
-const { cookieJar, ai, clickup, cache, providers } = vi.hoisted(() => ({
+const { cookieJar, ai, clickup, cache, providers, ops } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   ai: {
     przechwycone: { tools: undefined as Record<string, NarzedzieTworzenia> | undefined, opcje: undefined as Record<string, unknown> | undefined },
     onEnd: undefined as ((arg: { usage: unknown; steps?: unknown; finishReason?: string }) => Promise<void>) | undefined,
   },
   clickup: { createTask: vi.fn(), findTaskByDescriptionMarker: vi.fn() },
+  ops: { sendOpsAlert: vi.fn(async (_tresc: string) => {}) },
   cache: { invalidateFolderTasks: vi.fn() },
   providers: { model: { nazwa: 'atrapa-modelu' } },
 }))
@@ -74,6 +75,8 @@ vi.mock('@openrouter/ai-sdk-provider', () => ({
   createOpenRouter: () => ({ chat: () => providers.model }),
 }))
 vi.mock('@/lib/clickup', () => clickup)
+// Kanal alarmu zespolu. Podstawiony, zeby test NIE pisal na Discorda agencji.
+vi.mock('@/lib/cronRuns', async () => ({ ...(await vi.importActual<object>('@/lib/cronRuns')), ...ops }))
 vi.mock('@/lib/clickupCache', () => ({ ...cache, folderTasksTag: (id: string) => `f-${id}` }))
 
 import { NextRequest } from 'next/server'
@@ -483,8 +486,16 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
     }
 
     async function ostatniZapis(portalId: string) {
-      const wpisy = await db.select().from(aiChatLogs).where(eq(aiChatLogs.portalId, portalId))
-      return wpisy[wpisy.length - 1]
+      // ORDER BY, nie „ostatni wiersz z SELECT-a": bez tego kolejnosc zalezy
+      // od tego, jak Postgres ulozyl strony, i test zaczyna czytac cudzy wpis
+      // po dolozeniu kolejnego przypadku (zlapane 13.09).
+      const wpisy = await db
+        .select()
+        .from(aiChatLogs)
+        .where(eq(aiChatLogs.portalId, portalId))
+        .orderBy(desc(aiChatLogs.createdAt))
+        .limit(1)
+      return wpisy[0]
     }
 
     it('samo dopytywanie zostawia slad jako zwykla rozmowa', async () => {
@@ -558,6 +569,49 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
       assert.ok(payload.description.includes(emailA), 'stopka z sesji, tak samo jak przy zwyklym zgloszeniu')
 
       warnSpy.mockRestore()
+    })
+
+    it('ZESPOL DOSTAJE ALARM, gdy asystent obieca i nie zapisze', async () => {
+      await zaloguj()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: [{ text: 'Zgłoszenie zostało zapisane, pojawi się na tablicy.' }],
+        finishReason: 'stop',
+      })
+
+      /**
+       * PO CO OSOBNO OD RATUNKU. Ratunek dowozi zgloszenie i przez to gasi
+       * jedyny sygnal, jaki mielismy: kolejka pustoszeje w minute, wiec jej
+       * alarm po pietnastu minutach nigdy nie zapali. Bez tego alarmu model
+       * moglby klamac klientom codziennie, a my widzielibysmy to tylko wtedy,
+       * gdy ktos z wlasnej woli otworzy panel.
+       */
+      assert.strictEqual(ops.sendOpsAlert.mock.calls.length, 1, 'poszedl doklandie jeden alarm')
+      const tresc = String(ops.sendOpsAlert.mock.calls[0]?.[0])
+      assert.ok(tresc.includes(portalA.slug), `alarm mowi, ktory projekt: ${tresc}`)
+      assert.ok(tresc.includes(emailA), 'alarm mowi, kto zglaszal')
+      assert.match(tresc, /uratowan|kolejk/i, 'alarm mowi, czy zgloszenie ocalalo')
+
+      warnSpy.mockRestore()
+    })
+
+    it('udana rozmowa NIE budzi zespolu', async () => {
+      await zaloguj()
+      await pustaKolejka(portalA.id)
+      await chatPOST(zadanie(rozmowa(portalA.slug)))
+
+      await ai.onEnd!({
+        usage: { inputTokens: 10, outputTokens: 5 },
+        steps: krokZNarzedziem({ success: true, taskId: 'ai-1', taskName: 'Zadanie z czatu' }),
+      })
+
+      // Para dowodzaca: alarm przy kazdej rozmowie to alarm, ktorego nikt nie
+      // czyta, czyli powrot do punktu wyjscia.
+      assert.strictEqual(ops.sendOpsAlert.mock.calls.length, 0)
     })
 
     it('uratowane zgloszenie daje sie dowiezc do ClickUpa', async () => {

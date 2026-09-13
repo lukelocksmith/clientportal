@@ -376,9 +376,26 @@ Warstwy, w kolejności odpalania:
 | 3 | alarm na Discorda zespołu | zawsze przy `podejrzane` | człowiek wie, że model skłamał |
 | 4 | formularz w portalu | zawsze dostępny | droga bez modelu |
 
-Dogrywka ma **8 s limitu i zero ponowień**: to praca po zamkniętym strumieniu,
-a za nią stoi kolejka, więc wiszenie na dostawcy tylko opóźnia warstwę, która
-zadziała na pewno.
+Dogrywka ma **20 s limitu, JEDEN krok i zero ponowień**. Trzy liczby, każda
+kupiona pomiarem na produkcji 13.09:
+
+- **20 s, nie 8.** Limit obejmuje całe wywołanie, więc razem z `execute`, który
+  idzie po sieci do ClickUpa. Przy ośmiu sekundach dogrywka oddawała zadanie raz
+  na trzy próby, choć ten sam model wołany bez ClickUpa w łańcuchu wyrabiał się
+  5 razy na 5, w 1,8–5,4 s. Zawodził zegar, nie model.
+- **Jeden krok, nie dwa.** `toolChoice: 'required'` obowiązuje w KAŻDYM kroku,
+  więc przy dwóch model wołał narzędzie drugi raz i z jednej rozmowy powstawały
+  DWA zadania. Testy tego nie widziały, bo atrapa `generateText` woła narzędzie
+  raz; zobaczyła to dopiero tablica areny.
+- **Zero ponowień.** Za dogrywką stoi kolejka, więc lepiej oddać jej pole niż
+  wisieć na dostawcy, który przestał odpowiadać.
+
+**Wynik serii po obu poprawkach: 9 rozstrzygających przebiegów, 9 zadań, zero
+duplikatów, zero porażek.** Przebieg „nierozstrzygający" to taki, w którym model
+nie dał się namówić na obietnicę — wtedy nie ma czego ratować i skrypt ponawia,
+zamiast raportować porażkę. Pierwsza wersja pomiaru tego nie rozróżniała
+i pokazała „zgłoszenie przepadło" dla dwóch rozmów, które w panelu miały wynik
+`rozmowa` i w których nic nie przepadło.
 
 Testy pilnują trzech rzeczy naraz: że dogrywka leci z `toolChoice: 'required'`,
 że **udana rozmowa jej NIE uruchamia** (podwójny koszt modelu i ryzyko drugiego

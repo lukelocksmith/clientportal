@@ -101,7 +101,21 @@ export async function GET() {
     const bledy = await bledyZDoby(now).catch(() => -1)
     const oBledach = bledy < 0 ? ' · bledy: nie sprawdzono' : ` · bledy 24h: ${bledy}`
 
-    return new NextResponse(`${werdykt.line}${oBledach} · obraz z ${czasBudowania()}`, {
+    /**
+     * Wiek ostatniego sprawdzenia kanału alarmów, jawnie w odpowiedzi.
+     *
+     * Bez tej liczby nie da się odpowiedzieć na pytanie „czy czujka kanału
+     * w ogóle chodzi" inaczej niż wejściem do bazy — a 14.09 okazało się, że
+     * Coolify nie udostępnia historii wykonań zadań przez API. Werdykt i tak
+     * pilnuje wieku (limit 180 min), ale werdykt mówi tylko „mieści się";
+     * liczba pozwala to sprawdzić człowiekowi w jednym zapytaniu.
+     */
+    const ostatnieSprawdzenie = lastRuns['alert-channel'] ?? null
+    const oKanale = ostatnieSprawdzenie
+      ? ` · kanal alarmow sprawdzony ${Math.floor((now.getTime() - ostatnieSprawdzenie.getTime()) / 60_000)} min temu`
+      : ' · kanal alarmow: nigdy nie sprawdzony'
+
+    return new NextResponse(`${werdykt.line}${oBledach}${oKanale} · obraz z ${czasBudowania()}`, {
       status: werdykt.ok ? 200 : 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     })

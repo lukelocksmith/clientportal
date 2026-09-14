@@ -46,6 +46,19 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     if (portal) await dropTestPortal(portal.id)
   })
 
+  it('mowi, kiedy ostatnio sprawdzono kanal alarmow', async () => {
+    await ustawPrzebieg('pending-reports', 1)
+    await ustawPrzebieg('panic-escalation', 3)
+    await ustawPrzebieg('task-index', 120)
+    await ustawPrzebieg('alert-channel', 7)
+
+    const tekst = await (await healthGET()).text()
+
+    // Bez tej liczby nie da sie sprawdzic, czy czujka kanalu chodzi, inaczej
+    // niz wejsciem do bazy: Coolify nie udostepnia historii wykonan zadan.
+    assert.match(tekst, /kanal alarmow sprawdzony 7 min temu/)
+  })
+
   it('mowi, ile bledow serwera bylo w dobie, i NIE gasi przez nie slowa OK', async () => {
     const res = await healthGET()
     const tekst = await res.text()

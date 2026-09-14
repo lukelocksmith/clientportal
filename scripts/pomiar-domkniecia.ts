@@ -13,8 +13,15 @@
  * dokładnie sytuację z 4 września u Onyxa — pierwsza tura kończy się obietnicą
  * bez zadania — a dalej pracuje już nasz kod.
  *
- * UWAGA: pisze do PRAWDZIWEGO ClickUpa. Wyłącznie projekt testowy („arena
- * akcji"), nigdy folder klienta.
+ * UWAGA, DWIE RZECZY WYCHODZĄ NA ZEWNĄTRZ PRZY KAŻDYM PRZEBIEGU:
+ *   1. zadanie w PRAWDZIWYM ClickUpie (wyłącznie projekt testowy, „arena
+ *      akcji", nigdy folder klienta),
+ *   2. PRAWDZIWY ALARM na kanale Discorda zespołu — ten sam, na który lecą
+ *      zgłoszenia z czerwonego przycisku.
+ *
+ * Seria pomiarów to więc seria alarmów u ludzi. 13.09 puściłem czternaście
+ * przebiegów i tyle samo alarmów stanęło zespołowi w kanale. Uprzedź ich, albo
+ * puszczaj pojedyncze przebiegi.
  *
  * Kod wyjścia 0 i słowo DOMKNIECIE POTWIERDZONE tylko wtedy, gdy po rozmowie
  * na tablicy przybyło zadanie.

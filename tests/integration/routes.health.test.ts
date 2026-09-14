@@ -46,6 +46,17 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     if (portal) await dropTestPortal(portal.id)
   })
 
+  it('mowi, ile bledow serwera bylo w dobie, i NIE gasi przez nie slowa OK', async () => {
+    const res = await healthGET()
+    const tekst = await res.text()
+
+    // Blad 5xx ma wlasny alarm. Ta trasa pilnuje DROGI ZGLOSZEN, wiec jeden
+    // wyjatek w cudzej trasie nie moze zapalac tu czerwonego swiatla —
+    // czujka, ktora krzyczy o czyms, czego nie pilnuje, przestaje byc czytana.
+    assert.match(tekst, /bledy 24h: \d+|bledy: nie sprawdzono/)
+    assert.match(tekst, /OK|PROBLEM/)
+  })
+
   it('mowi, z kiedy jest obraz — inaczej „deploy zakonczony" niczego nie dowodzi', async () => {
     const res = await healthGET()
     const tekst = await res.text()

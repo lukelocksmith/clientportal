@@ -420,6 +420,35 @@ nie ma, nazywa awarię — czy asystent w ogóle tknął narzędzie i czy przypa
 nie obiecał zgłoszenia. To jest ZAPIS do prawdziwego ClickUpa, więc wyłącznie
 na projekcie testowym.
 
+## Ciche awarie portalu mają adresata (14.09)
+
+Trzy mechanizmy nadzoru pilnowały drogi zgłoszeń i żaden nie pilnował **samego
+portalu**: wyjątek w dowolnej trasie kończył się kodem 500 u klienta i wpisem
+w logu kontenera, a nieudany mail wpisem w `mail_log`, do którego nikt nie
+zagląda bez powodu. Klient wiedział, my nie.
+
+| Zdarzenie | Gdzie ląduje | Kto się dowiaduje |
+|---|---|---|
+| błąd 5xx w trasie | tabela `app_errors` (`onRequestError` w `src/instrumentation.ts`) | Discord zespołu, pierwszy raz w oknie |
+| nieudana wysyłka maila | `mail_log`, jak dotąd | Discord zespołu, raz na rodzaj wiadomości |
+| liczba błędów z doby | `/api/health/zgloszenia` | czujka UptimeRobot widzi ją obok „OK" |
+
+**Dławienie jest częścią mechanizmu, nie ozdobą** (`src/lib/alertThrottle.ts`).
+Błąd w pętli albo padnięty przekaźnik potrafią wyprodukować setki zdarzeń
+w minutę, a kanał alarmów jest ten sam, na którym stoi czerwony przycisk
+klienta. Pierwszy alarm z danym kluczem przechodzi, kolejne milczą przez pół
+godziny, po oknie problem przypomina o sobie. **Tłumimy alarm, nie rejestr** —
+w `app_errors` lądują wszystkie wystąpienia, a kolumna `alerted` mówi, o którym
+zespół został powiadomiony.
+
+Stan dławienia siedzi w pamięci procesu świadomie: w bazie byłby trwalszy, ale
+wtedy awaria bazy uciszałaby alarmy o awarii bazy. Restart przepuszcza jeden
+alarm więcej i to jest właściwa strona pomyłki.
+
+Czego w `app_errors` NIE MA: ciała żądania, ciasteczek, nagłówków i parametrów
+zapytania. Błąd potrafi paść w trasie, przez którą idzie treść zgłoszenia albo
+token SitePinga; test pilnuje, że `?token=…` nie trafia do rejestru.
+
 ## Testowanie na żywym ClickUpie
 
 Do testów, które muszą dotknąć prawdziwego ClickUpa, służy **projekt testowy

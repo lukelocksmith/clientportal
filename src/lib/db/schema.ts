@@ -883,3 +883,38 @@ export const sitepingLog = pgTable('siteping_log', {
   // pyta wylacznie o „ostatnie N tego projektu".
   portalCreatedIdx: index('siteping_log_portal_created_idx').on(t.portalId, t.createdAt),
 }))
+
+/**
+ * BŁĘDY SERWERA, których nikt inaczej nie zobaczy.
+ *
+ * PO CO (14.09). Portal nie zbierał ich nigdzie: wyjątek w trasie klienta
+ * kończył się kodem 500 u niego i wpisem w logu kontenera, do którego nikt nie
+ * zagląda bez powodu. Dokładnie ten układ kosztował nas tydzień przy zgubionym
+ * zgłoszeniu Onyxa, tylko tam chodziło o asystenta, a tu o dowolną trasę.
+ *
+ * Zapis idzie z `onRequestError` (instrumentation.ts), czyli z miejsca, które
+ * Next woła dla KAŻDEGO złapanego błędu serwera. Nie trzeba o nim pamiętać
+ * przy dodawaniu nowej trasy i to jest cała jego wartość.
+ *
+ * Czego tu NIE MA: ciała żądania, ciasteczek ani nagłówków. Błąd potrafi paść
+ * w trasie, przez którą idzie treść zgłoszenia klienta albo jego sesja,
+ * a rejestr awarii nie jest miejscem na takie rzeczy.
+ */
+export const appErrors = pgTable('app_errors', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Ścieżka bez parametrów zapytania: te potrafią nieść dane klienta. */
+  path: text('path').notNull(),
+  method: text('method').notNull(),
+  /** 'render' | 'route' | 'action' | 'proxy' — z kontekstu Next. */
+  routeType: text('route_type'),
+  message: text('message').notNull(),
+  /** Skrót błędu od Next. Ten sam błąd ma ten sam skrót, więc grupuje powtórki. */
+  digest: text('digest'),
+  stack: text('stack'),
+  /** Czy o tym wystąpieniu poszedł alarm. `false` znaczy „zdławione". */
+  alerted: boolean('alerted').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  createdIdx: index('app_errors_created_idx').on(t.createdAt),
+  digestIdx: index('app_errors_digest_idx').on(t.digest, t.createdAt),
+}))

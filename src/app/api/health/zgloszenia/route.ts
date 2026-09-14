@@ -4,6 +4,7 @@ import { and, isNull, max, min, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cronRuns, pendingReports } from '@/lib/db/schema'
 import { reportingHealth, type CronName } from '@/lib/healthReporting'
+import { bledyZDoby } from '@/lib/appErrors'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,7 +87,17 @@ export async function GET() {
       now,
     })
 
-    return new NextResponse(`${werdykt.line} · obraz z ${czasBudowania()}`, {
+    /**
+     * Liczba błędów serwera z doby. NIE zmienia werdyktu: błąd 5xx ma własny
+     * alarm (lib/appErrors.ts), a ta trasa odpowiada na pytanie o DROGĘ
+     * ZGŁOSZEŃ. Gdyby jeden wyjątek w cudzej trasie gasił tu słowo „OK",
+     * czujka zaczęłaby krzyczeć o czymś, czego nie pilnuje, i po tygodniu
+     * nikt by na nią nie patrzył.
+     */
+    const bledy = await bledyZDoby(now).catch(() => -1)
+    const oBledach = bledy < 0 ? ' · bledy: nie sprawdzono' : ` · bledy 24h: ${bledy}`
+
+    return new NextResponse(`${werdykt.line}${oBledach} · obraz z ${czasBudowania()}`, {
       status: werdykt.ok ? 200 : 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     })

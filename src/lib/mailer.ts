@@ -84,7 +84,46 @@ export async function sendMail(options: {
     const detail = e instanceof Error ? e.message : String(e)
     console.error('[mailer] wysyłka nieudana:', detail)
     await logMail(options, false, detail, null)
+    await zaalarmujONieudanymMailu(options, detail)
     return { sent: false, reason: 'error', detail }
+  }
+}
+
+/**
+ * NIEUDANY MAIL BUDZI ZESPÓŁ.
+ *
+ * PO CO (14.09). Rejestr `mail_log` istniał od dawna i wiernie zapisywał
+ * `ok: false`, tylko nikt do niego nie zaglądał bez powodu. Mail z zaproszeniem
+ * albo z alarmem potrafił nie dojść tygodniami i była to nasza wiedza wyłącznie
+ * wtedy, gdy klient sam się upomniał. Dokładnie tak jak przy zgubionym
+ * zgłoszeniu Onyxa.
+ *
+ * Dławimy po RODZAJU wiadomości, nie po adresacie: gdy pada przekaźnik, pada
+ * dla wszystkich naraz i sto alarmów o stu odbiorcach niczego nie dodaje.
+ *
+ * Nic tutaj nie ma prawa zmienić wyniku wysyłki ani rzucić wyjątkiem: mail już
+ * się nie udał, a alarm o tym nie może zepsuć operacji, która go wywołała.
+ */
+async function zaalarmujONieudanymMailu(
+  options: { to: string; subject: string; kind?: MailKind },
+  detail: string
+): Promise<void> {
+  try {
+    const { wolnoAlarmowac } = await import('./alertThrottle')
+    const rodzaj = options.kind ?? 'invite'
+    if (!wolnoAlarmowac(`mail:${rodzaj}`)) return
+
+    const { sendOpsAlert } = await import('./cronRuns')
+    await sendOpsAlert(
+      [
+        '📭 Mail z portalu NIE doszedł.',
+        `Rodzaj: ${rodzaj} · temat: ${options.subject}`,
+        `Powód: ${detail}`,
+        'Kolejne nieudane maile tego rodzaju przez pół godziny będą ciche. Rejestr: panel admina → Maile.',
+      ].join('\n')
+    )
+  } catch (e) {
+    console.error('[mailer] nie udało się wysłać alarmu o nieudanym mailu:', e)
   }
 }
 

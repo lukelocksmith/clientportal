@@ -14,7 +14,8 @@ import assert from 'node:assert'
 
 // `vi.hoisted`, bo `vi.mock` jest wynoszony na sam poczatek pliku — zwykly
 // `const` bylby wtedy jeszcze niezainicjalizowany.
-const { transportMocks, dbMocks } = vi.hoisted(() => ({
+const { transportMocks, dbMocks, ops } = vi.hoisted(() => ({
+  ops: { sendOpsAlert: vi.fn(async (_t: string) => {}) },
   transportMocks: {
     createTransport: vi.fn(),
     sendMail: vi.fn(),
@@ -27,6 +28,9 @@ const { transportMocks, dbMocks } = vi.hoisted(() => ({
 
 // mailer.ts robi `await import('nodemailer')` (dynamiczny import), ale vi.mock
 // przechwytuje modul niezaleznie od tego, czy import jest staticzny czy nie.
+// Kanal alarmu zespolu. Podstawiony, zeby test NIE pisal na Discorda agencji.
+vi.mock('@/lib/cronRuns', async () => ({ ...(await vi.importActual<object>('@/lib/cronRuns')), ...ops }))
+
 vi.mock('nodemailer', () => ({
   createTransport: transportMocks.createTransport,
 }))
@@ -254,5 +258,50 @@ describe('sendMail — odpornosc rejestru na jego wlasne bledy', () => {
 
     assert.equal(result.sent, false)
     if (!result.sent) assert.equal(result.detail, 'Connection refused')
+  })
+})
+
+/**
+ * NIEUDANY MAIL BUDZI ZESPÓŁ (14.09).
+ *
+ * Rejestr `mail_log` wiernie zapisywał `ok: false` od dawna i nikt do niego nie
+ * zaglądał. Mail z zaproszeniem albo z alarmem mógł nie dojść tygodniami.
+ */
+describe('sendMail — alarm o nieudanej wysylce', () => {
+  beforeEach(async () => {
+    setFakeSmtpConfig()
+    const { zapomnijDlawienie } = await import('./alertThrottle')
+    zapomnijDlawienie()
+  })
+
+  it('nieudana wysylka budzi zespol i mowi, co i dlaczego', async () => {
+    transportMocks.sendMail.mockRejectedValueOnce(new Error('SMTP 550 mailbox unavailable'))
+
+    await sendMail({ to: 'klient@test.local', subject: 'Zaproszenie', html: 'h', kind: 'invite' })
+
+    assert.equal(ops.sendOpsAlert.mock.calls.length, 1)
+    const tresc = String(ops.sendOpsAlert.mock.calls[0]?.[0])
+    assert.ok(tresc.includes('invite'), `alarm mowi, jaki rodzaj: ${tresc}`)
+    assert.ok(tresc.includes('550'), 'alarm niesie powod od przekaznika')
+  })
+
+  it('UDANA wysylka NIE budzi nikogo (para dowodzaca)', async () => {
+    transportMocks.sendMail.mockResolvedValueOnce({ response: '250 OK', messageId: 'x' })
+
+    await sendMail({ to: 'klient@test.local', subject: 'Zaproszenie', html: 'h', kind: 'invite' })
+
+    assert.equal(ops.sendOpsAlert.mock.calls.length, 0)
+  })
+
+  it('padniety przekaznik daje JEDEN alarm, nie jeden na odbiorce', async () => {
+    // Gdy pada przekaznik, pada dla wszystkich naraz. Sto alarmow o stu
+    // odbiorcach niczego nie dodaje, a zaglusza kanal.
+    transportMocks.sendMail.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    for (const adres of ['a@test.local', 'b@test.local', 'c@test.local']) {
+      await sendMail({ to: adres, subject: 's', html: 'h', kind: 'panic' })
+    }
+
+    assert.equal(ops.sendOpsAlert.mock.calls.length, 1)
   })
 })

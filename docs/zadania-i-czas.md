@@ -116,9 +116,37 @@ python3 $S zadanie <task-id>                          # gdy był znacznik
 python3 $S projekt clientportal --od <d> --do <d>      # gdy znacznika nie było
 ```
 
-**Liczbą do zalogowania jest „czas po podziale", nigdy „suma bloków".** Przy
-pracy w kilku katalogach naraz suma bloków bywa dwa, trzy razy wyższa. W tej
-sesji: suma 3,36 h, po podziale 1,74 h, równoległość zabrała 48 procent.
+### Dwie liczby, jedna metoda
+
+Skrypt podaje dwie wartości i łatwo je pomylić:
+
+| Liczba | Co znaczy | Ile daje po zsumowaniu wszystkich projektów |
+|---|---|---|
+| **suma bloków** | każda minuta liczona osobno dla każdego projektu; minuta, w której pracowałeś w dwóch naraz, liczy się dwa razy | **więcej niż doba** (14.09: 10,8 h przy 3,4 h, które minęły) |
+| **czas po podziale** | ta sama minuta podzielona między projekty aktywne w tym momencie | **dokładnie tyle, ile minęło** |
+
+**Logujemy „czas po podziale". Zawsze, w każdym projekcie, także wewnętrznym.**
+
+Firma jest klientem jak każdy inny, więc nie ma dwóch miar. Gdyby projekty
+wewnętrzne logować sumą bloków, za 14.09 wyszłoby łącznie 10,8 godziny w dobie,
+w której przepracowaliśmy 3,4. Przy prawdziwym kliencie nikt by tego nie zrobił,
+więc przy sobie też nie.
+
+Przykład z tej sesji: suma bloków 3,87 h, po podziale 1,84 h, równoległość
+zabrała 53 procent.
+
+### Gdy liczba wygląda na za małą
+
+Bo często będzie. 14.09 powstało jedenaście commitów, sześć wdrożeń i cztery
+nowe mechanizmy na produkcji, a uwagi człowieka poszło na to 26 minut, bo obok
+szło siedem innych rozmów. **To nie jest błąd pomiaru.**
+
+Przy pracy z AI czas człowieka przestał być miarą tego, co powstało. Formuła
+odzyskuje KOSZT, nie WARTOŚĆ. Jeżeli to boli, odpowiedzią jest stawka albo
+model rozliczenia, nie przesuwanie progów w skrypcie. Sprawdzone 14.09: podział
+ważony liczbą wiadomości człowieka dał jeszcze mniej (0,34 h zamiast 0,43),
+bo karze projekt, w którym się czyta i myśli, a nagradza ten, w którym się
+szybko odpisuje.
 
 **Nigdy nie szacuj czasu z odstępów między wiadomościami.** 11.08.2026 taki
 szacunek dał 147 minut przy zmierzonych 45.

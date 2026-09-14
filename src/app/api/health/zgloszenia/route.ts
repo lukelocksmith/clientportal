@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { and, isNull, max, min, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cronRuns, pendingReports } from '@/lib/db/schema'
+import { stanKanaluAlarmow } from '@/lib/cronRuns'
 import { reportingHealth, type CronName } from '@/lib/healthReporting'
 import { bledyZDoby } from '@/lib/appErrors'
 
@@ -24,7 +25,7 @@ export const dynamic = 'force-dynamic'
  * Kod 503 przy problemie, żeby czujnik zapalił się także wtedy, gdy zmieni
  * się treść komunikatu i słowo kluczowe przestanie pasować.
  */
-const PILNOWANE: CronName[] = ['pending-reports', 'panic-escalation', 'task-index']
+const PILNOWANE: CronName[] = ['pending-reports', 'panic-escalation', 'task-index', 'alert-channel']
 
 /**
  * Kiedy zbudowano obraz, na którym stoi produkcja.
@@ -84,6 +85,9 @@ export async function GET() {
       lastRuns,
       pending: kolejka?.ile ?? 0,
       oldestPendingMinutes: najstarszeMinuty,
+      // Stan z PAMIĘCI PROCESU, nie z bazy: mówi o ostatniej próbie tego
+      // konkretnego kontenera, czyli o tym, czy alarmy MAJĄ JAK WYJŚĆ stąd.
+      alertChannelOk: stanKanaluAlarmow()?.ok ?? null,
       now,
     })
 

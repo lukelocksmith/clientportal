@@ -2,7 +2,7 @@ import { and, desc, eq, lt } from 'drizzle-orm'
 import { db } from './db'
 import { cronRuns } from './db/schema'
 
-export type CronJob = 'task-index' | 'time-snapshot' | 'panic-escalation' | 'pending-reports'
+export type CronJob = 'task-index' | 'time-snapshot' | 'panic-escalation' | 'pending-reports' | 'alert-channel'
 
 /**
  * Zapis wyniku przebiegu crona plus alarm na Discorda przy porażce.
@@ -28,20 +28,86 @@ const DISCORD_WEBHOOK = process.env.PANIC_DISCORD_WEBHOOK_URL
  * NIGDY nie rzuca: alarm o awarii nie ma prawa być drugą awarią.
  */
 export async function sendOpsAlert(content: string): Promise<void> {
-  return alert(content)
+  await alert(content)
 }
 
-async function alert(content: string): Promise<void> {
+/**
+ * STAN KANAŁU ALARMÓW. Czy ostatnia próba wysyłki w ogóle doszła.
+ *
+ * PO CO (14.09). Wszystko, co portal ma do powiedzenia o własnych awariach,
+ * wychodzi jednym webhookiem Discorda — alarmy z czerwonego przycisku, kolejka
+ * zgłoszeń, porzucone rozmowy z asystentem, błędy 5xx, a nawet czujka z Mac
+ * mini. Do dziś ta funkcja połykała błąd wysyłki do `console.error`, więc
+ * usunięty webhook albo zmienione uprawnienia kanału uciszały CAŁY nadzór,
+ * a cisza wyglądała identycznie jak spokój. Dokładnie ten układ naprawialiśmy
+ * przez dwa dni piętro niżej.
+ *
+ * Stan czyta `/api/health/zgloszenia`, który jest pilnowany z zewnątrz przez
+ * UptimeRobota — a ten powiadamia mailem i Pushoverem, czyli drogą, która NIE
+ * przechodzi przez Discorda. To jest cały sens: druga droga nie może dzielić
+ * z pierwszą punktu awarii.
+ */
+let ostatniaWysylka: { ok: boolean; kiedy: Date; detail: string | null } | null = null
+
+export function stanKanaluAlarmow(): { ok: boolean; kiedy: Date; detail: string | null } | null {
+  return ostatniaWysylka
+}
+
+/** Do testów. W działającym portalu nie ma wołającego. */
+export function zapomnijStanKanalu(): void {
+  ostatniaWysylka = null
+}
+
+async function alert(content: string): Promise<boolean> {
   if (!DISCORD_WEBHOOK) {
     console.warn('[cron] brak PANIC_DISCORD_WEBHOOK_URL — alarm tylko w logach:', content)
-    return
+    // Brak konfiguracji to nie jest awaria kanału: tak wygląda maszyna
+    // deweloperska. Awarią jest webhook, który JEST i nie przyjmuje.
+    return false
   }
-  // Alarm nie może wywalić samego crona, więc błąd wysyłki tylko logujemy.
-  await fetch(DISCORD_WEBHOOK, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  }).catch(e => console.error('[cron] nie udało się wysłać alarmu:', e))
+  try {
+    const res = await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+    // Discord oddaje 204 przy przyjęciu. Kod 404 znaczy „webhook skasowany",
+    // 401 „token nieważny", 429 „limit" — i każdy z nich do 14.09 wyglądał
+    // u nas jak sukces, bo nikt nie patrzył na odpowiedź.
+    ostatniaWysylka = {
+      ok: res.ok,
+      kiedy: new Date(),
+      detail: res.ok ? null : `HTTP ${res.status}`,
+    }
+    if (!res.ok) console.error(`[cron] kanał alarmów odrzucił wiadomość: HTTP ${res.status}`)
+    return res.ok
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    ostatniaWysylka = { ok: false, kiedy: new Date(), detail }
+    console.error('[cron] nie udało się wysłać alarmu:', detail)
+    return false
+  }
+}
+
+/**
+ * Czy kanał alarmów w ogóle przyjmuje wiadomości. BEZ wysyłania czegokolwiek.
+ *
+ * Discord oddaje na GET metadane webhooka, więc da się sprawdzić jego istnienie
+ * i ważność bez zaśmiecania kanału zespołu. Cichy sygnał życia jest tu celem:
+ * czujka, która co godzinę pisze „żyję", po tygodniu przestaje być czytana.
+ */
+export async function sprawdzKanalAlarmow(): Promise<{ ok: boolean; detail: string | null }> {
+  if (!DISCORD_WEBHOOK) return { ok: false, detail: 'brak PANIC_DISCORD_WEBHOOK_URL' }
+  try {
+    const res = await fetch(DISCORD_WEBHOOK, { method: 'GET' })
+    const stan = { ok: res.ok, detail: res.ok ? null : `HTTP ${res.status}` }
+    ostatniaWysylka = { ok: stan.ok, kiedy: new Date(), detail: stan.detail }
+    return stan
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e)
+    ostatniaWysylka = { ok: false, kiedy: new Date(), detail }
+    return { ok: false, detail }
+  }
 }
 
 export type CronRunResult = {
@@ -93,6 +159,7 @@ export const CRON_JOB_LABELS: Record<CronJob, string> = {
   'task-index': 'Indeks Historii i wyszukiwarki',
   'panic-escalation': 'Eskalacja alarmów bez reakcji',
   'pending-reports': 'Dowożenie zgłoszeń z kolejki',
+  'alert-channel': 'Sygnał życia kanału alarmów',
 }
 
 export type CronRunRow = {

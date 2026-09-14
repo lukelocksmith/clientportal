@@ -29,7 +29,7 @@
 import { readFileSync } from 'node:fs'
 import { claimsTaskCreated } from '../src/lib/aiTranscript'
 
-type Args = { base: string; slug: string; email: string; haslo: string; powtorz: number }
+type Args = { base: string; slug: string; email: string; haslo: string; powtorz: number; fallback: boolean }
 
 /** Dane konta testowego. Bez nich pomiar nie ma jak wejść do portalu. */
 function parseArgs(): Args {
@@ -61,6 +61,13 @@ function parseArgs(): Args {
     // zawsze daje się namówić na obietnicę, a bramka ma mierzyć dogrywkę,
     // nie skuteczność tej namowy.
     powtorz: Number(out.powtorz ?? 4),
+    /**
+     * `--fallback tak` mierzy ścieżkę awaryjną dostawcy (OpenAI), tę samą,
+     * którą portal wybiera, gdy Gemini odmawia. Kod dogrywki jest wspólny, ale
+     * „wspólny kod" to nie to samo co zmierzone zachowanie: modele różnią się
+     * właśnie w tym, czy w ogóle wołają narzędzia.
+     */
+    fallback: (out.fallback ?? '').toLowerCase() === 'tak',
   }
 }
 
@@ -120,6 +127,7 @@ function czyTknietoNarzedzie(surowy: string): boolean {
 /** Jeden przebieg. `null` znaczy: nierozstrzygający, warto powtórzyć. */
 async function proba(args: Args): Promise<boolean | null> {
   const { base, slug, email, haslo } = args
+  if (args.fallback) console.log('(dostawca awaryjny: OpenAI)')
   const sesja = new Sesja()
 
   const sesjaLog = await fetch(`${base}/api/auth/login`, {
@@ -148,6 +156,7 @@ async function proba(args: Args): Promise<boolean | null> {
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: proba }] }],
       slug,
       mode: 'new-task',
+      ...(args.fallback ? { fallback: true } : {}),
     }),
   })
   if (!res.ok) {

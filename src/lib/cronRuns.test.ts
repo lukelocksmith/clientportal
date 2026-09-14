@@ -369,3 +369,72 @@ describe('getLastSuccessfulRun', () => {
     assert.deepStrictEqual(drizzleOrm.eq.mock.calls[2], [cronRuns.ok, true])
   })
 })
+
+/**
+ * STAN KANAŁU ALARMÓW (14.09).
+ *
+ * Do tego dnia `sendOpsAlert` połykał wynik wysyłki: skasowany webhook,
+ * nieważny token i limit Discorda wyglądały u nas identycznie jak sukces.
+ * Ponieważ tym kanałem idzie WSZYSTKO — czerwony przycisk klienta, kolejka
+ * zgłoszeń, porzucone rozmowy, błędy 5xx, czujka z Mac mini — jedna taka
+ * awaria uciszała cały nadzór, a cisza wyglądała jak spokój.
+ */
+describe('stan kanalu alarmow', () => {
+  it('odmowa Discorda jest ZAUWAZONA, nie polkniata', async () => {
+    const { sendOpsAlert, stanKanaluAlarmow } = await freshCronRuns('https://discord.test/webhook')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })))
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await sendOpsAlert('cokolwiek')
+
+    const stan = stanKanaluAlarmow()
+    assert.strictEqual(stan?.ok, false, 'kanal oznaczony jako niesprawny')
+    assert.match(String(stan?.detail), /404/)
+    errSpy.mockRestore()
+  })
+
+  it('przyjeta wiadomosc zostawia kanal sprawnym (para dowodzaca)', async () => {
+    const { sendOpsAlert, stanKanaluAlarmow } = await freshCronRuns('https://discord.test/webhook')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 204 })))
+
+    await sendOpsAlert('cokolwiek')
+
+    assert.strictEqual(stanKanaluAlarmow()?.ok, true)
+  })
+
+  it('zerwane polaczenie tez znaczy niesprawny kanal', async () => {
+    const { sendOpsAlert, stanKanaluAlarmow } = await freshCronRuns('https://discord.test/webhook')
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNRESET') }))
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await sendOpsAlert('cokolwiek')
+
+    assert.strictEqual(stanKanaluAlarmow()?.ok, false)
+    assert.match(String(stanKanaluAlarmow()?.detail), /ECONNRESET/)
+    errSpy.mockRestore()
+  })
+
+  it('sprawdzenie kanalu NIE wysyla wiadomosci', async () => {
+    // Czujka, ktora co godzine pisze „zyje", po tygodniu przestaje byc czytana
+    // i jest tyle samo warta co jej brak.
+    const { sprawdzKanalAlarmow } = await freshCronRuns('https://discord.test/webhook')
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wynik = await sprawdzKanalAlarmow()
+
+    assert.strictEqual(wynik.ok, true)
+    assert.strictEqual(fetchMock.mock.calls.length, 1)
+    assert.strictEqual((fetchMock.mock.calls[0] as unknown as [string, { method: string }])[1].method, 'GET')
+  })
+
+  it('skasowany webhook jest widoczny w sprawdzeniu', async () => {
+    const { sprawdzKanalAlarmow } = await freshCronRuns('https://discord.test/webhook')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })))
+
+    const wynik = await sprawdzKanalAlarmow()
+
+    assert.strictEqual(wynik.ok, false)
+    assert.match(String(wynik.detail), /404/)
+  })
+})

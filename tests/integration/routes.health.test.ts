@@ -29,7 +29,7 @@ async function ustawPrzebieg(job: string, minutTemu: number) {
 
 describe.skipIf(!dbUp)('endpoint zdrowia', () => {
   let portal: { id: string; slug: string }
-  const PILNOWANE = ['pending-reports', 'panic-escalation', 'task-index']
+  const PILNOWANE = ['pending-reports', 'panic-escalation', 'task-index', 'alert-channel']
   let kopia: Array<typeof cronRuns.$inferSelect> = []
 
   beforeEach(async () => {
@@ -73,6 +73,7 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     await ustawPrzebieg('pending-reports', 1)
     await ustawPrzebieg('panic-escalation', 3)
     await ustawPrzebieg('task-index', 120)
+    await ustawPrzebieg('alert-channel', 5)
 
     const res = await healthGET()
     const tekst = await res.text()
@@ -85,6 +86,7 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     await ustawPrzebieg('pending-reports', 60)
     await ustawPrzebieg('panic-escalation', 3)
     await ustawPrzebieg('task-index', 120)
+    await ustawPrzebieg('alert-channel', 5)
 
     const res = await healthGET()
     const tekst = await res.text()
@@ -98,6 +100,7 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     await ustawPrzebieg('pending-reports', 1)
     await ustawPrzebieg('panic-escalation', 45)
     await ustawPrzebieg('task-index', 120)
+    await ustawPrzebieg('alert-channel', 5)
 
     const res = await healthGET()
     assert.strictEqual(res.status, 503)
@@ -118,6 +121,7 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     await ustawPrzebieg('pending-reports', 1)
     await ustawPrzebieg('panic-escalation', 3)
     await ustawPrzebieg('task-index', 120)
+    await ustawPrzebieg('alert-channel', 5)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await enqueueReport({
       portalId: portal.id, source: 'form', clickupListId: 'l-1', payload: { name: 'stoi i stoi' },
@@ -141,6 +145,7 @@ describe.skipIf(!dbUp)('endpoint zdrowia', () => {
     await ustawPrzebieg('pending-reports', 1)
     await ustawPrzebieg('panic-escalation', 3)
     await ustawPrzebieg('task-index', 120)
+    await ustawPrzebieg('alert-channel', 5)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await enqueueReport({
       portalId: portal.id, source: 'form', clickupListId: 'l-1',

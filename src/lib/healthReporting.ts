@@ -25,6 +25,12 @@ export const CRON_LIMITS_MINUTES = {
   'panic-escalation': 20,
   // Raz na dobę, 6:20. Doba i pół daje miejsce na jeden nieudany przebieg.
   'task-index': 36 * 60,
+  /**
+   * Sygnał życia kanału alarmów. Chodzi co godzinę; trzy godziny ciszy znaczą,
+   * że albo cron stanął, albo webhook Discorda przestał odpowiadać. Jedno
+   * i drugie oznacza to samo: portal nie ma jak nikogo zawołać.
+   */
+  'alert-channel': 180,
 } as const
 
 export type CronName = keyof typeof CRON_LIMITS_MINUTES
@@ -39,6 +45,12 @@ export type HealthInput = {
   pending: number
   /** Wiek najstarszego czekającego zgłoszenia w minutach. `null`, gdy pusto. */
   oldestPendingMinutes: number | null
+  /**
+   * Czy ostatnia próba dosięgnięcia kanału alarmów się powiodła.
+   * `null` znaczy „jeszcze nie próbowaliśmy w tym procesie" i NIE jest awarią:
+   * świeżo wstały kontener nie miał jeszcze czego wysyłać.
+   */
+  alertChannelOk?: boolean | null
   now: Date
 }
 
@@ -64,6 +76,19 @@ export function reportingHealth(input: HealthInput): HealthVerdict {
     }
     const wiek = minutesSince(last, input.now)
     if (wiek > limit) problems.push(`cron ${name}: ostatni przebieg ${wiek} min temu (limit ${limit})`)
+  }
+
+  /**
+   * Martwy kanał alarmów gasi „OK" celowo, w odróżnieniu od błędów 5xx.
+   *
+   * Błąd w trasie ma własny alarm i nie dotyczy drogi zgłoszeń. Tutaj jest
+   * odwrotnie: gdy kanał nie przyjmuje, przestają działać WSZYSTKIE alarmy
+   * portalu naraz, łącznie z tym o zgłoszeniu stojącym w kolejce. Wtedy jedyną
+   * drogą, która jeszcze żyje, jest zewnętrzna czujka na tej odpowiedzi, a ona
+   * powiadamia mailem i Pushoverem, czyli z pominięciem Discorda.
+   */
+  if (input.alertChannelOk === false) {
+    problems.push('kanał alarmów: ostatnia próba nie doszła (alarmy portalu nie mają jak wyjść)')
   }
 
   if (input.oldestPendingMinutes !== null && input.oldestPendingMinutes > QUEUE_LIMIT_MINUTES) {

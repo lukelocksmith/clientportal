@@ -449,6 +449,32 @@ Czego w `app_errors` NIE MA: ciała żądania, ciasteczek, nagłówków i parame
 zapytania. Błąd potrafi paść w trasie, przez którą idzie treść zgłoszenia albo
 token SitePinga; test pilnuje, że `?token=…` nie trafia do rejestru.
 
+### Kto pilnuje pilnującego (14.09)
+
+Wszystko, co portal ma do powiedzenia o własnych awariach, wychodziło **jednym
+webhookiem Discorda**: czerwony przycisk klienta, kolejka zgłoszeń, porzucone
+rozmowy z asystentem, błędy 5xx, nieudane maile, a nawet zewnętrzna czujka
+z Mac mini. `sendOpsAlert` połykał przy tym wynik wysyłki do `console.error`,
+więc skasowany webhook albo zmienione uprawnienia kanału uciszały cały nadzór,
+a cisza wyglądała identycznie jak spokój.
+
+Dwie zmiany, obie potrzebne:
+
+1. **`sendOpsAlert` czyta odpowiedź.** Discord oddaje 204 przy przyjęciu; 404
+   znaczy „webhook skasowany", 401 „token nieważny", 429 „limit". Każdy z nich
+   wyglądał u nas jak sukces. Wynik ostatniej próby siedzi w pamięci procesu
+   i mówi, czy alarmy MAJĄ JAK WYJŚĆ z tego kontenera.
+2. **Cron `alert-channel`** (co godzinę, Coolify) sprawdza webhook **GET-em, bez
+   wysyłania wiadomości** — Discord oddaje na GET metadane webhooka. Czujka,
+   która co godzinę pisze „żyję", po tygodniu przestaje być czytana i jest tyle
+   samo warta co jej brak.
+
+Oba wyniki czyta `/api/health/zgloszenia`, a ten endpoint pilnuje z zewnątrz
+UptimeRobot, **powiadamiający mailem i Pushoverem**. To jest cały sens: druga
+droga nie może dzielić z pierwszą punktu awarii. Martwy kanał alarmów gasi tu
+słowo „OK" (w odróżnieniu od błędów 5xx, które mają własny alarm i nie dotyczą
+drogi zgłoszeń).
+
 ## Testowanie na żywym ClickUpie
 
 Do testów, które muszą dotknąć prawdziwego ClickUpa, służy **projekt testowy

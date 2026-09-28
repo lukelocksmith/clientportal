@@ -135,6 +135,67 @@ nigdy do portalu nie wybraliśmy.
 **Zadanie bez informacji o liście jest ODRZUCANE** przy zawężonym zakresie:
 przy danych widocznych dla klienta brak potwierdzenia traktujemy jak odmowę.
 
+### Tag `portal`: które ZADANIA widzi klient (od 28.09.2026)
+
+Komentarze szły do klienta tylko z `[P]`, ale zadania szły **wszystkie**,
+razem z opisem. Audyt 28.09 znalazł to na produkcji: zadanie `869eprajy`
+w folderze Onyxu (notatka przed rozmową handlową, „Onyx porównuje oferty
+z WP Opieki") było na tablicy i w Historii Onyxu, a 01.09 trzy adresy klienta
+dostały mail „Zmiana statusu" z jego nazwą. Podobne rzeczy u EFF (estymata ze
+stawką podwykonawcy) i WDF (zadania `[Internal]`, loginy do cudzych paneli).
+
+Odpowiedź: flaga projektu **`portalTagOnly`** (kolumna `portals.portal_tag_only`,
+ptaszek „Tylko zadania z tagiem portal" w panelu, **domyślnie wyłączona**).
+Włączona znaczy: klient widzi wyłącznie zadania z tagiem `portal` w ClickUpie.
+Reguła jest w jednym czystym module, `lib/portalVisibility.ts`:
+
+- tag na zadaniu → widoczne;
+- **podzadanie dziedziczy** widoczność po przodkach (zespół taguje sprawę, nie
+  każdy krok); podzadanie z własnym tagiem pod rodzicem bez tagu pokazuje się
+  jako samodzielna karta, bez wskaźnika na rodzica;
+- brak danych o tagach albo o rodzicu → niewidoczne.
+
+Gdzie reguła jest stosowana (każde miejsce, którym zadanie wychodzi do klienta):
+
+| miejsce | jak |
+|---|---|
+| tablica, `GET /api/clickup/tasks`, estymata w Raportach | `filterTaskTreeToPortal` PO cache'u, więc przełączenie flagi działa od razu |
+| szczegóły, komentarze, załączniki, obserwatorzy | `requireTaskInPortal` / `verifyTaskBelongsToFolder` + `taskVisibleWithAncestors` (dociąga rodziców, gdy zadanie samo nie ma tagu); ta sama odpowiedź 403 co dla obcego folderu |
+| Historia, wyszukiwarka, „ostatnio domknięte", liczniki filtrów, nazwy we wzmiankach | `task_index.has_portal_tag` + `portal_visible`, warunek `visibleIn()` w SQL-u czyta flagę projektu w zapytaniu |
+| powiadomienia (mail, dzwonek) z webhooka | przy włączonej fladze webhook pyta lustro (`isIndexedTaskVisible`) i dla ukrytego zadania nie woła producenta |
+
+`portal_visible` jest liczone ZAWSZE, niezależnie od flagi (cron indeksu na
+pełnym folderze, webhook przez `recomputePortalVisibility`, bo tag zdjęty
+z rodzica zmienia widoczność podzadań, które same zdarzenia nie dostały).
+
+**Zgłoszenia klienta dostają tag automatycznie** we wszystkich czterech
+kanałach: formularz, asystent (`buildAiChatTags`), Alarm, SitePing
+(`withPortalTag`). Payload idzie też do kolejki, więc dowiezione zgłoszenie ma
+tag tak samo. Pomysły (`portalIdeas`) idą na wewnętrzną listę i tagu nie dostają.
+
+**Odświeżanie po zmianie tagu:** webhook ma `taskTagUpdated` na liście zdarzeń
+i po każdym zdarzeniu zadania unieważnia cache folderu (`invalidateFolderTasks`;
+sam `revalidatePath` nie czyści wpisu `unstable_cache`). **Warunek:** subskrypcja
+webhooka w ClickUpie musi mieć `taskTagUpdated` (stan 28.09: nie ma). Bez tego
+zmiana tagu dotrze do tablicy po 45 s cache'u, a do Historii przy najbliższym
+innym zdarzeniu zadania albo przy cronie 6:20.
+
+**Tag musi istnieć w przestrzeni** (stan 28.09: nie istnieje). ClickUp pomija
+nieznany tag po cichu, więc do tego czasu automatyczne tagowanie nie robi nic.
+
+**Wdrożenie w dwóch krokach:**
+
+1. otagowanie: `scripts/otaguj-zadania-portal.ts` (domyślnie dry-run; `--apply`
+   tylko z `--slug`, po każdym zapisie GET sprawdza, że tag naprawdę jest),
+   wykluczenia w `scripts/dane/portal-wykluczone.json`. Tagowane są tylko
+   korzenie. Wykluczenie PODZADANIA pod tagowanym rodzicem nie działa
+   (dziedziczenie) i skrypt zgłasza je jako konflikt;
+2. włączenie ptaszka w panelu, projekt po projekcie.
+
+Czego filtr **nie** obejmuje: raport czasu (`timeReports`) pokazuje nazwy
+zadań z wpisów czasu z ClickUpa, także ukrytych, bo to podstawa rozliczenia.
+Widget SitePing pokazuje własne zgłoszenia z tagiem `siteping`, bez zmian.
+
 ---
 
 ## 6. Cztery kanały zgłoszeń i kolejka
@@ -264,6 +325,10 @@ kanban wobec ~300 ms pozostałych zakładek).
 
 Buforujemy DANE, nie stronę: sesja zostaje poza cache'em, więc wynik da się
 bezpiecznie dzielić między użytkowników jednego klienta.
+
+Filtr po tagu `portal` stoi **za** cache'em, nie w nim (wpis folderu dzieli
+też SitePing), a webhook unieważnia wpis folderu po każdym zdarzeniu zadania,
+w tym `taskTagUpdated`.
 
 **`invalidateFolderTasks` wołamy po KAŻDEJ zmianie, którą klient zobaczy.**
 Bez tego cache byłby pogorszeniem: klient przeciąga kartę, odświeża i widzi

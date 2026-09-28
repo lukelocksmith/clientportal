@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { portals } from '@/lib/db/schema'
 import { getTask } from '@/lib/clickup'
-import { indexSingleTask, removeTaskFromIndex } from '@/lib/taskIndex'
+import { indexSingleTask, isIndexedTaskVisible, removeTaskFromIndex } from '@/lib/taskIndex'
+import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { recordStatusChange } from '@/lib/statusHistory'
 import {
   notifyOnComment,
@@ -23,6 +24,16 @@ const TASK_EVENTS = [
   'taskStatusUpdated',
   'taskPriorityUpdated',
   'taskMoved',
+  /**
+   * Dodanie albo zdjęcie tagu. Od tagu `portal` zależy, czy klient widzi
+   * zadanie (lib/portalVisibility.ts), więc zmiana musi dotrzeć do lustra
+   * i cache'u od razu, a nie po nocnym cronie.
+   *
+   * UWAGA: ClickUp przysyła tylko zdarzenia, na które subskrypcja jest
+   * zapisana. Wpis tutaj nic nie da, dopóki subskrypcja webhooka w ClickUpie
+   * nie ma `taskTagUpdated` na liście (stan 28.09: nie ma).
+   */
+  'taskTagUpdated',
 ]
 
 /**
@@ -72,7 +83,12 @@ export async function POST(request: NextRequest) {
   }
 
   const allPortals = await db
-    .select({ id: portals.id, slug: portals.slug, folderId: portals.clickupFolderId })
+    .select({
+      id: portals.id,
+      slug: portals.slug,
+      folderId: portals.clickupFolderId,
+      portalTagOnly: portals.portalTagOnly,
+    })
     .from(portals)
 
   // Kanban czyta ClickUpa na żywo, więc jego wystarczy unieważnić.
@@ -120,6 +136,11 @@ export async function POST(request: NextRequest) {
 
     await indexSingleTask(target.id, taskId)
 
+    // Cache tablicy (45 s) też. Sam `revalidatePath` wyżej nie unieważnia
+    // wpisu `unstable_cache`, więc zdjęty tag `portal` wisiałby na tablicy
+    // do wygaśnięcia bufora.
+    await invalidateFolderTasks(target.folderId)
+
     // HISTORIA STATUSÓW. Zapisujemy PO ustaleniu portalu, bo wiersz bez
     // projektu byłby historią niczyją, i tylko gdy zdarzenie faktycznie niesie
     // zmianę statusu — `taskUpdated` przychodzi też przy zmianie opisu.
@@ -152,6 +173,14 @@ export async function POST(request: NextRequest) {
      * nie dostaje nic, więc ta ścieżka jest domyślnie cicha wszędzie.
      */
     try {
+      // Ukryte zadanie (brak tagu `portal` przy włączonej fladze projektu) nie
+      // może trafić do klienta mailem ani dzwonkiem. Dokładnie tą drogą Onyx
+      // dostał 01.09 mail o zmianie statusu wewnętrznej notatki handlowej.
+      // Przy wyłączonej fladze nie pytamy lustra wcale: zachowanie jak dawniej.
+      if (target.portalTagOnly && !(await isIndexedTaskVisible(target.id, taskId))) {
+        revalidatePath(`/${target.slug}/historia`)
+        return NextResponse.json({ ok: true, indexed: taskId, portal: target.slug, notified: false })
+      }
       if (isCommentEvent) {
         await notifyOnComment({ portalId: target.id, taskId, taskName: task.name ?? taskId })
       } else if (zmiana) {

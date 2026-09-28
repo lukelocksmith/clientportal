@@ -1349,4 +1349,88 @@ describe.skipIf(!dbUp)('trasy ClickUpa na prawdziwej bazie', () => {
       assert.strictEqual(clickup.getTask.mock.calls.length, 0)
     })
   })
+
+  /**
+   * TAG `portal` (28.09.2026, lib/portalVisibility.ts). Przypadek z produkcji:
+   * wewnetrzna notatka `869eprajy` w folderze Onyxu byla widoczna dla klienta
+   * na tablicy i w szczegolach. Kazdy test ukrycia ma pare z flaga wylaczona,
+   * bo wdrozenie kodu nie moze niczego klientom schowac przed otagowaniem.
+   */
+  describe('widocznosc po tagu portal (portalTagOnly)', () => {
+    const otagowane = (id: string, extra: Record<string, unknown> = {}) => ({
+      ...zadanieWlasne(id), tags: [{ name: 'portal' }], parent: null, ...extra,
+    })
+    const bezTagu = (id: string, extra: Record<string, unknown> = {}) => ({
+      ...zadanieWlasne(id), tags: [{ name: 'wycena' }], parent: null, ...extra,
+    })
+    const setFlag = (v: boolean) =>
+      db.update(portals).set({ portalTagOnly: v }).where(eq(portals.id, portalA.id))
+
+    afterEach(async () => { await setFlag(false) })
+
+    it('flaga WYLACZONA: lista zadan jak dawniej, takze bez tagu', async () => {
+      await loginClient()
+      clickup.getAllTasksForLists.mockResolvedValue([otagowane('widoczne'), bezTagu('869eprajy')])
+
+      const { tasks } = await (await tasksGET(req(`/api/clickup/tasks?slug=${portalA.slug}`))).json()
+
+      assert.deepStrictEqual(tasks.map((t: { id: string }) => t.id).sort(), ['869eprajy', 'widoczne'])
+    })
+
+    it('flaga WLACZONA: lista zadan bez zadania bez tagu', async () => {
+      await setFlag(true)
+      await loginClient()
+      clickup.getAllTasksForLists.mockResolvedValue([otagowane('widoczne'), bezTagu('869eprajy')])
+
+      const { tasks } = await (await tasksGET(req(`/api/clickup/tasks?slug=${portalA.slug}`))).json()
+
+      assert.deepStrictEqual(tasks.map((t: { id: string }) => t.id), ['widoczne'])
+    })
+
+    it('flaga WLACZONA: szczegoly zadania bez tagu -> 403, z tagiem -> 200', async () => {
+      await setFlag(true)
+      await loginClient()
+
+      clickup.getTask.mockResolvedValue(bezTagu('869eprajy'))
+      const ukryte = await taskGET(req(`/api/clickup/tasks/869eprajy?slug=${portalA.slug}`), params('869eprajy'))
+      assert.strictEqual(ukryte.status, 403)
+
+      clickup.getTask.mockResolvedValue(otagowane('widoczne'))
+      const widoczne = await taskGET(req(`/api/clickup/tasks/widoczne?slug=${portalA.slug}`), params('widoczne'))
+      assert.strictEqual(widoczne.status, 200)
+    })
+
+    it('flaga WLACZONA: podzadanie bez tagu przechodzi, gdy rodzic ma tag', async () => {
+      await setFlag(true)
+      await loginClient()
+      clickup.getTask.mockImplementation(async (id: string) =>
+        id === 'rodzic' ? otagowane('rodzic') : bezTagu('krok', { parent: 'rodzic' })
+      )
+
+      const res = await taskGET(req(`/api/clickup/tasks/krok?slug=${portalA.slug}`), params('krok'))
+
+      assert.strictEqual(res.status, 200)
+    })
+
+    it('trasy przez requireTaskInPortal dostaja flage projektu', async () => {
+      await setFlag(true)
+      await loginClient()
+      clickup.verifyTaskBelongsToFolder.mockResolvedValue(false)
+
+      const res = await commentsGET(req(`/api/clickup/tasks/869eprajy/comments?slug=${portalA.slug}`), params('869eprajy'))
+
+      assert.strictEqual(res.status, 403)
+      assert.deepStrictEqual(clickup.verifyTaskBelongsToFolder.mock.calls[0][3], { tagOnly: true })
+      assert.strictEqual(clickup.getTaskComments.mock.calls.length, 0)
+    })
+
+    it('zgloszenie z formularza dostaje tag portal, niezaleznie od flagi', async () => {
+      await loginClient()
+      clickup.createTask.mockResolvedValue({ id: 'nowe', name: 'X', url: 'u' })
+
+      await tasksPOST(jsonReq('/api/clickup/tasks', { slug: portalA.slug, name: 'X' }))
+
+      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['portal'])
+    })
+  })
 })

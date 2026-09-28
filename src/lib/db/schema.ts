@@ -92,6 +92,17 @@ export const portals = pgTable('portals', {
    */
   monitoringEnabled: boolean('monitoring_enabled').notNull().default(false),
   /**
+   * Klient widzi WYŁĄCZNIE zadania z tagiem `portal` w ClickUpie (i ich
+   * podzadania). Reguła w lib/portalVisibility.ts.
+   *
+   * Domyślnie false, czyli zachowanie sprzed tej flagi: klient widzi wszystkie
+   * zadania z list portalu. Włączamy per projekt DOPIERO po otagowaniu zadań
+   * (scripts/otaguj-zadania-portal.ts), inaczej klientowi zniknęłaby tablica.
+   * Powód istnienia: wewnętrzne zadanie z notatkami przed rozmową handlową
+   * widoczne dla Onyxu (28.09.2026, patrz portalVisibility.ts).
+   */
+  portalTagOnly: boolean('portal_tag_only').notNull().default(false),
+  /**
    * Token API SuperChecka DLA TEGO PROJEKTU (`sck_live_...`).
    *
    * Osobny na projekt, bo SuperCheck nie ma globalnego klucza: token CLI jest
@@ -596,6 +607,15 @@ export const taskIndex = pgTable('task_index', {
   publicCommentCount: integer('public_comment_count').notNull().default(0),
   subtaskCount: integer('subtask_count').notNull().default(0),
   searchText: text('search_text').notNull().default(''),
+  /** Czy zadanie SAMO ma tag `portal`. Wejście do wyliczenia `portalVisible`. */
+  hasPortalTag: boolean('has_portal_tag').notNull().default(false),
+  /**
+   * Czy zadanie jest widoczne przy włączonym `portals.portal_tag_only`: własny
+   * tag albo tag któregoś przodka (lib/portalVisibility.ts). Liczone zawsze,
+   * niezależnie od flagi projektu, żeby przełączenie flagi działało od razu.
+   * Domyślnie false: wiersz, którego jeszcze nie przeliczyliśmy, jest ukryty.
+   */
+  portalVisible: boolean('portal_visible').notNull().default(false),
   /**
    * Kiedy ostatnio dociągnęliśmy dla tego zadania komentarze i załączniki.
    * Osobno od `indexedAt`, bo pola podstawowe odświeżamy przy każdym

@@ -108,8 +108,12 @@ export async function insertIndexedTask(input: {
   parentId?: string | null
   dateCreated: number
   dateClosed?: number | null
+  hasPortalTag?: boolean
+  portalVisible?: boolean
 }): Promise<void> {
   await db.insert(taskIndex).values({
+    hasPortalTag: input.hasPortalTag ?? false,
+    portalVisible: input.portalVisible ?? false,
     portalId: input.portalId,
     clickupTaskId: input.clickupTaskId,
     name: input.name,

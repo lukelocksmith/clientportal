@@ -1,6 +1,7 @@
 import type { ClickUpTask, ClickUpComment, ClickUpStatus, ClickUpTimeEntry } from './types'
 import { taskBelongsToPortal } from './portalScope'
 import { visibleAttachments } from './attachments'
+import { taskVisibleWithAncestors } from './portalTaskAccess'
 
 const CLICKUP_API = 'https://api.clickup.com/api/v2'
 const TOKEN = process.env.CLICKUP_API_TOKEN!
@@ -487,6 +488,18 @@ export async function getSpaceTags(spaceId: string): Promise<string[]> {
   return (data.tags ?? []).map(t => t.name)
 }
 
+/**
+ * Dokłada istniejący tag przestrzeni do zadania (`POST /task/{id}/tag/{name}`).
+ *
+ * Dokumentacja ClickUpa nie mówi, co się dzieje z nazwą spoza słownika
+ * przestrzeni, więc wołający sprawdza słownik PRZED wywołaniem
+ * (`getSpaceTags`) i weryfikuje wynik osobnym GET-em. Sukces HTTP nie jest
+ * tu dowodem, że tag jest na zadaniu.
+ */
+export async function addTaskTag(taskId: string, tagName: string): Promise<void> {
+  await clickupFetch<unknown>(`/task/${taskId}/tag/${encodeURIComponent(tagName)}`, { method: 'POST' })
+}
+
 export async function getFolderLists(
   folderId: string
 ): Promise<Array<{ id: string; name: string }>> {
@@ -522,12 +535,18 @@ export async function getFoldersInSpace(
 export async function verifyTaskBelongsToFolder(
   taskId: string,
   folderId: string,
-  scope: readonly string[] = []
+  scope: readonly string[] = [],
+  options: { tagOnly?: boolean } = {}
 ): Promise<boolean> {
   try {
     // Reguła jest w portalScope.ts, bo trasa szczegółów zadania stosuje ją do
     // zadania, które już pobrała. Tutaj dokładamy tylko pobranie.
-    return taskBelongsToPortal(await getTask(taskId), folderId, scope)
+    const task = await getTask(taskId)
+    if (!taskBelongsToPortal(task, folderId, scope)) return false
+    // Widoczność po tagu `portal` (lib/portalVisibility.ts). Bez tego klient
+    // znający identyfikator ukrytego zadania odczytałby jego komentarze,
+    // załączniki i obserwatorów, mimo że na tablicy go nie widzi.
+    return await taskVisibleWithAncestors(task, options.tagOnly ?? false, getTask)
   } catch {
     return false
   }

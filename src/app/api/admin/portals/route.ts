@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       statusControlsEnabled: portals.statusControlsEnabled,
       estimateReportEnabled: portals.estimateReportEnabled,
       monitoringEnabled: portals.monitoringEnabled,
+      portalTagOnly: portals.portalTagOnly,
       /* Sam TOKEN nie wychodzi z serwera nigdy. Panel potrzebuje wyłącznie
          odpowiedzi „ustawiony czy nie", więc liczymy to w SQL-u zamiast
          wybierać kolumnę i filtrować ją potem w kodzie — pole, którego się nie
@@ -71,6 +72,7 @@ const UpdatePortalSchema = z
     statusControlsEnabled: z.boolean().optional(),
     estimateReportEnabled: z.boolean().optional(),
     monitoringEnabled: z.boolean().optional(),
+    portalTagOnly: z.boolean().optional(),
     /**
      * Token API SuperChecka DLA TEGO PROJEKTU (`sck_live_...`).
      *
@@ -304,6 +306,7 @@ export async function PATCH(request: NextRequest) {
       statusControlsEnabled: portals.statusControlsEnabled,
       estimateReportEnabled: portals.estimateReportEnabled,
       monitoringEnabled: portals.monitoringEnabled,
+      portalTagOnly: portals.portalTagOnly,
       /* Sam TOKEN nie wychodzi z serwera nigdy. Panel potrzebuje wyłącznie
          odpowiedzi „ustawiony czy nie", więc liczymy to w SQL-u zamiast
          wybierać kolumnę i filtrować ją potem w kodzie — pole, którego się nie

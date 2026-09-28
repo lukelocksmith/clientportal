@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getCachedTasksForScope, getCachedRecentlyClosedTasksForScope } from '@/lib/clickupCache'
 import { getPortalScope } from '@/lib/portalScopeStore'
+import { filterTaskTreeToPortal } from '@/lib/portalVisibility'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { KanbanBoardClient } from '@/components/kanban/KanbanBoardClient'
 import { firstEnabledTabPath, isTabEnabled } from '@/lib/portalTabs'
@@ -56,7 +57,13 @@ export default async function PortalPage({ params }: PortalPageProps) {
     ? await getCachedRecentlyClosedTasksForScope(portal.clickupFolderId, scope)
     : []
   const snapshots = await getSnapshotMap(portal.id)
-  const tasks = mergeTrackedTime([...rawTasks, ...recentlyClosed], snapshots)
+  // Tag `portal` (lib/portalVisibility.ts): filtr PO cache'u, nie w nim, bo
+  // cache folderu dzieli też widget SitePing, a przełączenie flagi projektu ma
+  // działać od razu, bez czekania na wygaśnięcie wpisu.
+  const tasks = mergeTrackedTime(
+    filterTaskTreeToPortal([...rawTasks, ...recentlyClosed], portal.portalTagOnly),
+    snapshots
+  )
 
   /**
    * Token tożsamości do linku „Pokaż na stronie", żeby widget na stronie

@@ -57,8 +57,9 @@ export async function requirePortalApi(
 /**
  * Czy zadanie należy do tego projektu. Zwraca gotową odpowiedź 403, gdy nie.
  *
- * Folder ORAZ zakres list: folder klienta może zawierać listy, których do
- * portalu nie wybraliśmy. Bez tego klient, znając identyfikator zadania,
+ * Folder, zakres list ORAZ tag `portal`, gdy projekt ma włączone
+ * `portalTagOnly` (lib/portalVisibility.ts). Folder klienta może zawierać
+ * listy, których do portalu nie wybraliśmy, a lista zadania wewnętrzne. Bez tego klient, znając identyfikator zadania,
  * odczytałby jego opis, komentarze i załączniki z listy, której mu nie
  * udostępniliśmy.
  *
@@ -72,7 +73,9 @@ export async function requireTaskInPortal(
   portal: PortalRow
 ): Promise<TaskScopeCheck> {
   const scope = await getPortalScope(portal.id)
-  const belongs = await verifyTaskBelongsToFolder(taskId, portal.clickupFolderId, scope)
+  const belongs = await verifyTaskBelongsToFolder(taskId, portal.clickupFolderId, scope, {
+    tagOnly: portal.portalTagOnly,
+  })
   if (!belongs) {
     return { ok: false, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }

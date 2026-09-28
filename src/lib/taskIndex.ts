@@ -4,6 +4,7 @@ import { taskIndex } from './db/schema'
 import { getFolderTaskHistory, getTask, getTaskComments } from './clickup'
 import { getPortalScope } from './portalScopeStore'
 import { filterTasksToScope, isListInScope } from './portalScope'
+import { computeVisibleIds, hasPortalTag } from './portalVisibility'
 import { publicCommentTexts } from './publicComments'
 import { syncPublishedComments } from './taskComments'
 import { buildSearchText, escapeLikePattern, normalizeQuery } from './textSearch'
@@ -79,6 +80,14 @@ export async function syncPortalIndex(
   const scope = await getPortalScope(portal.id)
   const tasks = filterTasksToScope(wszystkie, scope)
 
+  // Widoczność po tagu `portal` (lib/portalVisibility.ts), liczona na PEŁNYM
+  // zbiorze, bo tag może stać na przodku. Zapisujemy ją zawsze, niezależnie
+  // od flagi projektu: zapytania Historii same sprawdzają flagę, więc jej
+  // przełączenie działa od razu, bez przebudowy lustra.
+  const visibleIds = computeVisibleIds(
+    wszystkie.map(t => ({ id: t.id, parentId: t.parent ?? null, hasTag: hasPortalTag(t) }))
+  )
+
   // Liczba podzadań per rodzic. Podzadania trzymamy w indeksie (żeby
   // wyszukiwarka je znajdowała), ale w tabeli Historii pokazujemy tylko
   // zadania nadrzędne z licznikiem.
@@ -104,6 +113,8 @@ export async function syncPortalIndex(
       dateUpdated: toMs(task.date_updated) ?? 0,
       dateClosed: toMs(task.date_closed),
       subtaskCount: childCount.get(task.id) ?? 0,
+      hasPortalTag: hasPortalTag(task),
+      portalVisible: visibleIds.has(task.id),
       // Tylko przy INSERT. Dzięki temu nowe zadanie jest przeszukiwalne po
       // nazwie i opisie od razu, nie dopiero po doczytaniu treści.
       searchText: buildSearchText({ name: task.name, description: task.text_content }),
@@ -134,6 +145,8 @@ export async function syncPortalIndex(
             dateUpdated: sql`excluded.date_updated`,
             dateClosed: sql`excluded.date_closed`,
             subtaskCount: sql`excluded.subtask_count`,
+            hasPortalTag: sql`excluded.has_portal_tag`,
+            portalVisible: sql`excluded.portal_visible`,
             indexedAt: new Date(),
           },
         })
@@ -300,6 +313,7 @@ export async function indexSingleTask(portalId: string, taskId: string): Promise
         dateCreated: toMs(full.date_created) ?? 0,
         dateUpdated: toMs(full.date_updated) ?? 0,
         dateClosed: toMs(full.date_closed),
+        hasPortalTag: hasPortalTag(full),
         attachmentCount: attachmentNames.length,
         publicCommentCount: publicComments.length,
         searchText: buildSearchText({
@@ -323,6 +337,7 @@ export async function indexSingleTask(portalId: string, taskId: string): Promise
           url: sql`excluded.url`,
           dateUpdated: sql`excluded.date_updated`,
           dateClosed: sql`excluded.date_closed`,
+          hasPortalTag: sql`excluded.has_portal_tag`,
           attachmentCount: sql`excluded.attachment_count`,
           publicCommentCount: sql`excluded.public_comment_count`,
           searchText: sql`excluded.search_text`,
@@ -331,11 +346,64 @@ export async function indexSingleTask(portalId: string, taskId: string): Promise
         },
       })
 
+    // Tag mógł się zmienić na tym zadaniu, a od niego zależy widoczność całego
+    // poddrzewa. Przeliczamy portal z lustra, bez wywołań ClickUpa.
+    await recomputePortalVisibility(portalId)
+
     return true
   } catch (e) {
     console.error(`[taskIndex] indexSingleTask ${taskId} nie powiodło się:`, e)
     return false
   }
+}
+
+/**
+ * Przelicza `portal_visible` dla całego portalu z samych danych lustra
+ * (`has_portal_tag` + `parent_id`). Zapisuje tylko wiersze, którym wartość się
+ * zmieniła. Tanie: jedno zapytanie po kilkaset do półtora tysiąca wierszy.
+ *
+ * Potrzebne na ścieżce webhooka: zdjęcie albo dodanie tagu na RODZICU zmienia
+ * widoczność podzadań, które same żadnego zdarzenia nie dostały.
+ */
+export async function recomputePortalVisibility(portalId: string): Promise<number> {
+  const rows = await db
+    .select({
+      id: taskIndex.clickupTaskId,
+      parentId: taskIndex.parentId,
+      hasTag: taskIndex.hasPortalTag,
+      visible: taskIndex.portalVisible,
+    })
+    .from(taskIndex)
+    .where(eq(taskIndex.portalId, portalId))
+
+  const visibleIds = computeVisibleIds(rows)
+  const toShow = rows.filter(r => !r.visible && visibleIds.has(r.id)).map(r => r.id)
+  const toHide = rows.filter(r => r.visible && !visibleIds.has(r.id)).map(r => r.id)
+
+  for (const [ids, value] of [[toShow, true], [toHide, false]] as const) {
+    for (let i = 0; i < ids.length; i += 200) {
+      await db
+        .update(taskIndex)
+        .set({ portalVisible: value })
+        .where(and(eq(taskIndex.portalId, portalId), inArray(taskIndex.clickupTaskId, ids.slice(i, i + 200))))
+    }
+  }
+  return toShow.length + toHide.length
+}
+
+/**
+ * Czy zadanie jest widoczne dla klienta według lustra: flaga projektu
+ * wyłączona albo `portal_visible`. Brak wiersza = niewidoczne. Używane przez
+ * webhook, żeby nie wysyłać klientowi powiadomień o ukrytych zadaniach.
+ */
+export async function isIndexedTaskVisible(portalId: string, taskId: string): Promise<boolean> {
+  const rows = await db.execute<{ ok: boolean }>(sql`
+    SELECT ${visibleIn('t')} AS ok
+    FROM task_index t
+    WHERE t.portal_id = ${portalId} AND t.clickup_task_id = ${taskId}
+    LIMIT 1
+  `)
+  return rows[0]?.ok === true
 }
 
 /** Usuwa jeden wiersz, dla zdarzenia taskDeleted z webhooka. */
@@ -361,11 +429,33 @@ export async function removeTaskFromIndex(portalId: string, taskId: string): Pro
  *
  * Zakłada alias tabeli `t` i, w podzapytaniu, `p`.
  */
+/**
+ * Czy wiersz o podanym aliasie jest widoczny dla klienta: projekt NIE ma
+ * włączonego `portal_tag_only` ALBO zadanie ma `portal_visible` (własny tag
+ * `portal` lub tag przodka, lib/portalVisibility.ts).
+ *
+ * Flaga jest czytana w zapytaniu, a nie przekazywana z wywołującego: każde
+ * zapytanie o lustro dostaje ten warunek w jednym miejscu i nie da się go
+ * zapomnieć przy nowym wywołaniu. Alias jest stałą z kodu, nigdy z wejścia.
+ */
+function visibleIn(alias: 't' | 'p' | 'c') {
+  return sql.raw(
+    `(${alias}.portal_visible OR NOT COALESCE((SELECT pp.portal_tag_only FROM portals pp WHERE pp.id = ${alias}.portal_id), false))`
+  )
+}
+
+/**
+ * Rodzic liczy się tylko wtedy, gdy klient go widzi. Podzadanie z własnym
+ * tagiem `portal` pod ukrytym rodzicem jest więc wierszem głównym, tak samo
+ * jak na tablicy (filterTaskTreeToPortal). Przy wyłączonej fladze `visibleIn`
+ * jest zawsze prawdą i warunek działa jak dawniej.
+ */
 const IS_ROOT_TASK = sql`(
   t.parent_id IS NULL
   OR NOT EXISTS (
     SELECT 1 FROM task_index p
     WHERE p.portal_id = t.portal_id AND p.clickup_task_id = t.parent_id
+      AND ${visibleIn('p')}
   )
 )`
 
@@ -443,7 +533,7 @@ export async function queryHistory(
   const q = normalizeQuery(filters.q)
   const pattern = q ? `%${escapeLikePattern(q)}%` : null
 
-  const conditions = [sql`t.portal_id = ${portalId}`, IS_ROOT_TASK]
+  const conditions = [sql`t.portal_id = ${portalId}`, visibleIn('t'), IS_ROOT_TASK]
 
   if (pattern) {
     // Trafienie w samym zadaniu albo w którymkolwiek z jego podzadań.
@@ -453,6 +543,7 @@ export async function queryHistory(
         SELECT 1 FROM task_index c
         WHERE c.portal_id = t.portal_id
           AND c.parent_id = t.clickup_task_id
+          AND ${visibleIn('c')}
           AND c.search_text LIKE ${pattern}
       )
     )`)
@@ -510,6 +601,7 @@ export async function queryHistory(
       FROM task_index c
       WHERE c.portal_id = ${portalId}
         AND c.parent_id IN (${sql.join(parentIds.map(id => sql`${id}`), sql`, `)})
+        AND ${visibleIn('c')}
         AND c.search_text LIKE ${pattern}
       ORDER BY c.date_created DESC
     `)
@@ -574,6 +666,7 @@ export async function getRecentlyClosed(
     FROM task_index t
     WHERE t.portal_id = ${portalId}
       AND t.date_closed IS NOT NULL
+      AND ${visibleIn('t')}
       AND ${IS_ROOT_TASK}
     ORDER BY t.date_closed DESC
     LIMIT ${Math.min(Math.max(limit, 1), 20)}
@@ -599,19 +692,19 @@ export async function getHistoryFacets(portalId: string): Promise<{
   const statuses = await db.execute<{ status: string; count: string }>(sql`
     SELECT t.status, count(*)::text AS count
     FROM task_index t
-    WHERE t.portal_id = ${portalId} AND ${IS_ROOT_TASK}
+    WHERE t.portal_id = ${portalId} AND ${visibleIn('t')} AND ${IS_ROOT_TASK}
     GROUP BY t.status
     ORDER BY count(*) DESC
   `)
   const priorities = await db.execute<{ priority: string; count: string }>(sql`
     SELECT t.priority, count(*)::text AS count
     FROM task_index t
-    WHERE t.portal_id = ${portalId} AND ${IS_ROOT_TASK} AND t.priority IS NOT NULL
+    WHERE t.portal_id = ${portalId} AND ${visibleIn('t')} AND ${IS_ROOT_TASK} AND t.priority IS NOT NULL
     GROUP BY t.priority
     ORDER BY count(*) DESC
   `)
   const total = await db.execute<{ count: string }>(sql`
-    SELECT count(*)::text AS count FROM task_index WHERE portal_id = ${portalId}
+    SELECT count(*)::text AS count FROM task_index t WHERE t.portal_id = ${portalId} AND ${visibleIn('t')}
   `)
 
   return {
@@ -636,7 +729,14 @@ export async function getIndexedTaskNames(
   const rows = await db
     .select({ id: taskIndex.clickupTaskId, name: taskIndex.name })
     .from(taskIndex)
-    .where(and(eq(taskIndex.portalId, portalId), inArray(taskIndex.clickupTaskId, [...taskIds])))
+    .where(
+      and(
+        eq(taskIndex.portalId, portalId),
+        inArray(taskIndex.clickupTaskId, [...taskIds]),
+        // Nazwa ukrytego zadania nie wychodzi nawet jako tekst wzmianki.
+        sql`(${taskIndex.portalVisible} OR NOT COALESCE((SELECT pp.portal_tag_only FROM portals pp WHERE pp.id = ${taskIndex.portalId}), false))`
+      )
+    )
 
   return new Map(rows.map(row => [row.id, row.name]))
 }

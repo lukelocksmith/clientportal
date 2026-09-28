@@ -21,6 +21,7 @@ export type PortalFeatureKey =
   | 'statusControlsEnabled'
   | 'sitepingEnabled'
   | 'monitoringEnabled'
+  | 'portalTagOnly'
 
 export type PortalFeatureFlags = Record<PortalFeatureKey, boolean>
 
@@ -49,6 +50,11 @@ export const PORTAL_FEATURES: ReadonlyArray<{
     key: 'monitoringEnabled',
     label: 'Stan strony',
     hint: 'Kafle na Dashboardzie: dostępność, wynik testów i szybkość ładowania. Wymaga ustawionych domen. Uwaga: klient zobaczy też nasze przerwy.',
+  },
+  {
+    key: 'portalTagOnly',
+    label: 'Tylko zadania z tagiem „portal"',
+    hint: 'Klient widzi wyłącznie zadania z tagiem portal w ClickUpie (i ich podzadania). Włącz DOPIERO po otagowaniu zadań, inaczej zniknie mu tablica.',
   },
 ]
 

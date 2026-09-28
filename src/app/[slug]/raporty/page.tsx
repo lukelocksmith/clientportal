@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getTimeEntries } from '@/lib/clickup'
 import { getCachedTasksForScope } from '@/lib/clickupCache'
+import { filterTaskTreeToPortal } from '@/lib/portalVisibility'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { filterTimeEntriesToScope } from '@/lib/portalScope'
 import {
@@ -84,7 +85,9 @@ export default async function RaportyPage({ params, searchParams }: RaportyPageP
     try {
       const scope = await getPortalScope(portal.id)
       const tasks = await getCachedTasksForScope(portal.clickupFolderId, scope)
-      estimateReport = buildEstimateReport(tasks)
+      // Estymata ukrytych zadań nie może wyjść do klienta nawet jako liczba
+      // w wierszu z nazwą zadania.
+      estimateReport = buildEstimateReport(filterTaskTreeToPortal(tasks, portal.portalTagOnly))
     } catch (error) {
       console.error('[raporty] Nie udało się policzyć pozostałej estymacji:', error)
     }

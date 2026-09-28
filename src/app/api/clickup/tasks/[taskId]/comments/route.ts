@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getTaskComments, addComment, getTask } from '@/lib/clickup'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { taskBelongsToPortal } from '@/lib/portalScope'
+import { taskVisibleWithAncestors } from '@/lib/portalTaskAccess'
 import { getIndexedTaskNames } from '@/lib/taskIndex'
 import { collectTaskMentions, applyTaskMentions, resolveTaskMentions } from '@/lib/commentMentions'
 import { requirePortalApi, requireTaskInPortal } from '@/lib/apiSession'
@@ -44,7 +45,8 @@ export async function GET(
     indexed: ids => getIndexedTaskNames(portal.id, ids),
     live: async id => {
       const [task, scope] = await Promise.all([getTask(id), getPortalScope(portal.id)])
-      return taskBelongsToPortal(task, portal.clickupFolderId, scope) ? { name: task.name } : null
+      if (!taskBelongsToPortal(task, portal.clickupFolderId, scope)) return null
+      return (await taskVisibleWithAncestors(task, portal.portalTagOnly, getTask)) ? { name: task.name } : null
     },
   })
 

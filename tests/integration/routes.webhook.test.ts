@@ -35,7 +35,7 @@ const { poprzedniSekret, clickup, taskIndex, cache, mailer } = vi.hoisted(() => 
   return {
     poprzedniSekret: poprzedni,
     clickup: { getTask: vi.fn(), getTaskComments: vi.fn() },
-    taskIndex: { indexSingleTask: vi.fn(), removeTaskFromIndex: vi.fn() },
+    taskIndex: { indexSingleTask: vi.fn(), removeTaskFromIndex: vi.fn(), isIndexedTaskVisible: vi.fn() },
     cache: { revalidatePath: vi.fn(), revalidateTag: vi.fn() },
     mailer: { sendMail: vi.fn(async () => ({ sent: true as const })) },
   }
@@ -458,6 +458,83 @@ describe.skipIf(!dbUp)('webhook ClickUpa na prawdziwej bazie', () => {
       assert.strictEqual(taskIndex.indexSingleTask.mock.calls.length, 1)
       assert.strictEqual((await wiersze()).length, 0)
       errorSpy.mockRestore()
+    })
+
+    /**
+     * Tag `portal` (lib/portalVisibility.ts). Dokladnie ta droga poszedl
+     * 01.09 mail do trzech adresow Onyxu o zmianie statusu wewnetrznej
+     * notatki handlowej `869eprajy`.
+     */
+    describe('ukryte zadanie przy portalTagOnly', () => {
+      // Osobny docelowy status w kazdym tescie: `notified_events` slusznie
+      // tlumi drugie powiadomienie o tej samej zmianie tego samego zadania.
+      const zmianaStatusu = (na: string) =>
+        podpisane({
+          event: 'taskStatusUpdated',
+          task_id: 'z-notify',
+          history_items: [{ field: 'status', before: { status: 'do zrobienia' }, after: { status: na } }],
+        })
+      const setFlag = (v: boolean) =>
+        db.update(portals).set({ portalTagOnly: v }).where(eq(portals.id, portalA.id))
+
+      it('flaga WLACZONA i zadanie ukryte: indeks tak, powiadomienia nie', async () => {
+        await wlaczPowiadomienia()
+        await setFlag(true)
+        try {
+          clickup.getTask.mockResolvedValue(zadanie())
+          taskIndex.isIndexedTaskVisible.mockResolvedValue(false)
+
+          const res = await webhookPOST(zmianaStatusu('ukryte-status'))
+
+          assert.strictEqual(res.status, 200)
+          assert.strictEqual(taskIndex.indexSingleTask.mock.calls.length, 1)
+          assert.deepStrictEqual(taskIndex.isIndexedTaskVisible.mock.calls[0], [portalA.id, 'z-notify'])
+          assert.strictEqual((await wiersze()).length, 0)
+          assert.strictEqual(mailer.sendMail.mock.calls.length, 0)
+        } finally {
+          await setFlag(false)
+        }
+      })
+
+      it('flaga WLACZONA i zadanie widoczne: powiadomienie idzie jak dawniej', async () => {
+        await wlaczPowiadomienia()
+        await setFlag(true)
+        try {
+          clickup.getTask.mockResolvedValue(zadanie())
+          taskIndex.isIndexedTaskVisible.mockResolvedValue(true)
+
+          await webhookPOST(zmianaStatusu('widoczne-status'))
+
+          assert.strictEqual((await wiersze()).length, 1)
+        } finally {
+          await setFlag(false)
+        }
+      })
+
+      it('flaga WYLACZONA: lustro nie jest pytane, powiadomienie idzie', async () => {
+        await wlaczPowiadomienia()
+        clickup.getTask.mockResolvedValue(zadanie())
+
+        await webhookPOST(zmianaStatusu('bez-flagi-status'))
+
+        assert.strictEqual(taskIndex.isIndexedTaskVisible.mock.calls.length, 0)
+        assert.strictEqual((await wiersze()).length, 1)
+      })
+    })
+  })
+
+  describe('zmiana tagu', () => {
+    it('taskTagUpdated indeksuje zadanie i uniewaznia cache tablicy', async () => {
+      clickup.getTask.mockResolvedValue({ id: 'z-tag', folder: { id: `fake-${portalA.slug}` } })
+
+      const res = await webhookPOST(podpisane({ event: 'taskTagUpdated', task_id: 'z-tag' }))
+
+      assert.strictEqual(res.status, 200)
+      assert.deepStrictEqual(taskIndex.indexSingleTask.mock.calls[0], [portalA.id, 'z-tag'])
+      assert.ok(
+        cache.revalidateTag.mock.calls.some(c => c[0] === `clickup-folder-tasks-fake-${portalA.slug}`),
+        'bufor tablicy portalu musi byc uniewazniony'
+      )
     })
   })
 })

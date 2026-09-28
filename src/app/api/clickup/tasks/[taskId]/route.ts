@@ -9,6 +9,7 @@ import { logEvent, EVENT_STATUS_CHANGED } from '@/lib/portalEvents'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { getPortalScope } from '@/lib/portalScopeStore'
 import { taskBelongsToPortal } from '@/lib/portalScope'
+import { taskVisibleWithAncestors } from '@/lib/portalTaskAccess'
 
 /**
  * GET /api/clickup/tasks/{taskId}?slug=onyx
@@ -39,6 +40,11 @@ export async function GET(
   const task = await getTask(taskId)
   const scope = await getPortalScope(portal.id)
   if (!taskBelongsToPortal(task, portal.clickupFolderId, scope)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  // Tag `portal` (lib/portalVisibility.ts). Ta sama odpowiedź 403 co dla
+  // obcego folderu: trasa nie może zdradzać, że ukryte zadanie istnieje.
+  if (!(await taskVisibleWithAncestors(task, portal.portalTagOnly, getTask))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

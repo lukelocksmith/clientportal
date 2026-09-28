@@ -7,6 +7,7 @@ import { eq, and } from 'drizzle-orm'
 import { requirePortalApi } from '@/lib/apiSession'
 import { getAllTasksForFolder, getAllTasksForLists, getRecentlyClosedTasksForFolder, getRecentlyClosedTasksForLists, createTask } from '@/lib/clickup'
 import { getPortalScope } from '@/lib/portalScopeStore'
+import { filterTaskTreeToPortal, withPortalTag } from '@/lib/portalVisibility'
 import { getSnapshotMap, mergeTrackedTime } from '@/lib/timeSnapshots'
 import { withReporterFooter, newReportMarker } from '@/lib/reporter'
 import { assigneesField } from '@/lib/assignee'
@@ -34,7 +35,11 @@ export async function GET(request: NextRequest) {
       : await getRecentlyClosedTasksForFolder(portal.clickupFolderId)
     : []
   const snapshots = await getSnapshotMap(portal.id)
-  const tasks = mergeTrackedTime([...rawTasks, ...recentlyClosed], snapshots)
+  // Ta sama reguła co na stronie tablicy (lib/portalVisibility.ts).
+  const tasks = mergeTrackedTime(
+    filterTaskTreeToPortal([...rawTasks, ...recentlyClosed], portal.portalTagOnly),
+    snapshots
+  )
 
   // Świeże dane właśnie zobaczył klient, więc bufor strony jest od tej chwili
   // starszy niż jego ekran. Unieważniamy, żeby kolejne wejście na tablicę nie
@@ -113,6 +118,10 @@ export async function POST(request: NextRequest) {
     }),
     priority: priority ?? null,
     due_date: due_date ?? null,
+    // Zgłoszenie klienta ma być dla niego widoczne także przy filtrze po tagu
+    // (lib/portalVisibility.ts). Payload idzie też do kolejki, więc dowiezione
+    // później zadanie dostanie tag tak samo.
+    tags: withPortalTag(),
   }
 
   let task

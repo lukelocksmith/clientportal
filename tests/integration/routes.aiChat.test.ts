@@ -279,7 +279,8 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
 
       // Tagi w ClickUpie sa WSPOLNE dla calej przestrzeni klientow, wiec bez
       // tego filtra kazda halucynacja zakladalaby zespolowi smieci w slowniku.
-      assert.strictEqual(clickup.createTask.mock.calls[0][1].tags, undefined)
+      // Zostaje tylko `portal`, ktory dokleja serwer (lib/portalVisibility.ts).
+      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['portal'])
     })
 
     it('tag awarii przechodzi i podnosi priorytet zgloszenia', async () => {
@@ -288,7 +289,7 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
 
       await t.execute({ name: 'Strona lezy', description: 'nic nie dziala', tags: [AWARIA_TAG] })
 
-      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, [AWARIA_TAG])
+      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, [AWARIA_TAG, 'portal'])
     })
 
     it('tagi skonfigurowane dla portalu (autoTags) doklejaja sie do kazdego zadania z czatu', async () => {
@@ -315,19 +316,20 @@ describe.skipIf(!dbUp)('czat AI na prawdziwej bazie', () => {
 
         // "awaria" jest i w konfiguracji portalu, i w tagach od modelu — ma
         // wejsc do ClickUpa raz, nie dwa razy.
-        assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['asana', 'awaria'])
+        assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['asana', 'awaria', 'portal'])
       } finally {
         await db.update(portals).set({ autoTags: null }).where(eq(portals.id, portalA.id))
       }
     })
 
-    it('bez autoTags i bez awarii nie wysyla pola tags wcale', async () => {
+    it('bez autoTags i bez awarii wysyla wylacznie tag portal', async () => {
       await zaloguj()
       const t = await narzedzie(portalA.slug)
 
       await t.execute({ name: 'X', description: 'y' })
 
-      assert.strictEqual(clickup.createTask.mock.calls[0][1].tags, undefined)
+      // Zgloszenie klienta musi byc widoczne przy filtrze po tagu `portal`.
+      assert.deepStrictEqual(clickup.createTask.mock.calls[0][1].tags, ['portal'])
     })
 
     it('utworzenie zadania uniewaznia bufor tablicy i zapisuje zdarzenie', async () => {

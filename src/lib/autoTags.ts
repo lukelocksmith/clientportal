@@ -1,4 +1,5 @@
 import { AWARIA_TAG } from './utils'
+import { PORTAL_VISIBILITY_TAG } from './portalVisibility'
 
 /**
  * Tagi ClickUp doklejane automatycznie do zadań z AI-chatu, per portal
@@ -27,14 +28,16 @@ export function serializeAutoTags(tags: readonly string[]): string | null {
 
 /**
  * Tagi dla zadania zakładanego przez AI-chat: skonfigurowane `autoTags`
- * portalu plus tag awarii, jeśli model go rozpoznał — bez duplikatów.
+ * portalu, tag awarii, jeśli model go rozpoznał, oraz ZAWSZE tag `portal`
+ * (lib/portalVisibility.ts) — bez duplikatów.
  *
- * Zwraca `undefined`, nie `[]`, gdy wynik jest pusty: `createTask` traktuje
- * `tags: undefined` jako „nie wysyłaj pola", a pusta tablica u ClickUpa
- * potrafi się zachować inaczej niż brak pola.
+ * Tag `portal` jest zawsze, bo to zgłoszenie klienta: po włączeniu filtra
+ * widoczności bez niego zadanie zniknęłoby z tablicy osobie, która je
+ * właśnie zgłosiła. Dlatego wynik nigdy nie jest pusty.
  */
-export function buildAiChatTags(autoTagsRaw: string | null, awaria: boolean): string[] | undefined {
+export function buildAiChatTags(autoTagsRaw: string | null, awaria: boolean): string[] {
   const tags = new Set(parseAutoTags(autoTagsRaw))
   if (awaria) tags.add(AWARIA_TAG)
-  return tags.size > 0 ? [...tags] : undefined
+  tags.add(PORTAL_VISIBILITY_TAG)
+  return [...tags]
 }

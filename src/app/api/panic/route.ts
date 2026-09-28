@@ -18,6 +18,7 @@ import { createTask } from '@/lib/clickup'
 import { assigneesField } from '@/lib/assignee'
 import { invalidateFolderTasks } from '@/lib/clickupCache'
 import { AWARIA_TAG, TASK_STATUS_INITIAL } from '@/lib/utils'
+import { withPortalTag } from '@/lib/portalVisibility'
 import { enqueueReport } from '@/lib/pendingReports'
 import { sendOpsAlert } from '@/lib/cronRuns'
 
@@ -172,7 +173,9 @@ async function createAlarmTask(input: {
         }
       ),
       priority: 1,
-      tags: [AWARIA_TAG],
+      // `portal`: alarm zgłosił klient, więc musi go widzieć także przy
+      // filtrze widoczności po tagu (lib/portalVisibility.ts).
+      tags: withPortalTag([AWARIA_TAG]),
       status: TASK_STATUS_INITIAL,
       /**
        * Osoba dyżurna od razu przy tworzeniu. Zadanie bez właściciela czeka na

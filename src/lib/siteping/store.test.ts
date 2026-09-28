@@ -163,7 +163,7 @@ describe('createFeedback — sciezka podstawowa', () => {
     assert.strictEqual(listId, 'list-1')
     // DWA tagi: `siteping` mowi SKAD to przyszlo, rodzaj mowi CZEGO dotyczy.
     // Zgloszenie bez podanego rodzaju spada na `inne`, wiec drugi tag jest zawsze.
-    assert.deepStrictEqual(payload.tags, ['siteping', 'błąd'])
+    assert.deepStrictEqual(payload.tags, ['siteping', 'błąd', 'portal'])
     assert.strictEqual(payload.status, 'do zrobienia')
   })
 
@@ -259,7 +259,7 @@ describe('createFeedback — gdy ClickUp odmawia (kolejka)', () => {
     assert.strictEqual(zapis.clickupListId, 'list-1')
     // Tagi i status musza przejsc do kolejki takie same jak przy udanym
     // zgloszeniu, inaczej dowiezione zadanie wypada z filtrow zespolu.
-    assert.deepStrictEqual(zapis.payload.tags, ['siteping', 'błąd'])
+    assert.deepStrictEqual(zapis.payload.tags, ['siteping', 'błąd', 'portal'])
     assert.strictEqual(zapis.payload.status, 'do zrobienia')
     // Adnotacja dla zespolu: pelna diagnostyka i zrzut NIE powstaly.
     assert.match(zapis.payload.description, /kolejk[eę] portalu/)

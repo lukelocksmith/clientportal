@@ -1,0 +1,95 @@
+{
+  "_opis": "Zadania, które NIE dostaną tagu portal w kroku 1 (audyt 28.09.2026). Klucz = slug portalu. Po włączeniu portalTagOnly klient ich nie zobaczy. Uzupełnia Łukasz; skrypt: scripts/otaguj-zadania-portal.ts. Klucze zaczynające się od _ nie są projektami.",
+  "onyx": [
+    {
+      "id": "869eprajy",
+      "powod": "notatka przed rozmową handlową, porównanie z ofertą WP Opieki"
+    },
+    {
+      "id": "869bwzvt3",
+      "powod": "login i hasło w opisie; po usunięciu danych logowania można otagować"
+    },
+    {
+      "id": "869c0pd7t",
+      "powod": "wewnętrzne przekazanie informacji dla Artioma"
+    },
+    {
+      "id": "869b71uad",
+      "powod": "wewnętrzne: PRZEGADAĆ WP GRID BUILDER"
+    }
+  ],
+  "eff": [
+    {
+      "id": "869bvtqmu",
+      "powod": "wewnętrzne: doliczyć licencje GetTerms"
+    },
+    {
+      "id": "869apjcee",
+      "powod": "wewnętrzny proces sprzedaży: negocjacja warunków umowy SEO GEO"
+    }
+  ],
+  "wdf": [
+    {
+      "id": "869cv4z3n",
+      "powod": "login i hasło do panelu eKomi w opisie"
+    },
+    {
+      "id": "8694vd0wc",
+      "powod": "login i hasło do Canvy w opisie"
+    },
+    {
+      "id": "869er1ntr",
+      "powod": "w opisie notatki o naszej infrastrukturze (SSH, CLAUDE.md); do wyczyszczenia"
+    },
+    {
+      "id": "869626t3p",
+      "powod": "[Internal] aktualizacja zadań w Asanie"
+    },
+    {
+      "id": "8695mmcmj",
+      "powod": "[Internal] wystawienie faktury"
+    },
+    {
+      "id": "86956th59",
+      "powod": "[Internal] zmiana URL w sklepie"
+    },
+    {
+      "id": "8695h7cag",
+      "powod": "wewnętrzne: pogonienie chłopaków w zaległych tematach"
+    },
+    {
+      "id": "8695qx1nx",
+      "powod": "wewnętrzne: ogarnięcie zaległych tasków"
+    },
+    {
+      "id": "869dckr6w",
+      "powod": "notatka: popchnąć Karola, brak odpowiedzi"
+    },
+    {
+      "id": "869dckr8w",
+      "powod": "notatka o budżecie AI chatu i o nastawieniu Karola"
+    }
+  ],
+  "_do_wyczyszczenia_opisu": [
+    {
+      "slug": "eff",
+      "id": "8696d088v",
+      "powod": "Milestone: EFF ma ok. 100 podzadań z pracą dla klienta, więc NIE ukrywamy go. Trzeba usunąć z opisu linie estymaty ze stawką Filipa (80 zł) i important.is (120 zł)."
+    },
+    {
+      "slug": "onyx",
+      "id": "869bwzvt3",
+      "powod": "usunąć login i hasło z opisu, potem można zdjąć wykluczenie"
+    },
+    {
+      "slug": "wdf",
+      "id": "869cv4z3n",
+      "powod": "usunąć login i hasło eKomi z opisu"
+    },
+    {
+      "slug": "wdf",
+      "id": "8694vd0wc",
+      "powod": "usunąć login i hasło Canvy z opisu"
+    }
+  ]
+}

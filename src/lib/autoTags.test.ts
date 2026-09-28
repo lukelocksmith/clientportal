@@ -15,10 +15,12 @@ describe('autoTags', () => {
     assert.equal(serializeAutoTags(['  asana  ']), 'asana')
   })
 
-  it('buildAiChatTags: łączy skonfigurowane tagi z tagiem awarii, bez duplikatów', () => {
-    assert.equal(buildAiChatTags(null, false), undefined)
-    assert.deepEqual(buildAiChatTags(null, true), ['awaria'])
+  it('buildAiChatTags: łączy skonfigurowane tagi z tagiem awarii i ZAWSZE dokłada tag portal, bez duplikatów', () => {
+    // Zgłoszenie klienta musi być widoczne przy filtrze po tagu `portal`
+    // (lib/portalVisibility.ts), więc wynik nigdy nie jest pusty.
+    assert.deepEqual(buildAiChatTags(null, false), ['portal'])
+    assert.deepEqual(buildAiChatTags(null, true), ['awaria', 'portal'])
     assert.deepEqual(buildAiChatTags('asana,portal', false), ['asana', 'portal'])
-    assert.deepEqual(buildAiChatTags('asana,awaria', true), ['asana', 'awaria'])
+    assert.deepEqual(buildAiChatTags('asana,awaria', true), ['asana', 'awaria', 'portal'])
   })
 })

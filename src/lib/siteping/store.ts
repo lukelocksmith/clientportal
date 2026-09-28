@@ -41,6 +41,7 @@ import { withReporterFooter, newReportMarker, ADMIN_ACTOR_EMAIL } from '@/lib/re
 import { logEvent, EVENT_TASK_CREATED } from '@/lib/portalEvents'
 import { invalidateFolderTasks, getCachedTasksForScope } from '@/lib/clickupCache'
 import { enqueueReport } from '@/lib/pendingReports'
+import { withPortalTag } from '@/lib/portalVisibility'
 import type { PortalScope } from '@/lib/portalScope'
 
 const SITEPING_TAG = 'siteping'
@@ -389,7 +390,9 @@ export function createClickUpSitepingStore(portal: PortalContext): SitepingStore
         // Tag nieistniejacy w przestrzeni ClickUpa jest po cichu POMIJANY, wiec
         // te cztery trzeba zalozyc recznie przed wlaczeniem klientowi SitePinga.
         // Dlatego rodzaj jest TAKZE w opisie, ktory dziala zawsze.
-        tags: feedbackKindTags((data as { type?: string }).type),
+        // Plus `portal`: zgłoszenie z widgetu jest zgłoszeniem klienta i ma
+        // być widoczne na jego tablicy także przy filtrze po tagu.
+        tags: withPortalTag(feedbackKindTags((data as { type?: string }).type)),
         status: STATUS_TO_CLICKUP.open,
       }
 
